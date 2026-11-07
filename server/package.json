@@ -1,0 +1,13 @@
+{
+  "name": "club-penguin-server",
+  "version": "1.0.0",
+  "description": "Servidor WebSocket Multiplayer para Club Penguin Browser",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
