@@ -12,10 +12,11 @@
 import Phaser from 'phaser';
 import NetworkClient from '../network/NetworkClient.js';
 import Penguin from '../entities/Penguin.js';
+import { PenguinLibrary } from '../entities/PenguinArt.js';
 import Wardrobe from '../ui/Wardrobe.js';
 import ActionControls from '../ui/ActionControls.js';
 import WebHud from '../ui/WebHud.js';
-import { MovieRoom } from '../movie/movie.js';
+import { MovieRoom, IDENT_COLOR } from '../movie/movie.js';
 import PlayerCard from '../ui/PlayerCard.js';
 import IslandMap from '../ui/IslandMap.js';
 import VectorHud from '../ui/VectorHud.js';
@@ -265,10 +266,26 @@ export default class RoomScene extends Phaser.Scene {
             // sem isso ficam borrados quando o zoom/fit amplia o mundo
             this.game.config.resolution = ss;
             this._rescaleTexts(ss);
-            // camadas movie precisam ser re-rasterizadas na nova resolucao
+            // camadas movie precisam ser re-rasterizadas na nova resolucao.
+            // _buildMovieLayers recria imgs invisiveis — sem re-render+reveal
+            // a sala ficava SOME (bug: so o proximo _initMovie re-exibia)
             if (this.movie) {
                 this.movie.setScale(ss);
                 this._buildMovieLayers();
+                (async () => {
+                    const mv = this.movie;
+                    for (const seg of this.movieLayers) {
+                        if (this.movie !== mv) return;
+                        try {
+                            await this._renderSegment(seg);
+                        } catch (e) { console.warn('[seg] render ss', e); }
+                        seg.tex?.refresh();
+                    }
+                    if (this.movie !== mv) return;
+                    await this._renderDynamics(mv);
+                    if (this.movie !== mv) return;
+                    for (const seg of this.movieLayers) seg.img.setVisible(true);
+                })();
                 this.movie.buildCollision(ss).catch(() => {});
             }
         }
@@ -398,7 +415,7 @@ export default class RoomScene extends Phaser.Scene {
             this.clearRemotePlayers();
             data.players.forEach(p => {
                 if (p.playerId !== this.network.playerId) {
-                    this.upsertRemotePlayer(p.playerId, p.x, p.y, p.colorItemId, p.paperdoll, p.username);
+                    this.upsertRemotePlayer(p.playerId, p.x, p.y, p.colorItemId, p.paperdoll, p.username, p.action);
                 }
             });
         });
@@ -426,7 +443,7 @@ export default class RoomScene extends Phaser.Scene {
 
         this.events.on('player-joined', (data) => {
             if (!data || data.playerId === this.network.playerId) return;
-            this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username);
+            this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username, data.action);
         });
 
         this.events.on('player-equip', (data) => {
@@ -441,6 +458,29 @@ export default class RoomScene extends Phaser.Scene {
             if (!data || data.playerId === this.network.playerId) return;
             const penguin = this.remotePlayers.get(data.playerId);
             if (penguin && data.colorItemId) penguin.setColorItemId(data.colorItemId);
+        });
+
+        // Acao/emote de outro jogador (dance, wave, sit...) — para o
+        // movimento e aplica o frame correspondente no pinguim remoto.
+        this.events.on('player-action', (data) => {
+            if (!data || data.playerId === this.network.playerId) return;
+            const penguin = this.remotePlayers.get(data.playerId);
+            if (!penguin) return;
+            if (penguin.moveTween) {
+                penguin.moveTween.stop();
+                penguin.moveTween = null;
+                penguin.isMoving = false;
+                penguin.moveTarget = null;
+            }
+            switch (data.action) {
+                case 'dance':
+                case 'wave':
+                case 'throw': penguin.playEmote(data.action); break;
+                case 'sit': penguin.sit(); break;
+                case 'stand':
+                case 'idle':
+                default: penguin.stand(); break;
+            }
         });
 
         this.events.on('player-left', (data) => {
@@ -477,7 +517,7 @@ export default class RoomScene extends Phaser.Scene {
         return best;
     }
 
-    upsertRemotePlayer(playerId, x = 380, y = 300, colorItemId = null, paperdoll = null, username = null) {
+    upsertRemotePlayer(playerId, x = 380, y = 300, colorItemId = null, paperdoll = null, username = null, action = null) {
         let penguin = this.remotePlayers.get(playerId);
         if (!penguin) {
             const colorId = colorItemId || DEFAULT_COLOR_ITEM_ID;
@@ -486,11 +526,21 @@ export default class RoomScene extends Phaser.Scene {
         }
         if (paperdoll) penguin.applyOutfit(paperdoll);
         if (colorItemId) penguin.setColorItemId(colorItemId);
+        // estado de acao atual (ex.: dançando ao entrar na sala)
+        if (action && ['dance', 'wave', 'throw', 'sit', 'stand', 'idle'].includes(action)) {
+            if (action === 'sit') penguin.sit();
+            else if (action === 'stand' || action === 'idle') penguin.stand();
+            else penguin.playEmote(action);
+        }
         return penguin;
     }
 
     handleAction(name) {
         if (!this._playerReady || !this.localPlayer) return;
+        // emotes/acoes do pinguim -> sincroniza nos outros clientes da sala
+        if (['dance', 'wave', 'throw', 'sit', 'stand', 'idle'].includes(name)) {
+            this.network?.sendAction?.(name);
+        }
         switch (name) {
             case 'dance': this.localPlayer.playEmote('dance'); break;
             case 'wave': this.localPlayer.playEmote('wave'); break;
@@ -635,8 +685,9 @@ export default class RoomScene extends Phaser.Scene {
         if (!this._playerReady || !this.localPlayer) return;
         if (this.wardrobe?.isOpen) { this.wardrobe.close(); return; }
         if (this.mapOpen) this.toggleMap();
-        // abre wardrobe ao lado do player card (sem fechar o card)
-        if (!this.playerCard?.isOpen) this.playerCard?.open(this.localPlayer);
+        // wardrobe e acoplado ao player card: se o card esta fechado,
+        // o inventario permanece fechado tambem (nao abre o card sozinho)
+        if (!this.playerCard?.isOpen) return;
         this.clothesOpen = true;
         this.wardrobe.open(this.localPlayer);
     }
@@ -661,6 +712,10 @@ export default class RoomScene extends Phaser.Scene {
                 // decode paralelo de todos os SVGs do pack: sem isso cada
                 // renderLayer esperava um decode por vez (~60s na town)
                 movie.prefetchSvgs();
+                // sprites animados viram overlays proprios: as layers ficam
+                // estaticas (1 render + 0 uploads por frame) e so os
+                // overlays pequenos atualizam por tick
+                await this._setupDynamics(movie);
                 // interacoes de cenario (botoes up/over/down + walk-to-door)
                 this._interactions = new RoomInteractions(this, movie, roomKey);
                 this._interactions.build();
@@ -682,7 +737,7 @@ export default class RoomScene extends Phaser.Scene {
                 const report = (done) => this.loadingScreen?.setProgress(0.15 + 0.85 * (done / total));
                 // Tenta cache IndexedDB das layers ja rasterizadas (mesma
                 // sala + mesma escala + mesmo pack). Hit = sala instantanea.
-                const cacheKey = `v1|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
+                const cacheKey = `v2|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
                 const cached = await idbGet(cacheKey);
                 let cacheHit = false;
                 if (this.movie !== movie) return;
@@ -706,6 +761,9 @@ export default class RoomScene extends Phaser.Scene {
                     for (const layer of this.movieLayers) layer.img.setVisible(true);
                     this._movieReady = true;
                     this.loadingScreen?.hide();
+                    // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
+                    // (ficou na fila durante o load para nao competir)
+                    PenguinLibrary.startWarm?.();
                     // garante que o pinguim está em posição acessível
                     this._applySafeSpawn();
                 };
@@ -720,9 +778,9 @@ export default class RoomScene extends Phaser.Scene {
                         if (layer._busy) { await new Promise((r) => setTimeout(r, 30)); continue; }
                         layer._busy = true;
                         try {
-                            await movie.renderLayer(layer.entry, layer.canvas, this._ss);
+                            await this._renderSegment(layer);
                         } catch (e) {
-                            console.warn('[movie] renderLayer', e);
+                            console.warn('[seg] render', e);
                         } finally {
                             layer.tex?.refresh();
                             layer._busy = false;
@@ -731,6 +789,8 @@ export default class RoomScene extends Phaser.Scene {
                         report(done);
                         await new Promise((r) => setTimeout(r, 0));
                     }
+                    // overlays dinamicos: render inicial antes do reveal
+                    await this._renderDynamics(movie);
                     // salva no cache para a proxima visita (so se nao houve hit)
                     if (!cacheHit && this.movie === movie) {
                         const blobs = [];
@@ -743,19 +803,75 @@ export default class RoomScene extends Phaser.Scene {
                     }
                     reveal();
                 };
-                if (!cacheHit) boot(); else reveal();
+                if (!cacheHit) boot();
+                else (async () => { await this._renderDynamics(movie); reveal(); })();
                 const frame = () => {
                     movie.tick();
-                    // re-render so das layers com playhead ativo no frame —
-                    // antes re-renderizava TUDO a cada tick (salas animadas
-                    // ficavam injogaveis de tanto rasterizar)
+                    const dyns = this._dynList || [];
+                    const segs = this.movieLayers || [];
+                    if (dyns.length || segs.length) {
+                        const dp = movie._dirtyPaths || new Set();
+                        const fp = movie._dirtyForcedPaths || new Set();
+                        const dynHit = (p, d) => p === d.path
+                            || p.startsWith(d.path + '.') || p.startsWith(d.path + '#')
+                            || d.path.startsWith(p + '.') || d.path.startsWith(p + '#')
+                            || d.path.endsWith('.' + p) || d.path.endsWith('#' + p)
+                            || p.endsWith('.' + d.path) || p.endsWith('#' + d.path);
+                        // overlays: playheads avancados (filhos '.'/'#' contam)
+                        const dirtyDyns = new Set();
+                        if (dp.size) {
+                            for (const p of dp) for (const d of dyns) {
+                                if (p === d.path || p.startsWith(d.path + '.') || p.startsWith(d.path + '#')) dirtyDyns.add(d);
+                            }
+                        }
+                        // overlays por interacao (botao/texto/goto dentro do sprite)
+                        if (fp.size) for (const p of fp) for (const d of dyns) if (dynHit(p, d)) dirtyDyns.add(d);
+                        for (const d of dirtyDyns) {
+                            if (d._busy || !d.canvas) continue;
+                            d._busy = true;
+                            movie.renderSpriteDynamic(d, this._ss)
+                                .then(() => d.tex?.refresh())
+                                .catch((e) => console.warn('[dyn] render', e))
+                                .finally(() => { d._busy = false; });
+                        }
+                        // segmentos: dirty paths NAO cobertos por overlay
+                        // (conteudo mascarado/congelado dentro de static ops)
+                        // + interacoes dentro deles (botao/texto)
+                        const dirtySegs = new Set();
+                        if (dp.size) {
+                            for (const p of dp) {
+                                let covered = false;
+                                for (const d of dyns) {
+                                    if (p === d.path || p.startsWith(d.path + '.') || p.startsWith(d.path + '#')) { covered = true; break; }
+                                }
+                                if (covered) continue;
+                                for (const seg of segs) if (seg.paths?.has(p)) { dirtySegs.add(seg); break; }
+                            }
+                        }
+                        if (fp.size) {
+                            for (const p of fp) {
+                                for (const seg of segs) if (!dirtySegs.has(seg) && this._segRelated(seg, p)) dirtySegs.add(seg);
+                            }
+                        }
+                        for (const seg of dirtySegs) {
+                            if (seg._busy) continue;
+                            seg._busy = true;
+                            this._renderSegment(seg)
+                                .then(() => seg.tex?.refresh())
+                                .catch((e) => console.warn('[seg] render', e))
+                                .finally(() => { seg._busy = false; });
+                        }
+                        return;
+                    }
+                    // fallback (sem segmentos/dynamics): comportamento antigo —
+                    // re-render das layers com playhead ativo no frame
                     const targets = this.movieLayers.filter((l) => movie._dirtyRoots.has(l.rootKey));
                     if (targets.length === 0) return;
                     for (const layer of targets) {
                         if (layer._busy) continue; // renderLayer async nao pode sobrepor
                         layer._busy = true;
-                        layer.movie.renderLayer(layer.entry, layer.canvas, this._ss)
-                            .catch((e) => console.warn('[movie] renderLayer', e))
+                        this._renderSegment(layer)
+                            .catch((e) => console.warn('[seg] render', e))
                             .then(() => layer.tex?.refresh())
                             .finally(() => { layer._busy = false; });
                     }
@@ -819,29 +935,188 @@ export default class RoomScene extends Phaser.Scene {
         }).setOrigin(0.5).setDepth(950000);
     }
 
-    _buildMovieLayers() {
-        if (!this.movie) return;
-        for (const layer of this.movieLayers || []) {
-            layer.img.destroy();
-            if (this.textures.exists(layer.texKey)) this.textures.remove(layer.texKey);
+    // Segmenta cada top-level layer na ordem de desenho do Flash:
+    // subarvores estaticas viram "segmentos" (canvas cropado proprio) e
+    // sprites animados viram overlays — segmentos e overlays intercalam
+    // por depth, restaurando o z-order original (estatico pode ficar
+    // na frente de animado e vice-versa).
+    async _setupDynamics(movie) {
+        this._dynList = null;
+        this._segments = null;
+        const layers = movie.topLevelLayers();
+        const collected = layers.map((l, i) => ({ l, i, items: movie.collectItems(l.entry) }));
+        const totalDyns = collected.reduce((n, c) => n + c.items.filter((it) => it.type === 'dyn').length, 0);
+        if (totalDyns > 60) {
+            // sala com animacao demais: fallback — layer inteira estatica
+            // (comportamento antigo, re-render por _dirtyRoots)
+            const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+            this._segments = collected.map(({ l, i }) => ({
+                ops: [{ type: 'static', entries: [l.entry], matrix: ID, path: '', color: IDENT_COLOR }],
+                order: 0, depth: l.z + i * 0.001 + 0.0005,
+                layerIdx: i, layerZ: l.z,
+                rootKey: l.entry.name || `#${l.entry.depth}`,
+                paths: new Set(), canvas: null, tex: null, img: null, texKey: null, _busy: false,
+            }));
+            for (const seg of this._segments) {
+                movie.collectPaths(seg.ops[0].entries, '', seg.paths);
+                seg.paths.add('');
+            }
+            movie._skipDynamic = null;
+            return;
         }
-        this.movieLayers = [];
-        const cw = Math.round(WORLD_W * this._ss), ch = Math.round(WORLD_H * this._ss);
-        this.movie.topLevelLayers().forEach((l, i) => {
+        movie._skipDynamic = new Set();
+        const dyns = [];
+        const segs = [];
+        for (const { l, i, items } of collected) {
+            const base = l.z + i * 0.001;
+            const step = 0.0009 / Math.max(1, items.length);
+            const rootKey = l.entry.name || `#${l.entry.depth}`;
+            let cur = null;
+            const flush = () => {
+                if (!cur) return;
+                cur.depth = base + (cur.order + 1) * step;
+                segs.push(cur);
+                cur = null;
+            };
+            items.forEach((it, k) => {
+                if (it.type === 'dyn') {
+                    // overlay so se tiver bounds renderizavel — frames vazios
+                    // ou maiores que o limite viram op estatico (fallback)
+                    const db = movie.dynBounds(it.dyn, this._ss);
+                    const okDyn = db && (db[2] - db[0] + 8) <= 4000 && (db[3] - db[1] + 8) <= 4000;
+                    if (okDyn) {
+                        flush();
+                        it.dyn.layerZ = l.z; it.dyn.layerIdx = i;
+                        it.dyn.order = k; it.dyn.depth = base + (k + 1) * step;
+                        dyns.push(it.dyn);
+                        movie._skipDynamic.add(it.dyn.path);
+                        return;
+                    }
+                    it = { type: 'static', entries: [it.dyn.entry], matrix: it.dyn.parentMatrix, path: it.dyn.parentPath, color: it.dyn.parentColor };
+                }
+                if (!cur) cur = { ops: [], order: k, depth: 0, layerIdx: i, layerZ: l.z, rootKey, paths: new Set(), canvas: null, tex: null, img: null, texKey: null, _busy: false };
+                cur.ops.push(it);
+            });
+            flush();
+        }
+        // paths de cada segmento (para dirty/forced -> re-render cirurgico)
+        for (const seg of segs) {
+            for (const op of seg.ops) {
+                movie.collectPaths(op.entries, op.path, seg.paths);
+                if (op.path) seg.paths.add(op.path);
+            }
+        }
+        this._dynList = dyns;
+        this._segments = segs;
+    }
+
+    _segRelated(seg, p) {
+        for (const sp of seg.paths) {
+            if (p === sp || p.startsWith(sp + '.') || p.startsWith(sp + '#')
+                || sp.startsWith(p + '.') || sp.startsWith(p + '#')
+                || sp.endsWith('.' + p) || sp.endsWith('#' + p)
+                || p.endsWith('.' + sp) || p.endsWith('#' + sp)) return true;
+        }
+        return false;
+    }
+
+    // Re-renderiza um segmento estatico no seu canvas cropado.
+    async _renderSegment(seg) {
+        const movie = this.movie;
+        if (!seg?.canvas || this.movie !== movie) return;
+        const ctx = seg.canvas.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, seg.canvas.width, seg.canvas.height);
+        ctx.translate(-seg.ox, -seg.oy);
+        const ss = this._ss;
+        for (const op of seg.ops) {
+            const m = op.matrix;
+            const dev = { a: ss * m.a, b: ss * m.b, c: ss * m.c, d: ss * m.d, x: ss * m.x, y: ss * m.y };
+            try {
+                await movie._drawEntries(ctx, op.entries, dev, op.path, op.color, ss, 1);
+            } catch (e) {
+                console.warn('[seg] draw', op.path, e);
+            }
+        }
+    }
+
+    // Cria canvas/textura/imagem Phaser para cada overlay dinamico.
+    // Bounds = uniao de todos os frames (device px) — cobre a animacao.
+    async _renderDynamics(movie) {
+        const list = this._dynList;
+        if (!list?.length || this.movie !== movie) return;
+        // idempotente: re-render (ex.: troca de supersampling) recria tudo
+        for (const d of list) {
+            d.img?.destroy();
+            if (d.texKey && this.textures.exists(d.texKey)) this.textures.remove(d.texKey);
+            d.canvas = null; d.tex = null; d.img = null;
+        }
+        const ss = this._ss;
+        const base = movie.base.split('/').pop();
+        await Promise.all(list.map(async (d, j) => {
+            const b = movie.dynBounds(d, ss);
+            if (!b) return;
+            const pad = 4;
+            const x0 = Math.floor(b[0]) - pad, y0 = Math.floor(b[1]) - pad;
+            const w = Math.ceil(b[2]) + pad - x0, h = Math.ceil(b[3]) + pad - y0;
+            if (w <= 0 || h <= 0 || w > 4000 || h > 4000) return;
             const canvas = document.createElement('canvas');
-            canvas.width = cw; canvas.height = ch;
-            const texKey = `movie_view_${this.movie.base.split('/').pop()}_${i}`;
+            canvas.width = w; canvas.height = h;
+            const texKey = `dyn_${base}_${j}`;
             if (this.textures.exists(texKey)) this.textures.remove(texKey);
             const tex = this.textures.addCanvas(texKey, canvas);
-            const img = this.add.image(WORLD_W / 2, WORLD_H / 2, texKey)
-                .setDisplaySize(WORLD_W, WORLD_H)
-                .setDepth(l.z + i * 0.001)
+            // position/displaySize em coords de mundo (canvas e device px)
+            const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                .setDisplaySize(w / ss, h / ss)
+                .setDepth(d.depth);
+            d.canvas = canvas; d.tex = tex; d.img = img; d.texKey = texKey;
+            d.ox = x0; d.oy = y0;
+            try {
+                await movie.renderSpriteDynamic(d, ss);
+            } catch (e) {
+                console.warn('[dyn] render inicial', d.path, e);
+            }
+            tex.refresh();
+        }));
+    }
+
+    _buildMovieLayers() {
+        if (!this.movie || !this._segments) return;
+        for (const seg of this.movieLayers || []) {
+            seg.img?.destroy();
+            if (seg.texKey && this.textures.exists(seg.texKey)) this.textures.remove(seg.texKey);
+        }
+        this.movieLayers = [];
+        const ss = this._ss;
+        const base = this.movie.base.split('/').pop();
+        // um canvas cropado por segmento estatico — bounds = uniao dos ops
+        // em device px (mesma convencao dos overlays dinamicos)
+        for (const seg of this._segments) {
+            let b = null;
+            for (const op of seg.ops) {
+                const m = op.matrix;
+                const dev = { a: ss * m.a, b: ss * m.b, c: ss * m.c, d: ss * m.d, x: ss * m.x, y: ss * m.y };
+                const ob = this.movie._boundsOfEntries(op.entries, dev, op.path);
+                if (ob) b = b ? [Math.min(b[0], ob[0]), Math.min(b[1], ob[1]), Math.max(b[2], ob[2]), Math.max(b[3], ob[3])] : ob;
+            }
+            if (!b) continue; // segmento sem conteudo visivel
+            const pad = 4;
+            const x0 = Math.floor(b[0]) - pad, y0 = Math.floor(b[1]) - pad;
+            const w = Math.ceil(b[2]) + pad - x0, h = Math.ceil(b[3]) + pad - y0;
+            if (w <= 0 || h <= 0 || w > 8000 || h > 8000) continue;
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const texKey = `movie_seg_${base}_${this.movieLayers.length}`;
+            if (this.textures.exists(texKey)) this.textures.remove(texKey);
+            const tex = this.textures.addCanvas(texKey, canvas);
+            const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                .setDisplaySize(w / ss, h / ss)
+                .setDepth(seg.depth)
                 .setVisible(false); // so aparece quando a sala termina de carregar
-            this.movieLayers.push({
-                movie: this.movie, entry: l.entry, canvas, texKey, tex, img,
-                rootKey: l.entry.name || `#${l.entry.depth}`,
-            });
-        });
+            seg.canvas = canvas; seg.tex = tex; seg.img = img; seg.texKey = texKey;
+            seg.ox = x0; seg.oy = y0;
+            this.movieLayers.push(seg);
+        }
     }
 
     _clearMovie() {
@@ -854,6 +1129,14 @@ export default class RoomScene extends Phaser.Scene {
             }
             this.movieLayers = null;
         }
+        if (this._dynList) {
+            for (const d of this._dynList) {
+                d.img?.destroy();
+                if (d.texKey && this.textures.exists(d.texKey)) this.textures.remove(d.texKey);
+            }
+            this._dynList = null;
+        }
+        this._segments = null;
         this.movie = null;
         this._interactions = null;
         this.cameras.main.setBackgroundColor(0x000000);

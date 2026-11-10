@@ -18,12 +18,27 @@ export const veColor = (rgb) => ({
     add: [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 0],
 });
 
-// Aquece os SVGs de um pack: rooms/roupas sao pequenos (~100 arquivos) e
-// vao em burst paralelo; o pack base do pinguim tem ~1800 e vai em chunks
-// limitados para nao saturar a fila de decode durante o load da sala.
-const warmSvgs = (movie, chunk = 0) => movie.prefetchSvgs?.(chunk);
+// Fila de warm-up de SVGs: os packs do pinguim/roupas so comecam a decodificar
+// quando a sala termina de carregar (RoomScene chama startWarm() no reveal).
+// Sem isso os ~1800 SVGs do pack base + packs de roupa competiam com o
+// renderLayer da sala e triplicavam o tempo de load.
+const warmQueue = [];
+let warmStarted = false;
+const warmSvgs = (movie, chunk = 0) => {
+    if (!movie?.prefetchSvgs) return;
+    if (warmStarted) movie.prefetchSvgs(chunk);
+    else warmQueue.push([movie, chunk]);
+};
 
 export class PenguinLibrary {
+    // Dispara o warm-up pendente (idempotente). Chamado pela cena quando a
+    // sala esta pronta — a partir dai itens/poses novas nao tem pop-in.
+    static startWarm() {
+        if (warmStarted) return;
+        warmStarted = true;
+        for (const [movie, chunk] of warmQueue.splice(0)) movie.prefetchSvgs(chunk);
+    }
+
     static async load(base = '/assets/movies/penguin') {
         const lib = new PenguinLibrary();
         lib.base = base;
@@ -44,9 +59,9 @@ export class PenguinLibrary {
         lib.items = new Map();      // itemId -> Promise<Clip|null>
         lib.bounds = lib._unionBounds();
         // decode de SVG e lazy: _svgImage e chamado sob demanda por
-        // artCanvas/Clip e fica em cache. Prefetch em chunks evita pop-in
-        // de itens/poses de acao sem travar a main thread.
-        warmSvgs(lib.movie, 64);
+        // artCanvas/Clip e fica em cache. Prefetch em chunks minusculos
+        // agendado em idle — lotes maiores saturavam a fila de decode.
+        warmSvgs(lib.movie, 4);
         return lib;
     }
 
@@ -82,10 +97,10 @@ export class PenguinLibrary {
             this.items.set(itemId, MovieRoom.load(`/assets/clothing/${itemId}`)
                 .then((mv) => {
                     const clip = new Clip(mv);
-                    // Pré-decodifica os SVGs do pack: sem isso o primeiro
-                    // frame de ação (dance/throw) renderiza os itens aos
-                    // poucos por ~1s enquanto as imagens decodificam.
-                    warmSvgs(mv);
+                    // Pré-decodifica os SVGs do pack em idle: sem isso o
+                    // primeiro frame de ação (dance/throw) renderiza os itens
+                    // aos poucos por ~1s enquanto as imagens decodificam.
+                    warmSvgs(mv, 8);
                     return clip;
                 })
                 .catch(() => null));

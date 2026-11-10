@@ -68,6 +68,8 @@ export default class PlayerCard {
         this.dim = null;
         this.penguin = null;
         this._moviePromise = null;
+        this._openSeq = 0;
+        this._opening = false;
         this.nameChangeModal = new NameChangeModal(scene);
     }
 
@@ -84,14 +86,30 @@ export default class PlayerCard {
     get isOpen() { return !!this.container; }
 
     async open(penguin) {
-        if (this.isOpen) this.close();
+        // card ja aberto/abrindo para o mesmo pinguim: clique extra nao faz
+        // nada — sem isso cada clique fechava e reconstruia o card (e builds
+        // concorrentes empilhavam containers orfaos na tela)
+        const same = this.penguin && penguin &&
+            (this.penguin === penguin || this.penguin.playerId === penguin.playerId);
+        if (same && (this.isOpen || this._opening)) return;
+        if (this.isOpen || this._opening) this.close();
+        const token = ++this._openSeq;
+        this._opening = true;
         this.penguin = penguin;
-        const movie = await this._movie();
-        if (!movie || !this.scene.sys.isActive()) return;
-        this._build(movie, penguin);
+        try {
+            const movie = await this._movie();
+            if (!movie || !this.scene.sys.isActive() || token !== this._openSeq) return;
+            await this._build(movie, penguin);
+        } finally {
+            if (token === this._openSeq) this._opening = false;
+        }
     }
 
     close() {
+        // invalida builds em andamento: um open() que ainda esta no await
+        // aborta no check do token em vez de criar container orfao
+        this._openSeq = (this._openSeq || 0) + 1;
+        this._opening = false;
         // marca o instante do fechamento: o pointerdown que fechou o card
         // nao deve ser interpretado pelo RoomScene como clique de movimento
         // (senao o pinguim anda / reabre card se o clique pegou um pinguim)
@@ -100,6 +118,12 @@ export default class PlayerCard {
         this.scene?.wardrobe?.close();
         if (this.dim) { this.dim.destroy(); this.dim = null; }
         if (this.container) { this.container.destroy(true); this.container = null; }
+        // textura do card e por-abertura (playercard_<ts>) — sem remover,
+        // cada open vazava uma CanvasTexture na GPU
+        if (this._texKey && this.scene?.textures.exists(this._texKey)) {
+            this.scene.textures.remove(this._texKey);
+        }
+        this._texKey = null;
         this.penguin = null;
     }
 
@@ -240,6 +264,7 @@ export default class PlayerCard {
         this.container = cont;
 
         const texKey = `playercard_${Date.now()}`;
+        this._texKey = texKey;
         scene.textures.addCanvas(texKey, canvas);
         cont.add(scene.add.image(0, 0, texKey).setOrigin(0, 0).setDisplaySize(dw, dh));
 
@@ -330,9 +355,15 @@ export default class PlayerCard {
         }
 
         // fundo escurecido (fecha ao clicar fora)
+        // clique fora fecha — EXCETO em cima de um pinguim: trocar de alvo
+        // (ou manter o mesmo) sem fechar, como no CP original
         this.dim = scene.add.rectangle(cx, cy, WORLD_W, WORLD_H, 0x000000, 0.45)
             .setOrigin(0.5).setDepth(19999999).setInteractive();
-        this.dim.on('pointerdown', () => this.close());
+        this.dim.on('pointerdown', (p) => {
+            const hit = this.scene._penguinAt?.(p.worldX, p.worldY);
+            if (hit) { this.open(hit); return; }
+            this.close();
+        });
 
         // guarda a funcao de repaint para _refresh() (wardrobe equipa itens)
         this._repaint = async () => {
