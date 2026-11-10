@@ -63,6 +63,11 @@ export class CatalogueOverlay {
         this.symbol = 0;
         this.itemArray = null;
         this._prompt = null;
+        // cache de paginas renderizadas (sig -> canvas): virar de pagina
+        // vira blit instantaneo em vez de re-renderizar ~1300 shapes
+        this._pageCache = new Map();
+        this._renderSs = 1.5;
+        this._lastTickRender = 0;
     }
 
     get isOpen() { return !!this.movie; }
@@ -79,6 +84,8 @@ export class CatalogueOverlay {
             const movie = await MovieRoom.load(`/assets/catalogues/${key}`);
             if (this.movie || gen !== this._generation) return;
             this.movie = movie;
+            movie.artFlatScale = true; // raster fixo em ss — warm cobre tudo
+            this._pageCache = new Map(); // paginas do movie anterior nao valem
             this.key = key;
             this.page = 1;
             this.previousPage = 0;
@@ -86,6 +93,9 @@ export class CatalogueOverlay {
             this.sportSecrets.clear();
             this.colour = this.symbol = 0;
             this.itemArray = null;
+            // decode dos SVGs do pack em chunks idle — sem isso cada shape
+            // espera um decode serial durante o renderFrame (paginas brancas)
+            movie.prefetchSvgs(16);
             await movie.ensureFonts();
             itemsById(); // prefetch do catalogo de itens (buy labels)
             movie.goto('book', 1);
@@ -101,10 +111,18 @@ export class CatalogueOverlay {
     }
 
     _buildCanvas() {
-        const ss = this.scene._ss || 2;
+        // UI fullscreen: cap de ss — render a 3x triplica pixels sem ganho
+        // visivel (o gopenguin renderiza catalogo a 1x)
+        const ss = this._renderSs = Math.min(this._renderSs || 2, 2);
         const cw = Math.round(760 * ss), ch = Math.round(480 * ss);
         this.canvas = document.createElement('canvas');
         this.canvas.width = cw; this.canvas.height = ch;
+        // double buffer: renderFrame da clearRect no inicio — renderizar
+        // direto no canvas visivel apagava a pagina por centenas de ms em
+        // cada hover/tick/troca ("flash branco"). Renderiza no _back e so
+        // copia para o visivel quando a pagina nova esta pronta.
+        this._back = document.createElement('canvas');
+        this._back.width = cw; this._back.height = ch;
         this.texKey = `catalogue_${this.key}`;
         if (this.scene.textures.exists(this.texKey)) this.scene.textures.remove(this.texKey);
         this._tex = this.scene.textures.addCanvas(this.texKey, this.canvas);
@@ -116,23 +134,97 @@ export class CatalogueOverlay {
 
     async _show() {
         const gen = this._generation;
-        await this._render();
+        // estado 'over'/'down' do botao clicado nao pode vazar para o
+        // snapshot cacheado da pagina — reseta antes de renderizar
+        for (const [p, s] of this.movie._buttonStates)
+            if (s !== 'up') this.movie.setButtonState(p, 'up');
+        // warm da pagina alvo: dispara o decode de TODOS os SVGs dela em
+        // paralelo — sem isso o renderFrame esperava um decode por vez
+        // (catalogo clothing: ~30s na primeira visita de cada pagina)
+        this.movie.prefetchFrames?.([this.movie.currentFrame('book')], 12, true, this._renderSs, false);
+        await this._render(true); // troca de pagina: tenta cache primeiro
         if (gen !== this._generation) return;
         this._buildControls();
+        // warm em background de TODAS as paginas restantes, em ordem —
+        // o semaforo de raster drena ~6 por vez durante a leitura; sem
+        // isso cada virada paga ~1-2s de createImageBitmap serial
+        // (o renderFrame e sequencial: await por entry)
+        const pg = this.movie.currentFrame('book');
+        const len = this.movie.data?.main?.frames?.length || 1;
+        const rest = [];
+        for (let n = pg + 1; n <= len; n++) rest.push(n);
+        const mv = this.movie;
+        if (rest.length) setTimeout(() => {
+            if (this.movie === mv) mv.prefetchFrames?.(rest, 12, true, this._renderSs, true);
+        }, 300);
     }
 
-    async _render() {
+    // assinatura do estado que afeta os pixels da pagina — coins_txt muda
+    // raro (compra), paginas especiais (sport f7 / tshirt f3) tem estado
+    // proprio; botao hover/roll NAO entra aqui (esses renders passam
+    // useCache=false e nunca sujam o cache)
+    _pageSig(page) {
+        let s = `${page}|${this.scene.network?.coins ?? 0}`;
+        if (this.key === 'clothing' && page === 3) s += `|c${this.colour}s${this.symbol}`;
+        if (this.key === 'sport' && page === 7)
+            s += `|p${this.sportPink ? 1 : 0}:${[...this.sportSecrets].sort().join(',')}`;
+        return s;
+    }
+
+    async _render(useCache = false) {
         if (!this.movie || !this.canvas) return;
+        // reentrancia: tick (5fps) e _show podem sobrepor renders de pagina
+        // inteira — enfileira em vez de empilhar renderFrames concorrentes
+        if (this._rendering) {
+            this._renderQueued = true;
+            this._renderQueuedCache = this._renderQueuedCache || useCache;
+            return;
+        }
+        this._rendering = true;
+        try {
+            do {
+                this._renderQueued = false;
+                const uc = this._renderQueuedCache || useCache;
+                this._renderQueuedCache = false;
+                await this._renderInner(uc);
+                useCache = false;
+            } while (this._renderQueued);
+        } finally { this._rendering = false; }
+    }
+
+    async _renderInner(useCache = false) {
         // coins_txt: "YOUR COINS: N" (editTexts -> texto dinamico com fonte TTF)
         const coins = this.scene.network?.coins ?? 0;
         this.movie.set('book.coinTotal.coins_txt', { text: `YOUR COINS: ${coins}` });
-        // renderFrame pinta o canvas progressivamente (await por entry) —
-        // refresh periodico da texture faz a pagina "carregar" na tela em
-        // vez de aparecer tudo de uma vez (ou ficar branca)
-        const p = this.movie.renderFrame(undefined, this.canvas, this.scene._ss || 2);
-        const iv = setInterval(() => { if (this.movie) this._tex?.refresh(); }, 90);
-        try { await p; } finally { clearInterval(iv); }
+        const sig = useCache ? this._pageSig(this.movie.currentFrame('book')) : null;
+        const hit = sig && this._pageCache.get(sig);
+        if (hit) {
+            const ctx = this.canvas.getContext('2d');
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            ctx.drawImage(hit, 0, 0);
+            this._tex?.refresh();
+            return;
+        }
+        // double buffer: renderFrame no _back — o canvas visivel mantem a
+        // pagina anterior ate a nova estar 100% pronta (sem flash branco)
+        const back = this._back || this.canvas;
+        await this.movie.renderFrame(undefined, back, this._renderSs || 2);
+        if (this.canvas && back !== this.canvas) {
+            const ctx = this.canvas.getContext('2d');
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            ctx.drawImage(back, 0, 0);
+        }
         this._tex?.refresh();
+        if (sig) {
+            const snap = document.createElement('canvas');
+            snap.width = this.canvas.width; snap.height = this.canvas.height;
+            snap.getContext('2d').drawImage(back, 0, 0);
+            this._pageCache.set(sig, snap);
+            while (this._pageCache.size > 10)
+                this._pageCache.delete(this._pageCache.keys().next().value);
+        }
     }
 
     _buildControls() {
@@ -362,6 +454,19 @@ export class CatalogueOverlay {
             this.movie.setButtonState(b.path, 'over');
             if (b.rollOver) this._runRoll(b.rollOver, b.base);
             this._render();
+            // hover-intent: se o cursor esta na seta de pagina, ja aquece
+            // a pagina adjacente — o clique seguinte sai quase instantaneo
+            if (b.label === 'Next page' || b.label === 'Previous page') {
+                const pg = this.movie.currentFrame('book');
+                const len = this.movie.data?.main?.frames?.length || 1;
+                const nxt = b.label === 'Next page' ? pg + 1 : pg - 1;
+                if (nxt >= 1 && nxt <= len) {
+                    const mv = this.movie;
+                    setTimeout(() => {
+                        if (this.movie === mv) mv.prefetchFrames?.([nxt], 12, true, this._renderSs, true);
+                    }, 120);
+                }
+            }
         }
         this.hovered = path;
     }
@@ -446,7 +551,7 @@ export class CatalogueOverlay {
         this._stopTick();
         if (this.img) { this.img.destroy(); this.img = null; }
         if (this.texKey && this.scene.textures.exists(this.texKey)) this.scene.textures.remove(this.texKey);
-        this.canvas = null; this.movie = null; this.controls = []; this.hovered = null;
+        this.canvas = null; this._back = null; this.movie = null; this.controls = []; this.hovered = null;
         this._tex = null;
     }
 
@@ -457,7 +562,14 @@ export class CatalogueOverlay {
             callback: () => {
                 if (!this.movie) return;
                 this.movie.tick();
-                if (this.movie._dirty || this.movie._dirtyRoots?.size) this._render();
+                // throttle: uma pagina animada re-renderizava inteira a
+                // 24fps — agora no max ~5 renders/s e so quando sujo
+                const dirty = this.movie._dirty || this.movie._dirtyRoots?.size;
+                const now = this.scene.time.now;
+                if (dirty && now - this._lastTickRender > 200) {
+                    this._lastTickRender = now;
+                    this._render();
+                }
             },
         });
     }
