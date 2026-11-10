@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import auth from './auth.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
+import { clientIp, isLoopbackIp } from './net.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -117,7 +118,7 @@ function broadcastToRoom(roomId, message, excludeSocket = null) {
 }
 
 wss.on('connection', (ws, req) => {
-    const ip = req.socket.remoteAddress;
+    const ip = clientIp(req);
     console.log(`[+] Nova conexão estabelecida de ${ip}`);
 
     ws.on('message', (raw) => {
@@ -174,21 +175,6 @@ function isArenoviskIp(ip) {
 }
 
 // Login por nome (LOGIN_PLAYER) continua restrito a loopback por seguranca.
-function isLoopbackIp(ip) {
-    return ['::1', '127.0.0.1', '::ffff:127.0.0.1'].includes(ip || '');
-}
-
-// IP real do cliente. Atras do Caddy (producao) o remoteAddress e sempre
-// loopback — o IP verdadeiro vem em X-Forwarded-For. So confiamos no header
-// quando a conexao veio de loopback (proxy local), evitando spoofing.
-function clientIp(req) {
-    const ra = req.socket.remoteAddress || '';
-    if (isLoopbackIp(ra)) {
-        const xff = req.headers?.['x-forwarded-for'];
-        if (xff) return String(xff).split(',')[0].trim();
-    }
-    return ra;
-}
 
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.

@@ -10,10 +10,11 @@ import path from 'path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-// O items.json vive no cliente (public/assets). Se um dia houver copia
-// local em server/data/items.json, ela tem prioridade.
+// O items.json vive no cliente (public/assets). Copias locais tem
+// prioridade: server/src/data/ (deploy) e server/data/.
 const candidates = [
     path.join(here, 'data', 'items.json'),
+    path.join(here, '..', 'data', 'items.json'),
     path.join(here, '..', '..', 'client', 'public', 'assets', 'items.json'),
 ];
 
