@@ -794,16 +794,21 @@ export default class RoomScene extends Phaser.Scene {
                 const report = (done) => this.loadingScreen?.setProgress(0.15 + 0.85 * (done / total));
                 // Tenta cache IndexedDB das layers ja rasterizadas (mesma
                 // sala + mesma escala + mesmo pack). Hit = sala instantanea.
-                const cacheKey = `v2|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
+                // v3: cache inclui os overlays dinamicos — sem eles a sala
+                // "quente" ainda re-renderizava ~20 dyns via SVG decode
+                // (dance: 9.3s -> 7.9s entre sessoes; agora cobre tudo)
+                const cacheKey = `v3|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
                 const cached = await idbGet(cacheKey);
                 let cacheHit = false;
                 if (this.movie !== movie) { releaseHold(); return; }
-                if (cached?.blobs?.length === this.movieLayers.length) {
+                const dynCount = this._dynList?.length || 0;
+                if (cached?.layers?.length === this.movieLayers.length
+                    && (cached?.dyns?.length || 0) === dynCount) {
                     cacheHit = true;
                     for (let i = 0; i < this.movieLayers.length; i++) {
                         const layer = this.movieLayers[i];
                         try {
-                            const bmp = await createImageBitmap(cached.blobs[i]);
+                            const bmp = await createImageBitmap(cached.layers[i]);
                             layer.canvas.getContext('2d').drawImage(bmp, 0, 0);
                             bmp.close();
                         } catch { /* blob corrompido: cai no render normal */ }
@@ -836,6 +841,9 @@ export default class RoomScene extends Phaser.Scene {
                 // continua single-thread. Yields entre segmentos mantem a
                 // UI responsiva e o progresso parcial visivel no loader.
                 const boot = async () => {
+                    // 3 lanes medido otimo: 5 lanes piorou dance cold
+                    // (12.6s vs 8.5s) — mais _renderSegment em paralelo so
+                    // engrossa a fila FIFO de decode SVG + raster
                     const LANES = 3;
                     let next = 0, done = 0;
                     const worker = async () => {
@@ -863,12 +871,18 @@ export default class RoomScene extends Phaser.Scene {
                     await this._renderDynamics(movie);
                     // salva no cache para a proxima visita (so se nao houve hit)
                     if (!cacheHit && this.movie === movie) {
-                        const blobs = [];
+                        const layers = [];
                         for (const layer of this.movieLayers) {
-                            blobs.push(await canvasToBlob(layer.canvas));
+                            layers.push(await canvasToBlob(layer.canvas));
                         }
-                        if (blobs.every(Boolean) && this.movie === movie) {
-                            idbPut(cacheKey, { blobs, ts: Date.now() });
+                        const dyns = [];
+                        for (const d of this._dynList || []) {
+                            dyns.push(d.canvas ? await canvasToBlob(d.canvas) : null);
+                        }
+                        if (layers.every(Boolean)
+                            && dyns.every((b, i) => b || !(this._dynList || [])[i]?.canvas)
+                            && this.movie === movie) {
+                            idbPut(cacheKey, { layers, dyns, ts: Date.now() });
                         }
                     }
                     reveal();
@@ -878,8 +892,23 @@ export default class RoomScene extends Phaser.Scene {
                     releaseHold();
                 });
                 else (async () => {
-                    try { await this._renderDynamics(movie); }
-                    finally { reveal(); }
+                    try {
+                        // cria os canvases/textures dos dyns SEM renderizar
+                        // (paint:false) e blita os blobs do cache — os
+                        // overlays dinamicos eram o residual do load quente
+                        await this._renderDynamics(movie, { paint: false });
+                        const dyns = this._dynList || [];
+                        for (let i = 0; i < dyns.length; i++) {
+                            const d = dyns[i];
+                            if (!d.canvas || !cached.dyns[i]) continue;
+                            try {
+                                const bmp = await createImageBitmap(cached.dyns[i]);
+                                d.canvas.getContext('2d').drawImage(bmp, 0, 0);
+                                bmp.close();
+                            } catch { /* blob ruim: dyn fica vazio ate dirty render */ }
+                            d.tex?.refresh();
+                        }
+                    } finally { reveal(); }
                 })();
                 const frame = () => {
                     movie.tick();
@@ -1119,7 +1148,8 @@ export default class RoomScene extends Phaser.Scene {
 
     // Cria canvas/textura/imagem Phaser para cada overlay dinamico.
     // Bounds = uniao de todos os frames (device px) — cobre a animacao.
-    async _renderDynamics(movie) {
+    // paint:false so cria a estrutura (cache hit blita o blob por cima).
+    async _renderDynamics(movie, { paint = true } = {}) {
         const list = this._dynList;
         if (!list?.length || this.movie !== movie) return;
         // idempotente: re-render (ex.: troca de supersampling) recria tudo
@@ -1148,6 +1178,7 @@ export default class RoomScene extends Phaser.Scene {
                 .setDepth(d.depth);
             d.canvas = canvas; d.tex = tex; d.img = img; d.texKey = texKey;
             d.ox = x0; d.oy = y0;
+            if (!paint) return;
             try {
                 await movie.renderSpriteDynamic(d, ss);
             } catch (e) {
