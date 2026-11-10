@@ -1,63 +1,51 @@
 import { chromium } from 'playwright-core';
-import fs from 'fs';
 const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
-const errs = [];
-p.on('pageerror', e => errs.push(String(e)));
-await p.goto('http://localhost:3000/?penguin=Arenovisk', { waitUntil: 'domcontentloaded' });
-await p.waitForFunction(() => window.__penguin && window.__penguin.view, null, { timeout: 90000 });
-await p.waitForFunction(() => {
-  const sc = window.__penguin.scene;
-  const ls = sc.loadingScreen;
-  return sc.movie && sc._movieReady && (!ls || !ls.visible);
-}, null, { timeout: 180000 });
-await p.waitForTimeout(1500);
-
-// info do estado
-const info = await p.evaluate(() => {
-  const pg = window.__penguin;
-  const v = pg.view;
-  return {
-    room: pg.scene.currentRoom,
-    action: pg.action,
-    frame: v.frame,
-    af: v.animationFrame,
-    drawnFrame: v.drawnFrame,
-    look: v.look,
-    items: [...v.items.entries()].map(([s, c]) => [s, c.m.data.main.frames.length]),
-    ss: pg.scene._ss,
-    canvas: [pg._canvas.width, pg._canvas.height],
-  };
-});
-console.log('INFO', JSON.stringify(info));
-
-// screenshot da regiao do pinguim — pega o canvas do sprite
-async function shot(name) {
-  const box = await p.evaluate(() => {
-    const pg = window.__penguin;
-    const r = pg.sprite.getBounds();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
-  });
-  // expande um pouco
-  const clip = { x: Math.max(0, box.x - 10), y: Math.max(0, box.y - 10), width: box.w + 20, height: box.h + 20 };
-  await p.screenshot({ path: `shots/dance-${name}.png`, clip });
-  console.log(name, JSON.stringify(clip));
+p.on('pageerror', e => console.log('PAGEERR', String(e).slice(0, 300)));
+await p.goto('http://localhost:3000/?penguin=Arenovisk&room=dance', { waitUntil: 'domcontentloaded' });
+// espera sala carregar (muda para dance se o param nao pegar)
+try {
+  await p.waitForFunction(() => window.__penguin?.scene?._movieReady === true && window.__penguin.scene.currentRoom === 'dance', null, { timeout: 90000 });
+} catch {
+  console.log('timeout dance, currentRoom=', await p.evaluate(() => window.__penguin?.scene?.currentRoom));
 }
-
-await shot('idle');
-await p.evaluate(() => { window.__penguin.setAction('dance'); });
-await p.waitForTimeout(700);
-const d1 = await p.evaluate(() => { const v = window.__penguin.view; return { af: v.animationFrame, drawn: v.drawnFrame, action: window.__penguin.action }; });
-console.log('DANCE1', JSON.stringify(d1));
-await shot('dance1');
-await p.waitForTimeout(700);
-await shot('dance2');
-await p.evaluate(() => { window.__penguin.setAction('idle'); });
-await p.waitForTimeout(500);
-await shot('idle2');
-// throw
-await p.evaluate(() => { window.__penguin.setAction('throw'); });
-await p.waitForTimeout(400);
-await shot('throw');
-console.log('ERRS', errs.slice(0, 5));
+await p.waitForTimeout(2000);
+const res = await p.evaluate(() => {
+  const s = window.__penguin.scene, m = s.movie;
+  const dyns = (s._dynList || []).map((d, i) => {
+    if (!d.canvas) return { i, path: d.path, sid: d.sid, canvas: false };
+    const ctx = d.canvas.getContext('2d');
+    const data = ctx.getImageData(0, 0, d.canvas.width, d.canvas.height).data;
+    let alpha = 0;
+    for (let k = 3; k < data.length; k += 4) if (data[k] > 10) alpha++;
+    const h = [...m._playheads.entries()].find(([k]) => k === d.path || k.endsWith('.' + d.path))?.[1];
+    return {
+      i, path: d.path, sid: d.sid, w: d.canvas.width, h: d.canvas.height,
+      alphaPx: alpha, stopped: h?.stopped, frame: h?.frame,
+      frames: m.sprites[d.sid]?.frames?.length,
+    };
+  });
+  // sprites animados na sala que NAO viraram overlay
+  const skipped = m._skipDynamic || new Set();
+  const missed = [];
+  const walk = (entries, path) => {
+    for (const e of entries || []) {
+      const cp = m._path(path, e);
+      const sid = String(e.id);
+      if (m.sprites[sid]) {
+        if ((m.sprites[sid].frames?.length || 1) > 1 && !skipped.has(cp)) missed.push(cp + ' sid' + sid);
+        walk(m.sprites[sid].frames?.[0] || [], cp);
+      } else {
+        const ch = m.characters[sid];
+        if (ch?.kind === 'button') walk(ch.records?.up || [], cp);
+      }
+    }
+  };
+  for (const l of m.topLevelLayers()) walk([l.entry], '');
+  return { room: s.currentRoom, dynCount: dyns.length, dyns, missed };
+});
+console.log('room:', res.room, 'dynCount:', res.dynCount);
+for (const d of res.dyns) console.log(JSON.stringify(d));
+console.log('MISSED (anim sem overlay):', res.missed.length);
+for (const x of res.missed.slice(0, 30)) console.log(' ', x);
 await b.close();
