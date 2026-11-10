@@ -1,14 +1,17 @@
-// Resolucao adaptativa: o mundo do jogo e sempre 760x480 (coords classicas
-// do Club Penguin); o backing store e a camera zoom escalam conforme a tela.
+// Resolucao fixa: o mundo do jogo e sempre 760x480 (coords classicas
+// do Club Penguin); backing store e camera zoom escalam o mundo para a tela.
 export const WORLD_W = 760, WORLD_H = 480;
 export const SS_MAX = 3; // teto de supersampling (custo do renderer canvas SWL)
 
-// Fator de supersampling ideal: backing ~= tamanho CSS exibido * devicePixelRatio.
-// Ex.: 1080p dpr1 -> ~2.25x | 1440p -> ~3x (cap) | 4K -> cap 3x | mobile -> ~1-1.5x
+// ss fixo ~2.25 para TUDO (layers, pinguins, HUD): mais nitido que o
+// gopenguin (renderiza a 1x), rasterizacao barata, cache IDB de layers
+// vira entrada unica por sala e resize/zoom/troca de monitor nunca
+// re-rasteriza. Em 4K o upscale GPU e suave (vetor -> filtro linear).
+export const SS_FIXED = 2.25;
+
+// Mantida por compatibilidade: retorna o fator fixo. Antes era adaptativo
+// (cssW*dpr/760, cap SS_MAX) — o re-raster por mudanca de ss custava um
+// rebuild inteiro das layers e fragmentava o cache IDB por resolucao.
 export function computeSupersample() {
-    const vw = window.innerWidth || 1280, vh = window.innerHeight || 720;
-    const cssW = Math.min(vw, vh * (WORLD_W / WORLD_H));
-    const dpr = window.devicePixelRatio || 1;
-    const ss = (cssW * dpr) / WORLD_W;
-    return Math.min(SS_MAX, Math.max(1, Math.round(ss * 4) / 4));
+    return SS_FIXED;
 }

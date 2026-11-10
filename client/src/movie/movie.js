@@ -39,19 +39,34 @@ function packPut(url, buf) {
     }).catch(() => {});
 }
 // só chunks com hash de conteúdo no nome são imutáveis; chars.pack sem hash
-// pode mudar quando os assets são regerados -> sempre fetch fresco
+// pode mudar quando os assets são regerados -> cacheado com chave
+// `${url}@${source}` (hash do timelines.json que o referencia)
 const isImmutableChunk = (u) => /chunk-[^/]*-[0-9a-f]{6,}\.pack$/i.test(u);
-async function fetchPack(url) {
-    if (isImmutableChunk(url)) {
-        const hit = await packGet(url);
+async function fetchPack(url, cacheKey) {
+    const key = cacheKey ?? (isImmutableChunk(url) ? url : null);
+    if (key) {
+        const hit = await packGet(key);
         if (hit) return hit;
     }
     const buf = await fetch(url).then((r) => {
         if (!r.ok) throw new Error(`${url} ${r.status}`);
         return r.arrayBuffer();
     });
-    if (isImmutableChunk(url)) packPut(url, buf);
+    if (key) packPut(key, buf);
     return buf;
+}
+
+// worker singleton p/ parsear manifests de timelines.json fora da main
+// thread (dance = ~8.6MB de JSON — parse sincrono seria long task)
+let _manifestWorker = null;
+function _getManifestWorker() {
+    if (typeof Worker === 'undefined') return null;
+    if (!_manifestWorker) {
+        _manifestWorker = new Worker(
+            new URL('../workers/manifest.worker.js', import.meta.url),
+            { type: 'module' });
+    }
+    return _manifestWorker;
 }
 
 const matMul = (p, q) => ({
@@ -71,48 +86,124 @@ const colorIdentity = (c) =>
 
 export class MovieRoom {
     // base: '/assets/movies/town'
+    // Assets imutaveis compartilhados entre instancias do mesmo pack:
+    // timelines parseado, packs, indice de arquivos, exits/interactions
+    // parseados e TODOS os caches de decode/raster (_svg/_img/_art/_tint/
+    // _font). Revisita de sala/sprite pula fetch+parse+decode — so o estado
+    // de playback (playheads, botoes, dirty sets) e recriado por instancia.
+    // LRU por base; catalogos/roupas sao entries pequenas, salas ficam quentes.
+    static _sharedAssets = new Map(); // base -> Promise<SharedAssets>
+    static _SHARED_MAX = 24;
+
     static async load(base) {
-        const room = new MovieRoom();
-        room.base = base;
+        let entry = MovieRoom._sharedAssets.get(base);
+        if (!entry) {
+            entry = MovieRoom._loadShared(base).catch((e) => {
+                MovieRoom._sharedAssets.delete(base);
+                throw e;
+            });
+            MovieRoom._sharedAssets.set(base, entry);
+            while (MovieRoom._sharedAssets.size > MovieRoom._SHARED_MAX)
+                MovieRoom._sharedAssets.delete(MovieRoom._sharedAssets.keys().next().value);
+        }
+        MovieRoom._sharedAssets.delete(base);
+        MovieRoom._sharedAssets.set(base, entry); // LRU touch
+        return MovieRoom._fromShared(base, await entry);
+    }
+
+    // Fetch + parse + packs — roda UMA vez por base; o resultado e
+    // compartilhado por todas as instancias (dados read-only).
+    static async _loadShared(base) {
         const tl = await fetch(`${base}/timelines.json`).then((r) => {
             if (!r.ok) throw new Error(`timelines.json ${r.status}`);
             return r.json();
         });
+        const packs = [];
+        const urls = [];
+        const charsUrl = tl.pack?.file ? `${base}/chars/${tl.pack.file}` : null;
+        if (charsUrl) urls.push(charsUrl);
+        for (const f of tl.chunks?.files ?? []) urls.push(`${base}/chars/${f}`);
+        // chars.pack nao tem hash no nome: cacheia no IDB com chave
+        // url@source — source muda quando os assets sao regerados
+        const srcKey = tl.source || '';
+        await Promise.all(urls.map(async (u) => {
+            const buf = await fetchPack(u, u === charsUrl ? `${u}@${srcKey}` : undefined);
+            packs.push({ name: u.split('/').pop(), buf });
+        }));
+
+        // indice arquivo -> {pack, off, len}
+        const files = new Map();
+        if (tl.pack?.entries) {
+            const packBuf = packs.find((p) => p.name === tl.pack.file);
+            for (const [file, [off, len]] of Object.entries(tl.pack.entries))
+                files.set(file, { pack: packBuf, off, len });
+        }
+        const chunkFiles = (tl.chunks?.files ?? []).map((f) =>
+            packs.find((p) => p.name === f));
+        for (const [file, e] of Object.entries(tl.chunks?.entries ?? {})) {
+            // entries: [chunkIndex, offset, length] ou [offset, length]
+            if (e.length === 3) files.set(file, { pack: chunkFiles[e[0]], off: e[1], len: e[2] });
+            else files.set(file, { pack: chunkFiles[0], off: e[0], len: e[1] });
+        }
+
+        // parse AS das interacoes uma vez — deterministico a partir do tl
+        const tmp = Object.create(MovieRoom.prototype);
+        tmp._mainTl = { frames: tl.main?.frames ?? [[]], labels: tl.main?.labels ?? {}, actions: tl.main?.actions ?? {} };
+        tmp.sprites = tl.sprites || {};
+        const exits = tmp._parseExits();
+        tmp._parseInteractions();
+
+        return {
+            tl, packs, files, exits, interactions: tmp.interactions,
+            svgCache: new Map(), imgCache: new Map(),
+            artCache: new Map(), tintCache: new Map(), fontCache: new Map(),
+        };
+    }
+
+    // P4: baixa os packs de uma sala para o IDB sem parsear o timelines na
+    // main thread (worker extrai so o manifesto). chunks imutaveis e
+    // chars.pack (chave url@source) ficam quentes — o proximo load acha
+    // tudo em IDB. Usado pelo prefetch em idle do RoomScene.
+    static prefetchRoom(base) {
+        const w = _getManifestWorker();
+        if (!w) return Promise.resolve();
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                w.removeEventListener('message', onMsg);
+                resolve();
+            }, 60000);
+            const onMsg = (e) => {
+                const d = e.data;
+                if (!d || d.base !== base) return;
+                w.removeEventListener('message', onMsg);
+                clearTimeout(timer);
+                const key = (u) => (u === d.charsUrl ? `${u}@${d.source || ''}` : undefined);
+                Promise.allSettled((d.urls || []).map((u) => fetchPack(u, key(u))))
+                    .then(() => resolve());
+            };
+            w.addEventListener('message', onMsg);
+            w.postMessage(base);
+        });
+    }
+
+    // Nova instancia sobre os assets compartilhados: estado de playback
+    // sempre limpo (equivale ao load antigo, mas sem fetch/parse/decode).
+    static _fromShared(base, s) {
+        const room = new MovieRoom();
+        const tl = s.tl;
+        room.base = base;
         room.data = tl;
         room.sprites = tl.sprites || {};
         room.characters = tl.characters || {};
         room.stage = tl.stage || { width: 760, height: 480, frameRate: 24 };
         room.rate = room.stage.frameRate || 24;
-
-        // carrega blobs de arte (chars.pack e/ou chunk packs)
-        room.packs = [];
-        const urls = [];
-        if (tl.pack?.file) urls.push(`${base}/chars/${tl.pack.file}`);
-        for (const f of tl.chunks?.files ?? []) urls.push(`${base}/chars/${f}`);
-        await Promise.all(urls.map(async (u) => {
-            const buf = await fetchPack(u);
-            room.packs.push({ name: u.split('/').pop(), buf });
-        }));
-
-        // indice arquivo -> {pack, off, len}
-        room.files = new Map();
-        if (tl.pack?.entries) {
-            const packBuf = room.packs.find((p) => p.name === tl.pack.file);
-            for (const [file, [off, len]] of Object.entries(tl.pack.entries))
-                room.files.set(file, { pack: packBuf, off, len });
-        }
-        const chunkFiles = (tl.chunks?.files ?? []).map((f) =>
-            room.packs.find((p) => p.name === f));
-        for (const [file, e] of Object.entries(tl.chunks?.entries ?? {})) {
-            // entries: [chunkIndex, offset, length] ou [offset, length]
-            if (e.length === 3) room.files.set(file, { pack: chunkFiles[e[0]], off: e[1], len: e[2] });
-            else room.files.set(file, { pack: chunkFiles[0], off: e[0], len: e[1] });
-        }
-
-        room._artCache = new Map();   // file -> canvas (escala atual)
-        room._tintCache = new Map();  // file|color -> canvas
-        room._svgCache = new Map();   // file -> svg text
-        room._imgCache = new Map();   // file -> Promise<HTMLImageElement>
+        room.packs = s.packs;
+        room.files = s.files;
+        room._svgCache = s.svgCache;
+        room._imgCache = s.imgCache;
+        room._artCache = s.artCache;
+        room._tintCache = s.tintCache;
+        room._fontCache = s.fontCache;
         room._playheads = new Map();  // path -> playhead "ativo" (ultimo resolvido; goto/currentFrame)
         room._playheadAll = new Map(); // path+''+spriteId -> playhead (instancias co-existentes)
         room._buttonStates = new Map(); // path -> 'up'|'over'|'down' (interacoes)
@@ -128,12 +219,11 @@ export class MovieRoom {
         room._mainFrame = 1;          // frame atual da timeline principal (1-based; catalogos = paginas)
         room._state = new Map();      // path -> {visible?, text?, entryId?} (set() do Clip do gp)
         room._nodes = new Map();      // path -> {entry, matrix} do ultimo collectInteractive
-        room._fontCache = new Map();  // fontId -> Promise<family>
         room.editTexts = tl.editTexts || {};
         room.fonts = tl.fonts || {};
         room.scalingGrids = tl.scalingGrids || {};
-        room.exits = room._parseExits();
-        room._parseInteractions();
+        room.exits = s.exits;
+        room.interactions = s.interactions;
         return room;
     }
 
@@ -232,10 +322,9 @@ export class MovieRoom {
     }
 
     setScale(scale) {
-        if (scale === this._scale) return;
+        // caches sao compartilhados entre instancias e as chaves ja incluem
+        // scale — nao limpar: preserva a arte rasterizada de visitas anteriores
         this._scale = scale;
-        this._artCache.clear();
-        this._tintCache.clear();
     }
 
     _svgText(file) {
@@ -270,18 +359,11 @@ export class MovieRoom {
     // Sem isso cada layer esperava um decode por vez: ~60s para a town.
     // chunk > 0 limita os Image pendentes por macrotask — packs grandes
     // (penguin = ~1800 SVGs) nao saturam a fila de decode de uma vez.
-    prefetchSvgs(chunk = 0) {
-        const files = [...new Set(
-            Object.values(this.characters || {})
-                .map((c) => c.file).filter(Boolean)
-        )];
-        if (!chunk) {
-            for (const f of files) this._svgImage(f);
-            return;
-        }
-        // requestIdleCallback (sem timeout): so decodifica quando a main
-        // thread esta ociosa — setTimeout(0) em cadeia faminto o rAF e
-        // derrubava o FPS para ~9 enquanto o warm-up durava.
+    // agenda o decode dos arquivos via requestIdleCallback (sem timeout):
+    // so decodifica quando a main thread esta ociosa — setTimeout(0) em
+    // cadeia faminto o rAF e derrubava o FPS para ~9 durante o warm-up.
+    _scheduleDecode(files, chunk = 4) {
+        if (!files.length) return;
         const sched = typeof requestIdleCallback === 'function'
             ? (fn) => requestIdleCallback(fn)
             : (fn) => setTimeout(fn, 50);
@@ -292,6 +374,49 @@ export class MovieRoom {
             if (i < files.length) sched(step);
         };
         sched(step);
+    }
+
+    prefetchSvgs(chunk = 0) {
+        const files = [...new Set(
+            Object.values(this.characters || {})
+                .map((c) => c.file).filter(Boolean)
+        )];
+        if (!chunk) {
+            for (const f of files) this._svgImage(f);
+            return;
+        }
+        this._scheduleDecode(files, chunk);
+    }
+
+    // Prefetch priorizado: decodifica so os SVGs alcancaveis pelos frames
+    // informados da timeline principal (entries -> sprites -> seus frames ->
+    // characters.file). Usado pelo pinguim para garantir que walk/idle/sit
+    // com as roupas equipadas estejam prontos antes do primeiro uso —
+    // sem isso o primeiro andar "deslizava" esperando decodes de SVG.
+    prefetchFrames(frameNums, chunk = 12) {
+        const files = new Set();
+        const seenSprites = new Set();
+        const walk = (entries) => {
+            for (const e of entries || []) {
+                const sid = String(e.id);
+                const sp = this.sprites?.[sid];
+                if (sp) {
+                    if (seenSprites.has(sid)) continue;
+                    seenSprites.add(sid);
+                    for (const fr of sp.frames || []) walk(fr);
+                    continue;
+                }
+                const f = this.characters?.[sid]?.file;
+                if (f) files.add(f);
+            }
+        };
+        const main = this.data?.main;
+        const len = main?.frames?.length || 1;
+        for (const n of frameNums || []) {
+            const f = Math.max(1, Math.min(len, Math.round(n) || 1));
+            walk(main?.frames?.[f - 1]);
+        }
+        this._scheduleDecode([...files], chunk);
     }
 
     // Rasteriza o SVG em canvas na escala informada (vetorial -> nitido).
@@ -726,11 +851,21 @@ export class MovieRoom {
             const ox = ch.origin?.[0] ?? 0, oy = ch.origin?.[1] ?? 0;
             local = [-ox, -oy, cw - ox, chh - oy];
         } else if (ch.kind === 'button') {
-            // records.up pode ser vazio (botao invisivel — ex.: setas de pagina
-            // que so aparecem no over); hittest define a area clicavel real
-            const rec = ch.records?.hittest?.length ? ch.records.hittest
-                : ch.records?.up?.length ? ch.records.up
-                : ch.records?.over || [];
+            // bounds visuais = uniao dos records up/over/down — o hittest
+            // e so a area clicavel e pode ser menor/deslocado da arte
+            // (ex.: dance_btn da town: hittest 49x71 mas a porta+DISCO
+            // ocupam ~66x72 world — overlay saía com canvas errado e a
+            // porta inteira ficava invisivel)
+            let bb = null;
+            for (const st of ['up', 'over', 'down']) {
+                const rec = ch.records?.[st];
+                if (!rec?.length) continue;
+                const rb = this._boundsOfEntries(rec, world, childPath);
+                if (rb) bb = bb ? [Math.min(bb[0], rb[0]), Math.min(bb[1], rb[1]), Math.max(bb[2], rb[2]), Math.max(bb[3], rb[3])] : rb;
+            }
+            if (bb) return bb;
+            const rec = ch.records?.up?.length ? ch.records.up
+                : ch.records?.over || ch.records?.hittest || [];
             return this._boundsOfEntries(rec, world, childPath);
         }
         if (!local) return null;

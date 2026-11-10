@@ -73,9 +73,11 @@ export default class Wardrobe {
         const scene = this.scene;
         // posiciona à direita do player card (que está centralizado)
         let cardRight = WORLD_W / 2 + 120;
-        if (scene.playerCard?.container) {
-            const cb = scene.playerCard.container.getBounds();
-            cardRight = cb.right + 8;
+        const cb = scene.playerCard?._cardBounds;
+        if (cb) cardRight = cb.right + 8;
+        else if (scene.playerCard?.container) {
+            const gb = scene.playerCard.container.getBounds();
+            cardRight = gb.right + 8;
         }
         const px = Math.min(cardRight, WORLD_W - PANEL_W - 5);
         const py = WORLD_H / 2 - PANEL_H / 2;

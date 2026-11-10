@@ -112,8 +112,9 @@ export default class BootScene extends Phaser.Scene {
             }
         });
 
-        // segura a tela o suficiente para o logo ser percebido; depois o
-        // LoadingScreen do RoomScene continua o feedback durante a carga da sala
-        this.time.delayedCall(1500, () => this.scene.start('RoomScene'));
+        // mostra o logo brevemente; o LoadingScreen do RoomScene continua o
+        // feedback durante a carga da sala — 400ms ja e suficiente para o
+        // logo ser percebido sem segurar o boot em ~1.1s de tempo morto
+        this.time.delayedCall(400, () => this.scene.start('RoomScene'));
     }
 }
