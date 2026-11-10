@@ -1,19 +1,39 @@
 /**
  * NetworkClient.js - Gerenciador WebSocket para o Club Penguin Phaser
  * Contrato de rede conforme especificação AGENTS.md / QWEN.md
+ * Agora com autenticação guest e persistência via servidor.
  */
+
+import { DEFAULT_COLOR_ITEM_ID, colorItemToRgb } from '../items/colors.js';
 
 export default class NetworkClient {
     constructor(scene) {
         this.scene = scene;
         this.socket = null;
         this.isConnected = false;
-        this.playerId = 'Penguin_' + Math.floor(Math.random() * 8999 + 1000);
         this.reconnectTimer = null;
         
-        // Endereço do WebSocket Server local (porta 8080)
-        const host = window.location.hostname || 'localhost';
-        this.url = `ws://${host}:8080`;
+        // Dados do jogador (preenchido após PLAYER_DATA)
+        this.playerData = null;
+        this.playerId = null;
+        this.username = null;
+        this.colorItemId = DEFAULT_COLOR_ITEM_ID;
+        this.coins = 0;
+        this.inventory = [];
+        this.equipped = {};
+        this.canRename = false;
+        
+        // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
+        // deriva do hostname — https => wss na mesma origem (Caddy faz
+        // proxy /ws), http local => ws://host:8080.
+        const envUrl = import.meta.env?.VITE_WS_URL;
+        if (envUrl) {
+            this.url = envUrl;
+        } else if (window.location.protocol === 'https:') {
+            this.url = `wss://${window.location.host}/ws`;
+        } else {
+            this.url = `ws://${window.location.hostname || 'localhost'}:8080`;
+        }
 
         this.connect();
     }
@@ -33,7 +53,8 @@ export default class NetworkClient {
                 clearTimeout(this.reconnectTimer);
                 this.reconnectTimer = null;
             }
-            this.scene.events.emit('net-connected', { playerId: this.playerId });
+            // Envia autenticação guest automaticamente
+            this.authenticate();
         };
 
         this.socket.onmessage = (event) => {
@@ -75,39 +96,126 @@ export default class NetworkClient {
         this.socket.send(packet);
     }
 
-    // Ações do Jogador conforme protocolo AGENTS.md
+    // ---------- Autenticação ----------
+
+    authenticate() {
+        const params = new URLSearchParams(location.search);
+        // ?penguin=Nome (ou localStorage penguin_user) -> LOGIN_PLAYER
+        // (somente funciona em localhost — o servidor bloqueia em producao)
+        const want = params.get('penguin') || localStorage.getItem('penguin_user');
+        if (want) {
+            if (params.get('penguin')) localStorage.setItem('penguin_user', want);
+            this.send('LOGIN_PLAYER', { username: want });
+            return;
+        }
+        // ?guest=1 ou automacao (navigator.webdriver = Playwright etc.) ->
+        // nao herda o Arenovisk; recebe guest normal com pinguim proprio
+        const forceGuest = params.get('guest') === '1' || !!navigator.webdriver;
+        if (forceGuest) localStorage.removeItem('penguin_user');
+        const sessionToken = localStorage.getItem('penguin_session');
+        this.send('AUTH_GUEST', { sessionToken, forceGuest });
+    }
+
+    loginPlayer(username) {
+        this.send('LOGIN_PLAYER', { username });
+    }
+
+    createPlayer(username, colorItemId = DEFAULT_COLOR_ITEM_ID) {
+        this.send('CREATE_PLAYER', { username, colorItemId });
+    }
+
+    loadPlayer() {
+        this.send('LOAD_PLAYER', {});
+    }
+
+    renamePlayer(username) {
+        this.send('RENAME_PLAYER', { username });
+    }
+
+    buyItem(itemId, cost) {
+        this.send('BUY_ITEM', { itemId, cost });
+    }
+
+    // Compra com confirmacao — resolve {ok,data} no ITEM_BOUGHT ou {ok:false,error}.
+    buyItemAsync(itemId) {
+        return new Promise((resolve) => {
+            const to = setTimeout(() => { cleanup(); resolve({ ok: false, error: 'timeout' }); }, 8000);
+            const onBought = (d) => {
+                if (Number(d?.itemId) === Number(itemId)) { cleanup(); resolve({ ok: true, data: d }); }
+            };
+            const onErr = (d) => { cleanup(); resolve({ ok: false, code: d?.code, error: d?.message || d?.code || 'failed' }); };
+            const cleanup = () => {
+                clearTimeout(to);
+                this.scene.events.off('item-bought', onBought);
+                this.scene.events.off('net-error', onErr);
+            };
+            this.scene.events.on('item-bought', onBought);
+            this.scene.events.on('net-error', onErr);
+            this.buyItem(itemId);
+        });
+    }
+
+    // ---------- Ações do Jogador ----------
+
     joinRoom(roomId = 'town', x = 400, y = 300) {
+        if (!this.playerId) {
+            console.warn('[NetworkClient] Tentativa de entrar na sala antes de autenticar');
+            return;
+        }
         this.send('JOIN_ROOM', {
-            playerId: this.playerId,
             roomId,
             x,
             y
         });
     }
 
+    sendEquip(slot, itemId) {
+        this.send('EQUIP_ITEM', {
+            slot,
+            itemId: itemId || null
+        });
+    }
+
     sendMove(targetX, targetY) {
         this.send('MOVE_PLAYER', {
-            playerId: this.playerId,
             targetX: Math.round(targetX),
             targetY: Math.round(targetY)
+        });
+    }
+
+    sendColor(colorItemId) {
+        this.send('SET_COLOR', {
+            colorItemId: Math.round(colorItemId)
         });
     }
 
     sendChat(message) {
         if (!message || !message.trim()) return;
         this.send('SEND_CHAT', {
-            playerId: this.playerId,
             message: message.trim()
         });
     }
 
-    // Processamento de pacotes recebidos e emissão de eventos no Phaser
+    // ---------- Processamento de pacotes ----------
+
     handlePacket(packet) {
         const { op, data } = packet;
         if (!op) return;
 
         switch (op) {
-            case 'JOIN_ROOM':
+            case 'PLAYER_DATA':
+                this._handlePlayerData(data);
+                break;
+            case 'NEED_CREATE':
+                this.scene.events.emit('need-create-player');
+                break;
+            case 'ERROR':
+                this.scene.events.emit('net-error', data);
+                break;
+            case 'ITEM_BOUGHT':
+                this._showDomToast(`Purchased ${data.name || 'item'}! Coins: ${data.coins}c`, '#b8860b');
+                this.scene.events.emit('item-bought', data);
+                break;
             case 'ROOM_STATE':
                 this.scene.events.emit('room-state', data);
                 break;
@@ -116,6 +224,12 @@ export default class NetworkClient {
                 break;
             case 'SEND_CHAT':
                 this.scene.events.emit('player-chat', data);
+                break;
+            case 'EQUIP_ITEM':
+                this.scene.events.emit('player-equip', data);
+                break;
+            case 'SET_COLOR':
+                this.scene.events.emit('player-color', data);
                 break;
             case 'PLAYER_JOINED':
                 this.scene.events.emit('player-joined', data);
@@ -127,5 +241,75 @@ export default class NetworkClient {
                 this.scene.events.emit('packet-' + op, data);
                 break;
         }
+    }
+
+    _handlePlayerData(data) {
+        this.playerData = data;
+        this.playerId = data.playerId;
+        this.username = data.username;
+        this.colorItemId = data.colorItemId || DEFAULT_COLOR_ITEM_ID;
+        this.coins = data.coins || 0;
+        this.inventory = data.inventory || [];
+        this.equipped = data.equipped || {};
+        this.canRename = data.canRename || false;
+        this.dailyBonus = data.dailyBonus || 0;
+
+        // Salva session token no localStorage para fallback
+        if (data.sessionToken) {
+            localStorage.setItem('penguin_session', data.sessionToken);
+        }
+
+        // Daily bonus creditado nesta sessão — notifica peak-a-peak (DOM,
+        // independe de cena/HUD abertos)
+        if (this.dailyBonus > 0) {
+            this._showDomToast(`Daily bonus! +${this.dailyBonus} coins`, '#2fb344');
+        }
+
+        console.log('[NetworkClient] Player data recebido:', {
+            playerId: this.playerId,
+            username: this.username,
+            coins: this.coins,
+            inventoryCount: this.inventory.length
+        });
+
+        this.scene.events.emit('player-data', data);
+        this.scene.events.emit('net-connected', { playerId: this.playerId });
+    }
+
+    // Toast DOM simples — visível mesmo sem wardrobe/HUD abertos
+    _showDomToast(message, color = '#0072ce') {
+        if (typeof document === 'undefined') return;
+        let host = document.getElementById('penguin-toasts');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'penguin-toasts';
+            host.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:999999;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none;';
+            document.body.appendChild(host);
+        }
+        const el = document.createElement('div');
+        el.textContent = message;
+        el.style.cssText = `background:${color};color:#fff;font:700 13px/1.4 Arial,sans-serif;padding:8px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.35);opacity:0;transition:opacity .25s;white-space:nowrap;`;
+        host.appendChild(el);
+        requestAnimationFrame(() => { el.style.opacity = '1'; });
+        setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 300);
+        }, 3500);
+    }
+
+    // Helper para obter cor RGB atual
+    getPenguinColor() {
+        return colorItemToRgb(this.colorItemId);
+    }
+
+    // Helper para verificar se possui um item
+    hasItem(itemId) {
+        return this.inventory.some(i => i.itemId === itemId && i.quantity > 0);
+    }
+
+    // Helper para obter quantidade de um item
+    getItemQuantity(itemId) {
+        const item = this.inventory.find(i => i.itemId === itemId);
+        return item ? item.quantity : 0;
     }
 }

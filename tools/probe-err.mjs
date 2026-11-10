@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+p.on('pageerror', (e) => console.log('PAGEERR', e.stack || e.message));
+await p.goto('http://localhost:3000/', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => window.__penguin && window.__penguin.view, null, { timeout: 90000 });
+await p.waitForFunction(() => { const sc = window.__penguin.scene; return sc.movie && sc._movieReady && (!sc.loadingScreen || !sc.loadingScreen.visible); }, null, { timeout: 180000 });
+await p.evaluate(() => { const sc = window.__penguin.scene; sc.changeRoom('shop', 518, 260); });
+await p.waitForTimeout(20000);
+console.log('room:', await p.evaluate(() => window.__penguin.scene.currentRoom));
+await b.close();

@@ -1,0 +1,15 @@
+[     293ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[     482ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[     671ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[     755ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[     782ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[     782ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[     782ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[     784ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  282118ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[  283404ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  283514ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  283544ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  283544ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  283544ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  283549ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29

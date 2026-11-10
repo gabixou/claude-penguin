@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await b.newPage({ viewport: { width: 900, height: 600 } });
+await p.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+await p.waitForFunction(() => window.__penguin?.scene?._movieReady, null, { timeout: 120000 });
+const s = await p.evaluate(() => { const s = window.__penguin.scene; s.toggleClothes(); return s.wardrobe?.isOpen; });
+console.log('open:', s);
+await p.waitForTimeout(8000);
+console.log('still ready:', await p.evaluate(() => window.__penguin.scene._movieReady));
+await p.screenshot({ path: 'tools/shots/wardrobe-fixed.png' });
+await b.close();

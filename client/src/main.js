@@ -6,12 +6,15 @@
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene.js';
 import RoomScene from './scenes/RoomScene.js';
+import { WORLD_W, WORLD_H } from './display.js';
 
 const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
-    width: 760,
-    height: 480,
+    // Backing inicial 1520x960; RoomScene ajusta dinamicamente via computeSupersample()
+    // (mundo continua em coordenadas 760x480 com camera zoom = fator SS)
+    width: WORLD_W * 2,
+    height: WORLD_H * 2,
     backgroundColor: '#001833',
     pixelArt: false,
     scale: {
@@ -29,5 +32,14 @@ const config = {
 };
 
 window.addEventListener('load', () => {
-    new Phaser.Game(config);
+    // Phaser Scale.FIT ja centraliza o canvas via margin; o flex do container
+    // duplicava o centro (canvas deslocado ~41px para a direita)
+    const gc = document.getElementById('game-container');
+    if (gc) gc.style.display = 'block';
+    const start = () => { window.__game = new Phaser.Game(config); };
+    if (!document.fonts?.load) { start(); return; }
+    Promise.race([
+        document.fonts.load('12px GoPenguin'),
+        new Promise((resolve) => setTimeout(resolve, 1500))
+    ]).then(start, start);
 });
