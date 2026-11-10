@@ -4,7 +4,7 @@
 
 # Claude Penguin
 
-### A fan-made recreation of **Club Penguin** that runs entirely in your browser — no Flash, no plugins, no installs.
+### A fan-made recreation of **Club Penguin** that runs entirely in your browser: no Flash, no plugins, no installs.
 
 ![Platform](https://img.shields.io/badge/platform-web-1e90ff?style=flat-square)
 ![Engine](https://img.shields.io/badge/engine-Phaser%203-9b59b6?style=flat-square)
