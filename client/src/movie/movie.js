@@ -59,6 +59,27 @@ async function fetchPack(url, cacheKey) {
 // worker singleton p/ parsear manifests de timelines.json fora da main
 // thread (dance = ~8.6MB de JSON — parse sincrono seria long task)
 let _manifestWorker = null;
+// Images de SVG aguardando decode no browser (fila FIFO interna) —
+// teto para o prefetch agendado nao lotar a fila a frente do load real
+let _pendingImages = 0;
+const _MAX_PENDING_IMAGES = 250;
+
+// Semaforo global de rasterizacao SVG->bitmap: createImageBitmap em SVG e
+// caro e o browser estrangula quando centenas sao disparadas juntas (um
+// warm de prefetch enfileirava tudo e o render da pagina esperava minutos
+// atras dos bitmaps de fundo). Chamadas de render (foreground) tem
+// prioridade sobre as de prefetch (background).
+const _ART_SLOTS = 6;
+let _artActive = 0;
+const _artWaitFg = [], _artWaitBg = [];
+function _artAcquire(bg) {
+    if (_artActive < _ART_SLOTS) { _artActive++; return Promise.resolve(); }
+    return new Promise((res) => (bg ? _artWaitBg : _artWaitFg).push(res));
+}
+function _artRelease() {
+    const n = _artWaitFg.shift() || _artWaitBg.shift();
+    if (n) n(); else _artActive--;
+}
 function _getManifestWorker() {
     if (typeof Worker === 'undefined') return null;
     if (!_manifestWorker) {
@@ -150,6 +171,11 @@ const colorIdentity = (c) =>
     c.mult.every((v) => v === 1) && c.add.every((v) => v === 0);
 
 export class MovieRoom {
+    // Hold global de decode agendado (_scheduleDecode): >0 pausa todas as
+    // chains de prefetch em idle. RoomScene incrementa durante o load de
+    // uma sala para o decode de fundo de OUTRAS salas nao competir.
+    static _decodeHold = 0;
+
     // base: '/assets/movies/town'
     // Assets imutaveis compartilhados entre instancias do mesmo pack:
     // timelines parseado, packs, indice de arquivos, exits/interactions
@@ -414,6 +440,12 @@ export class MovieRoom {
             img.onerror = () => resolve(null);
             img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
         });
+        // backlog global de decode: o browser decodifica Images em fila
+        // FIFO — sem teto, prefetch de varias salas enfileirava milhares
+        // de SVGs e a entrada na proxima sala esperava a fila inteira
+        // (~45s medido). _scheduleDecode respeita _pendingImages.
+        _pendingImages++;
+        p.finally(() => { _pendingImages--; });
         this._imgCache.set(file, p);
         return p;
     }
@@ -424,16 +456,25 @@ export class MovieRoom {
     // Sem isso cada layer esperava um decode por vez: ~60s para a town.
     // chunk > 0 limita os Image pendentes por macrotask — packs grandes
     // (penguin = ~1800 SVGs) nao saturam a fila de decode de uma vez.
-    // agenda o decode dos arquivos via requestIdleCallback (sem timeout):
-    // so decodifica quando a main thread esta ociosa — setTimeout(0) em
-    // cadeia faminto o rAF e derrubava o FPS para ~9 durante o warm-up.
+    // agenda o decode dos arquivos via requestIdleCallback: so decodifica
+    // quando a main thread esta ociosa — setTimeout(0) em cadeia faminto
+    // o rAF e derrubava o FPS para ~9 durante o warm-up. Timeout de 1.5s
+    // garante throughput mesmo com o jogo rodando (sem timeout o rIC
+    // quase nao disparava sob carga e o prefetch de outras salas ficava
+    // lento demais para servir de algo). MovieRoom._decodeHold pausa
+    // TODAS as chains durante transicao de sala (RoomScene segura) —
+    // decode de fundo nunca compete com o load da sala destino.
     _scheduleDecode(files, chunk = 4) {
         if (!files.length) return;
         const sched = typeof requestIdleCallback === 'function'
-            ? (fn) => requestIdleCallback(fn)
+            ? (fn) => requestIdleCallback(fn, { timeout: 1500 })
             : (fn) => setTimeout(fn, 50);
         let i = 0;
         const step = () => {
+            if (MovieRoom._decodeHold > 0 || _pendingImages > _MAX_PENDING_IMAGES) {
+                sched(step);
+                return;
+            }
             for (let j = 0; j < chunk && i < files.length; j++, i++)
                 this._svgImage(files[i]);
             if (i < files.length) sched(step);
@@ -458,8 +499,9 @@ export class MovieRoom {
     // characters.file). Usado pelo pinguim para garantir que walk/idle/sit
     // com as roupas equipadas estejam prontos antes do primeiro uso —
     // sem isso o primeiro andar "deslizava" esperando decodes de SVG.
-    prefetchFrames(frameNums, chunk = 12) {
+    prefetchFrames(frameNums, chunk = 12, immediate = false, scale = null, bg = true) {
         const files = new Set();
+        const arts = new Map(); // file -> char (para warm de artCanvas)
         const seenSprites = new Set();
         const walk = (entries) => {
             for (const e of entries || []) {
@@ -471,8 +513,11 @@ export class MovieRoom {
                     for (const fr of sp.frames || []) walk(fr);
                     continue;
                 }
-                const f = this.characters?.[sid]?.file;
-                if (f) files.add(f);
+                const ch = this.characters?.[sid];
+                if (ch?.file) {
+                    files.add(ch.file);
+                    if (!arts.has(ch.file)) arts.set(ch.file, ch);
+                }
             }
         };
         const main = this.data?.main;
@@ -480,6 +525,19 @@ export class MovieRoom {
         for (const n of frameNums || []) {
             const f = Math.max(1, Math.min(len, Math.round(n) || 1));
             walk(main?.frames?.[f - 1]);
+        }
+        // immediate: dispara todos os _svgImage de uma vez (decode paralelo
+        // do browser) — usado pelo catalogo, onde a pagina alvo nao pode
+        // esperar o requestIdleCallback (que morre de fome durante renders)
+        if (immediate) {
+            for (const f of files) this._svgImage(f);
+            // scale: ja rasteriza os artCanvas em paralelo — o renderFrame
+            // espera cada createImageBitmap em serie (~30-50ms/shape), o que
+            // dominava o custo de primeira visita de cada pagina
+            if (scale != null) {
+                for (const [f, ch] of arts) this.artCanvas(f, ch, scale, bg);
+            }
+            return;
         }
         this._scheduleDecode([...files], chunk);
     }
@@ -489,29 +547,40 @@ export class MovieRoom {
     // createImageBitmap rasteriza o SVG de forma assincrona no pipeline de
     // decode do Chrome, em vez do drawImage sincronico na canvas — um dos
     // gargalos do cold load de salas com muitos shapes.
-    async artCanvas(file, char, scale) {
+    // Cacheia a PROMISE (nao so o resultado): chamadas concorrentes para o
+    // mesmo file|scale (warm de prefetch + drawEntries do render) dividem o
+    // mesmo createImageBitmap em vez de duplicar a rasterizacao.
+    artCanvas(file, char, scale, bg = false) {
         const key = `${file}|${+scale.toFixed(3)}`;
-        let c = this._artCache.get(key);
-        if (c && c._scale === scale) return c;
-        const img = await this._svgImage(file);
-        if (!img) return null;
-        const w = char?.size?.[0] ?? img.naturalWidth;
-        const h = char?.size?.[1] ?? img.naturalHeight;
-        const cw = Math.max(1, Math.ceil(w * scale));
-        const ch = Math.max(1, Math.ceil(h * scale));
-        try {
-            c = await createImageBitmap(img, { resizeWidth: cw, resizeHeight: ch });
-        } catch {
-            c = document.createElement('canvas');
-            c.width = cw; c.height = ch;
-            const ctx = c.getContext('2d');
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, cw, ch);
-        }
-        c._scale = scale;
-        this._artCache.set(key, c);
-        return c;
+        let p = this._artCache.get(key);
+        if (p) return p;
+        p = (async () => {
+            const img = await this._svgImage(file);
+            if (!img) return null;
+            const w = char?.size?.[0] ?? img.naturalWidth;
+            const h = char?.size?.[1] ?? img.naturalHeight;
+            const cw = Math.max(1, Math.ceil(w * scale));
+            const ch = Math.max(1, Math.ceil(h * scale));
+            let c;
+            await _artAcquire(bg);
+            try {
+                c = await createImageBitmap(img, { resizeWidth: cw, resizeHeight: ch });
+            } catch {
+                c = document.createElement('canvas');
+                c.width = cw; c.height = ch;
+                const ctx = c.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, cw, ch);
+            } finally {
+                _artRelease();
+            }
+            c._scale = scale;
+            return c;
+        })();
+        this._artCache.set(key, p);
+        p.catch(() => { if (this._artCache.get(key) === p) this._artCache.delete(key); });
+        return p;
     }
 
     // Caminho rapido do tint: bitmap base do cache -> copia transferivel
