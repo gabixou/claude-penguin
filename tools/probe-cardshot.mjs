@@ -1,16 +1,20 @@
 import { chromium } from 'playwright-core';
-const TOKEN = '27249d7256bd47b3cb685bed60cfc5f1cfe02b9c75f85eb677e248fba0359442';
 const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
-const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-const p = await ctx.newPage();
-const errs = []; p.on('pageerror', e => errs.push(String(e)));
-await p.goto('http://localhost:3000', { waitUntil: 'domcontentloaded' });
-await p.evaluate((t) => localStorage.setItem('penguin_session', t), TOKEN);
-await p.reload({ waitUntil: 'networkidle' });
-await p.waitForFunction(() => window.__penguin?.scene?._movieReady, null, { timeout: 240000 });
-await p.waitForTimeout(2000);
-await p.evaluate(() => { window.__penguin.scene.playerCard?.open(window.__penguin.scene.localPlayer); });
-await p.waitForTimeout(4000);
-await p.screenshot({ path: 'tools/shots/card-pin-bg.png' });
-console.log('pageerrors:', errs.length ? errs : 'zero');
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+await p.goto('http://localhost:3000/?penguin=Arenovisk', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => window.__penguin?.scene?._movieReady === true, null, { timeout: 120000 });
+await p.waitForTimeout(1500);
+// abre e fecha o card, depois confere se a sala continua renderizada
+await p.evaluate(() => window.__penguin.scene.playerCard.open(window.__penguin.scene.localPlayer));
+await p.waitForTimeout(1500);
+await p.evaluate(() => window.__penguin.scene.playerCard.close());
+await p.waitForTimeout(800);
+await p.screenshot({ path: 'shots/clone-town-cardfix.png' });
+// checagem de pixels: a sala nao pode estar em branco/preta
+const blank = await p.evaluate(() => {
+  const c = document.querySelector('canvas');
+  const x = c.getContext('webgl2') || c.getContext('webgl');
+  return { w: c.width, h: c.height, hasGL: !!x };
+});
+console.log('canvas:', JSON.stringify(blank));
 await b.close();

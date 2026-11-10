@@ -10,3 +10,7 @@ NUL
 /docs
 /tools
 tools/probe-card.mjs
+
+# deps e build
+node_modules/
+dist/
