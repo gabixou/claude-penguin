@@ -16,3 +16,4 @@ node_modules/
 dist/
 *.log
 client/vite-dev.log
+client/dist-cat/
