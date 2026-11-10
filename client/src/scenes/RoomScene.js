@@ -692,22 +692,51 @@ export default class RoomScene extends Phaser.Scene {
         this.wardrobe.open(this.localPlayer);
     }
 
+    // Bases das salas alcancaveis pelas saidas da sala atual — candidatas
+    // ao prefetch de decode (provavel proximo destino do jogador).
+    _adjacentBases() {
+        const out = new Set();
+        for (const ex of Object.values(this.movie?.exits || {})) {
+            const pack = ex.room && MOVIE_ROOM_MAP[ex.room];
+            if (pack) out.add(`/assets/movies/${pack}`);
+        }
+        return out;
+    }
+
     // Apos o reveal: baixa os packs das salas ainda nao visitadas, uma por
     // idle callback (modelo de prefetch do gopenguin.lol). O manifest e
     // parseado em worker; packs vao para o IDB — proxima visita sai quente.
+    // Salas adjacentes (exits) tem prioridade na fila. Decode-prefetch de
+    // SVG foi avaliado e revertido: o browser decodifica ~5-15 SVG/s e o
+    // backlog FIFO atrasava a entrada na sala (~40s vs ~12s cold) — packs
+    // no IDB ja bastam; o decode acontece no load como sempre.
+    // Re-executavel a cada troca de sala: _prefetchDone deduplica.
     _prefetchRoomsIdle() {
-        if (this._prefetchScheduled) return;
-        this._prefetchScheduled = true;
-        const bases = [...new Set(
+        if (this._prefetchRunning) return;
+        this._prefetchRunning = true;
+        const done = this._prefetchDone || (this._prefetchDone = new Set());
+        const adjacent = this._adjacentBases();
+        const all = [...new Set(
             Object.values(MOVIE_ROOM_MAP).map((p) => `/assets/movies/${p}`))];
+        const ordered = [
+            ...all.filter((b) => adjacent.has(b)),
+            ...all.filter((b) => !adjacent.has(b)),
+        ];
         const sched = typeof requestIdleCallback === 'function'
             ? (fn) => requestIdleCallback(fn, { timeout: 8000 })
             : (fn) => setTimeout(fn, 300);
         let i = 0;
+        const roomAtStart = this.currentRoom;
         const step = () => {
-            const b = bases[i++];
-            if (b === undefined) return;
-            if (MovieRoom._sharedAssets.has(b)) return sched(step);
+            while (i < ordered.length && done.has(ordered[i])) i++;
+            const b = ordered[i++];
+            if (b === undefined) {
+                this._prefetchRunning = false;
+                // sala trocou durante o loop: re-avalia adjacentes da sala nova
+                if (this.currentRoom !== roomAtStart) this._prefetchRoomsIdle();
+                return;
+            }
+            done.add(b);
             MovieRoom.prefetchRoom(b)
                 .catch(() => {})
                 .finally(() => sched(step));
@@ -723,10 +752,15 @@ export default class RoomScene extends Phaser.Scene {
         if (this.roomFailText) { this.roomFailText.destroy(); this.roomFailText = null; }
         if (!pack) { this._showRoomFail(roomKey); return; }
         this._movieReady = false;
+        // pausa o decode agendado de fundo (prefetch idle de outras salas)
+        // ate esta sala estar pronta — sem isso o cold load competia com
+        // ~10 chains de decode e a entrada ficava PIOR que sem prefetch
+        MovieRoom._decodeHold++;
+        const releaseHold = () => { MovieRoom._decodeHold = Math.max(0, MovieRoom._decodeHold - 1); };
         this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
         MovieRoom.load(`/assets/movies/${pack}`)
             .then(async (movie) => {
-                if (this.currentRoom !== roomKey) { return; } // sala trocou durante o load
+                if (this.currentRoom !== roomKey) { releaseHold(); return; } // sala trocou durante o load
                 this.movie = movie;
                 this.movie.setScale(this._ss);
                 // cria playheads sem rasterizar — sem isso, rooms vindos do
@@ -763,7 +797,7 @@ export default class RoomScene extends Phaser.Scene {
                 const cacheKey = `v2|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
                 const cached = await idbGet(cacheKey);
                 let cacheHit = false;
-                if (this.movie !== movie) return;
+                if (this.movie !== movie) { releaseHold(); return; }
                 if (cached?.blobs?.length === this.movieLayers.length) {
                     cacheHit = true;
                     for (let i = 0; i < this.movieLayers.length; i++) {
@@ -780,6 +814,7 @@ export default class RoomScene extends Phaser.Scene {
                 // as layers nascem invisiveis, entao nenhum pixel parcial
                 // aparece mesmo se outro evento esconder o loader antes
                 const reveal = () => {
+                    releaseHold(); // sala pronta: decode de fundo pode voltar
                     if (this.movie !== movie) return;
                     for (const layer of this.movieLayers) layer.img.setVisible(true);
                     this._movieReady = true;
@@ -799,7 +834,7 @@ export default class RoomScene extends Phaser.Scene {
                 const boot = async () => {
                     let done = 0;
                     for (const layer of this.movieLayers) {
-                        if (this.movie !== movie) return; // sala trocou
+                        if (this.movie !== movie) { releaseHold(); return; } // sala trocou
                         if (layer._busy) { await new Promise((r) => setTimeout(r, 30)); continue; }
                         layer._busy = true;
                         try {
@@ -828,8 +863,14 @@ export default class RoomScene extends Phaser.Scene {
                     }
                     reveal();
                 };
-                if (!cacheHit) boot();
-                else (async () => { await this._renderDynamics(movie); reveal(); })();
+                if (!cacheHit) boot().catch((e) => {
+                    console.warn('[movie] boot', e);
+                    releaseHold();
+                });
+                else (async () => {
+                    try { await this._renderDynamics(movie); }
+                    finally { reveal(); }
+                })();
                 const frame = () => {
                     movie.tick();
                     const dyns = this._dynList || [];
@@ -904,6 +945,7 @@ export default class RoomScene extends Phaser.Scene {
                 this.movieTimer = this.time.addEvent({ delay: 1000 / movie.rate, loop: true, callback: frame });
             })
             .catch((e) => {
+                releaseHold();
                 console.warn('[movie] falha ao carregar pack', pack, e);
                 if (this.currentRoom === roomKey) this._showRoomFail(roomKey);
             });
