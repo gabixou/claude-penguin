@@ -1,7 +1,0 @@
-[     162ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
-[     513ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
-[     565ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
-[     596ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
-[     596ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
-[     596ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
-[     598ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29

@@ -1,5 +1,0 @@
-Based on a comparison of the two images, there is **1 key difference**:
-
-* **Penguin Name / Username:** 
-  * In the first image, the text below the penguin reads **`Penguin_3962`**.
-  * In the second image, it reads **`Penguin_6382`**.

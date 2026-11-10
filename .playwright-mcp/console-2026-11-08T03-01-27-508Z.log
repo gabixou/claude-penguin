@@ -1,8 +1,0 @@
-[     732ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
-[     833ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
-[    1310ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
-[    1410ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
-[    1439ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
-[    1440ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
-[    1440ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
-[    1443ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
