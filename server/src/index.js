@@ -69,7 +69,8 @@ function publicPlayer(player) {
         y: player.y,
         color: player.color,
         colorItemId: player.colorItemId,
-        paperdoll: player.paperdoll
+        paperdoll: player.paperdoll,
+        action: player.action || null
     };
 }
 
@@ -465,6 +466,7 @@ function handlePacket(ws, req, packet) {
                 color: session.colorItemId || 1,
                 colorItemId: session.colorItemId || 1,
                 paperdoll: sanitizePaperdoll(session.equipped),
+                action: null,
                 socket: ws
             };
 
@@ -505,6 +507,7 @@ function handlePacket(ws, req, packet) {
             const cy = Math.max(0, Math.min(480, Number(targetY) || 0));
             session.x = cx;
             session.y = cy;
+            session.action = null; // andar cancela emote/acao (dance, sit...)
 
             // Retransmite coordenadas para todos os outros na mesma sala
             broadcastToRoom(session.roomId, {
@@ -514,6 +517,22 @@ function handlePacket(ws, req, packet) {
                     targetX: cx,
                     targetY: cy
                 }
+            }, ws);
+            break;
+        }
+
+        case 'PLAYER_ACTION': {
+            const session = clientSessions.get(ws);
+            if (!session) return;
+
+            const action = data.action ?? null;
+            const VALID = new Set(['dance', 'wave', 'throw', 'sit', 'stand', 'idle']);
+            if (action !== null && !VALID.has(action)) return;
+            session.action = action;
+
+            broadcastToRoom(session.roomId, {
+                op: 'PLAYER_ACTION',
+                data: { playerId: session.playerId, action }
             }, ws);
             break;
         }

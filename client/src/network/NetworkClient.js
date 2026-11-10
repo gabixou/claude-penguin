@@ -196,6 +196,12 @@ export default class NetworkClient {
         });
     }
 
+    // Emote/acao do pinguim (dance, wave, throw, sit, stand, idle) —
+    // sincroniza a animacao nos outros clientes da sala.
+    sendAction(action) {
+        this.send('PLAYER_ACTION', { action: action || null });
+    }
+
     // ---------- Processamento de pacotes ----------
 
     handlePacket(packet) {
@@ -230,6 +236,9 @@ export default class NetworkClient {
                 break;
             case 'SET_COLOR':
                 this.scene.events.emit('player-color', data);
+                break;
+            case 'PLAYER_ACTION':
+                this.scene.events.emit('player-action', data);
                 break;
             case 'PLAYER_JOINED':
                 this.scene.events.emit('player-joined', data);

@@ -4,7 +4,7 @@
 // botoes, texto pre-renderizado). SVGs sao rasterizados sob demanda em alta
 // resolucao — equivalente ao visual vetorial do gopenguin.lol.
 
-const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
+export const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
 
 // ---------- Cache IndexedDB dos chunks de arte ----------
 // Os chunks têm hash de conteúdo no nome (chunk-N-<hash>.pack) => imutáveis,
@@ -117,6 +117,11 @@ export class MovieRoom {
         room._playheadAll = new Map(); // path+''+spriteId -> playhead (instancias co-existentes)
         room._buttonStates = new Map(); // path -> 'up'|'over'|'down' (interacoes)
         room._forcedDirty = new Set(); // roots sujos por interacao (fora do tick)
+        room._forcedPaths = new Set(); // paths completos sujos por interacao
+        room._dirtyPaths = new Set();  // paths que avancaram no ultimo tick
+        room._dirtyForced = new Set(); // roots sujos por interacao no ultimo tick
+        room._dirtyForcedPaths = new Set(); // paths completos sujos no ultimo tick
+        room._skipDynamic = null;      // paths de sprites animados (overlays)
         room._scale = 1;
         room.language = 'english';    // clips de idioma ficam estaticos no frame do idioma
         room._mainTl = { frames: tl.main?.frames ?? [[]], labels: tl.main?.labels ?? {}, actions: tl.main?.actions ?? {} };
@@ -274,13 +279,19 @@ export class MovieRoom {
             for (const f of files) this._svgImage(f);
             return;
         }
+        // requestIdleCallback (sem timeout): so decodifica quando a main
+        // thread esta ociosa — setTimeout(0) em cadeia faminto o rAF e
+        // derrubava o FPS para ~9 enquanto o warm-up durava.
+        const sched = typeof requestIdleCallback === 'function'
+            ? (fn) => requestIdleCallback(fn)
+            : (fn) => setTimeout(fn, 50);
         let i = 0;
         const step = () => {
             for (let j = 0; j < chunk && i < files.length; j++, i++)
                 this._svgImage(files[i]);
-            if (i < files.length) setTimeout(step, 0);
+            if (i < files.length) sched(step);
         };
-        step();
+        sched(step);
     }
 
     // Rasteriza o SVG em canvas na escala informada (vetorial -> nitido).
@@ -348,6 +359,7 @@ export class MovieRoom {
     tick() {
         this._dirty = false;
         this._dirtyRoots = new Set();
+        this._dirtyPaths = new Set();   // paths completos que avancaram (overlays)
         for (const h of this._playheadAll.values()) {
             const root = (h.path || '').split('.')[0];
             const cmds = this._actions(h.tl, h.frame);
@@ -355,6 +367,7 @@ export class MovieRoom {
                 if (cmds.some((c) => c[0] === 'play')) {
                     h.stopped = false; this._dirty = true;
                     this._dirtyRoots.add(root);
+                    this._dirtyPaths.add(h.path);
                 }
                 continue;
             }
@@ -364,6 +377,7 @@ export class MovieRoom {
             if (next !== h.frame) {
                 this._dirty = true;
                 this._dirtyRoots.add(root);
+                this._dirtyPaths.add(h.path);
             }
             h.frame = next;
             for (const c of this._actions(h.tl, next)) {
@@ -377,14 +391,22 @@ export class MovieRoom {
                         h.stopped = op === 'gotoAndStop';
                         this._dirty = true;
                         this._dirtyRoots.add(root);
+                        this._dirtyPaths.add(h.path);
                     }
                 } else if (op === 'nextFrame' || op === 'prevFrame') {
                     // aproximacao: segue o fluxo normal
                 }
             }
         }
+        // roots sujos por interacao (hover/botao) — layers estaticas ainda
+        // precisam re-renderizar nesses casos
+        this._dirtyForced = new Set(this._forcedDirty);
         for (const r of this._forcedDirty) this._dirtyRoots.add(r);
         this._forcedDirty.clear();
+        // paths completos: overlays dinamicos que CONTEM o path sujo
+        // (botao/texto dentro de sprite animado) tambem precisam re-render
+        this._dirtyForcedPaths = new Set(this._forcedPaths);
+        this._forcedPaths.clear();
     }
 
     _playhead(path, tlId) {
@@ -430,7 +452,9 @@ export class MovieRoom {
 
     // Roots de layer sujos por interacoes (hover/click) — merge no proximo tick.
     _markRoot(path) {
-        this._forcedDirty.add(String(path).split('.')[0]);
+        const p = String(path);
+        this._forcedDirty.add(p.split('.')[0]);
+        this._forcedPaths.add(p);
     }
 
     // Estado de botao (up/over/down) — port do movie.set(path,{button}) do gp.
@@ -511,6 +535,10 @@ export class MovieRoom {
 
     async _drawEntry(ctx, e, matrix, path, color, scale, depth) {
         const childPath = this._path(path, e);
+        // sprites animados viram overlays proprios (RoomScene): a layer
+        // estatica nao os desenha, senao o frame congelado "vazaria" por
+        // tras do overlay animado
+        if (this._skipDynamic?.has(childPath)) return;
         if (this._state?.get(childPath)?.visible === false) return;
         const local = arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
         const world = matMul(matrix, local);
@@ -811,6 +839,193 @@ export class MovieRoom {
                 await this._drawShape(ctx, ch, world, IDENT_COLOR, scale);
             }
         }
+    }
+
+    // ---------- Sprites animados como overlays (RoomScene) ----------
+    // Em vez de re-renderizar a layer inteira a cada tick, cada sprite
+    // animado (frames>1) com ancestrais estaticos vira um overlay com
+    // canvas/textura proprios — a layer fica estatica (renderiza 1x).
+    // collectDynamics varre as entries acumulando matrizes e paths.
+
+    collectDynamics(entries, matrix, path, out, masked = false) {
+        let i = 0;
+        while (i < entries.length) {
+            const e = entries[i];
+            // clipDepth: entries seguintes clipadas — dynamics dentro de
+            // mascara nao podem virar overlay (perderiam o recorte)
+            const maskedList = [];
+            if (e.clipDepth !== undefined) {
+                while (i + 1 < entries.length && entries[i + 1].depth <= e.clipDepth)
+                    maskedList.push(entries[++i]);
+            }
+            this._collectDynEntry(e, matrix, path, out, masked);
+            for (const me of maskedList) this._collectDynEntry(me, matrix, path, out, true);
+            i++;
+        }
+    }
+
+    _collectDynEntry(e, matrix, path, out, masked) {
+        const childPath = this._path(path, e);
+        const world = matMul(matrix, arrMat(e.matrix || [1, 0, 0, 1, 0, 0]));
+        const sid = String(e.id);
+        if (this.sprites[sid]) {
+            const tl = this.sprites[sid];
+            const frames = tl.frames?.length || 1;
+            if (frames > 1 && !masked) {
+                out.push({ path: childPath, sid, world, entry: e });
+                return; // nao desce — o overlay renderiza o subtree inteiro
+            }
+            this.collectDynamics(tl.frames[0] || [], world, childPath, out, masked);
+            return;
+        }
+        const ch = this.characters[sid];
+        if (ch?.kind === 'button') {
+            // dynamics dentro de records de botao nao viram overlay: o
+            // estado up/over/down muda a matrix/arte e a layer re-renderiza
+            // no forced dirty — hoistar congelaria o estado errado
+            this.collectDynamics(ch.records?.up || [], world, childPath, out, true);
+        }
+    }
+
+    // ---------- Segmentacao de layer (z-order fiel ao Flash) ----------
+    // collectItems varre o subtree de uma top-level layer na ORDEM DE
+    // DESENHO e emite ops: {type:'static', entries, matrix, path, color}
+    // (subarvores sem animacao — agrupadas em segmentos) e
+    // {type:'dyn', dyn} (sprites frames>1 — overlays). Grupos clipDepth
+    // sao atomicos: a mascara precisa do clip entry + followers juntos.
+
+    collectItems(entry) {
+        const out = [];
+        const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+        this._walkItems([entry], ID, '', IDENT_COLOR, out);
+        return out;
+    }
+
+    _walkItems(entries, matrix, path, color, out) {
+        let i = 0;
+        while (i < entries.length) {
+            const e = entries[i];
+            if (e.clipDepth !== undefined) {
+                const group = [e];
+                while (i + 1 < entries.length && entries[i + 1].depth <= e.clipDepth)
+                    group.push(entries[++i]);
+                out.push({ type: 'static', entries: group, matrix, path, color });
+                i++;
+                continue;
+            }
+            this._emitItem(e, matrix, path, color, out);
+            i++;
+        }
+    }
+
+    _emitItem(e, matrix, path, color, out) {
+        const childPath = this._path(path, e);
+        const sid = String(e.id);
+        const entryColor = e.color ? colorMul(color, e.color) : color;
+        const local = arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
+        if (this.sprites[sid]) {
+            const tl = this.sprites[sid];
+            if ((tl.frames?.length || 1) > 1) {
+                out.push({ type: 'dyn', dyn: {
+                    path: childPath, sid, world: matMul(matrix, local), entry: e,
+                    // contexto do pai — se o overlay falhar (bounds invalidos)
+                    // o item pode virar op estatico na posicao correta
+                    parentMatrix: matrix, parentPath: path, parentColor: color,
+                } });
+                return;
+            }
+            if (this._entriesHaveDynamic(tl.frames[0] || [])) {
+                this._walkItems(tl.frames[0] || [], matMul(matrix, local), childPath, entryColor, out);
+                return;
+            }
+            out.push({ type: 'static', entries: [e], matrix, path, color });
+            return;
+        }
+        const ch = this.characters[sid];
+        if (ch?.kind === 'button' && this._entriesHaveDynamic(ch.records?.up || [])) {
+            this._walkItems(ch.records?.up || [], matMul(matrix, local), childPath, entryColor, out);
+            return;
+        }
+        out.push({ type: 'static', entries: [e], matrix, path, color });
+    }
+
+    // A subarvore contem sprite animado (frames>1) que viraria overlay?
+    // Grupos clipDepth nao contam: sao atomicos e ficam estaticos.
+    _entriesHaveDynamic(entries) {
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (e.clipDepth !== undefined) {
+                while (i + 1 < entries.length && entries[i + 1].depth <= e.clipDepth) i++;
+                continue;
+            }
+            if (this._subtreeHasDynamic(e)) return true;
+        }
+        return false;
+    }
+
+    _subtreeHasDynamic(e) {
+        const sid = String(e.id);
+        if (this.sprites[sid]) {
+            const tl = this.sprites[sid];
+            if ((tl.frames?.length || 1) > 1) return true;
+            return this._entriesHaveDynamic(tl.frames[0] || []);
+        }
+        const ch = this.characters[sid];
+        if (ch?.kind === 'button') return this._entriesHaveDynamic(ch.records?.up || []);
+        return false;
+    }
+
+    // Todos os paths descendentes de uma lista de entries (todas as frames
+    // de sprites e todos os records de botoes) — usado para saber qual
+    // segmento re-renderizar quando um playhead/botao fica sujo.
+    collectPaths(entries, path, out) {
+        for (const e of entries) {
+            const cp = this._path(path, e);
+            out.add(cp);
+            const sid = String(e.id);
+            if (this.sprites[sid]) {
+                for (const fr of this.sprites[sid].frames || []) this.collectPaths(fr, cp, out);
+            } else {
+                const ch = this.characters[sid];
+                if (ch?.kind === 'button') {
+                    for (const k of Object.keys(ch.records || {}))
+                        this.collectPaths(ch.records[k] || [], cp, out);
+                }
+            }
+        }
+    }
+
+    // Bounds [x0,y0,x1,y1] em DEVICE px, uniao de todos os frames do sprite
+    // (o canvas do overlay precisa cobrir a animacao inteira, nao so o
+    // frame atual). worldDev = scale * dyn.world.
+    dynBounds(dyn, scale) {
+        const h = this._playhead(dyn.path, dyn.sid);
+        if (!h) return null;
+        const sm = { a: scale, b: 0, c: 0, d: scale, x: 0, y: 0 };
+        const worldDev = matMul(sm, dyn.world);
+        let b = null;
+        for (const fr of h.tl.frames) {
+            const fb = this._boundsOfEntries(fr, worldDev, dyn.path);
+            if (!fb) continue;
+            b = b ? [Math.min(b[0], fb[0]), Math.min(b[1], fb[1]), Math.max(b[2], fb[2]), Math.max(b[3], fb[3])] : fb;
+        }
+        return b;
+    }
+
+    // Re-renderiza o frame atual do sprite dinamico no canvas do overlay.
+    // dyn.ox/oy = origem do canvas em device px (translate compoe com o
+    // worldDev de cada shape via ctx.transform).
+    async renderSpriteDynamic(dyn, scale) {
+        const h = this._playhead(dyn.path, dyn.sid);
+        if (!h || !dyn.canvas) return;
+        const frame = h.tl.frames[h.frame - 1] || [];
+        const sm = { a: scale, b: 0, c: 0, d: scale, x: 0, y: 0 };
+        const worldDev = matMul(sm, dyn.world);
+        const ctx = dyn.canvas.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, dyn.canvas.width, dyn.canvas.height);
+        ctx.translate(-dyn.ox, -dyn.oy);
+        await this._drawEntries(ctx, frame, worldDev, dyn.path, IDENT_COLOR, scale, 1);
     }
 
     // ---------- Estado por path (port do Clip.set/goto/currentFrame/find do gp) ----------
