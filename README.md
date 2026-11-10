@@ -19,9 +19,9 @@
 
 ## About
 
-**Claude Penguin** is a Brazilian fan project by **[Arenovisk](https://github.com/gabixou)** that reimagines the classic Club Penguin experience as a modern web game. Walk through snowy villages, cozy coffee shops and lively dance floors rendered with real animated `.swl` scenes — all running at 60 FPS in any modern browser.
+**Claude Penguin** is a Brazilian fan project by **[Arenovisk](https://github.com/gabixou)** that reimagines the classic Club Penguin experience as a modern web game. Walk through snowy villages, cozy coffee shops and lively dance floors rendered with real animated `.swl` scenes running at 60 FPS in any modern browser.
 
-It is a love letter to the penguin that stole our childhoods: authentic HUD, real game assets, chat, rooms, outfits, minigames and a multiplayer world — rebuilt from scratch for the web.
+It is a love letter to the penguin that stole our childhoods: authentic HUD, real game assets, chat, rooms, outfits, minigames and a multiplayer world rebuilt from scratch for the web.
 
 ## Features
 
@@ -46,7 +46,7 @@ Most Club Penguin private servers are **emulators of the original Flash client**
 | **Setup** | Docker, PostgreSQL, Nginx, websockify bridges | `npm install` → `npm start` |
 | **Scenes** | SWF timelines | Custom JS port of the `.swl` scene format |
 
-In short: instead of resurrecting Flash, this project **rebuilds the game natively for the web** — same soul, modern bones.
+In short: instead of resurrecting Flash, this project **rebuilds the game natively for the web**: same soul, modern bones.
 
 ## Tech stack
 
@@ -93,7 +93,7 @@ On Windows, `INICIAR_JOGO.bat` and `INICIAR_JOGO_RAPIDO.bat` automate the whole 
 This project was created almost entirely with **AI coding agents** running for free:
 
 - 🤖 **[Devin](https://devin.ai)** — developed on the free promotional plan powered by **SWE-2 Flash Medium**
-- 🦙 **[Ollama](https://ollama.com/)** with **Qwen 3.5** — running locally on the developer's machine for heavy lifting
+- 🦙 **[Ollama](https://ollama.com/)** with **Qwen 3.5** running locally on the developer's machine for heavy lifting
 - 👁️ **Gemini Vision** — validates every visual change by comparing screenshots against the reference implementation
 
 A real-world experiment in what a solo developer + free AI tools can build.
@@ -112,5 +112,5 @@ Claude Penguin is a **non-commercial fan project**. It is **not affiliated with,
 ---
 
 <div align="center">
-  <sub>Feito com 🐧 e muito café — um projeto brasileiro de <a href="https://github.com/gabixou">Arenovisk</a></sub>
+  <sub>Feito com 🐧 e muito café: um projeto brasileiro de <a href="https://github.com/gabixou">Arenovisk</a></sub>
 </div>
