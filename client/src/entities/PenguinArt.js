@@ -18,6 +18,11 @@ export const veColor = (rgb) => ({
     add: [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 0],
 });
 
+// Aquece os SVGs de um pack: rooms/roupas sao pequenos (~100 arquivos) e
+// vao em burst paralelo; o pack base do pinguim tem ~1800 e vai em chunks
+// limitados para nao saturar a fila de decode durante o load da sala.
+const warmSvgs = (movie, chunk = 0) => movie.prefetchSvgs?.(chunk);
+
 export class PenguinLibrary {
     static async load(base = '/assets/movies/penguin') {
         const lib = new PenguinLibrary();
@@ -39,21 +44,9 @@ export class PenguinLibrary {
         lib.items = new Map();      // itemId -> Promise<Clip|null>
         lib.bounds = lib._unionBounds();
         // decode de SVG e lazy: _svgImage e chamado sob demanda por
-        // artCanvas/Clip e fica em cache. Aquecer os characters do pack
-        // (~centenas de SVGs) em idle evita pop-in de itens/poses de acao.
-        {
-            const files = [...new Set(
-                Object.values(lib.movie.characters || {})
-                    .map((c) => c.file).filter(Boolean)
-            )];
-            let i = 0;
-            const step = () => {
-                for (let j = 0; j < 16 && i < files.length; j++, i++)
-                    lib.movie._svgImage(files[i]);
-                if (i < files.length) setTimeout(step, 30);
-            };
-            setTimeout(step, 30);
-        }
+        // artCanvas/Clip e fica em cache. Prefetch em chunks evita pop-in
+        // de itens/poses de acao sem travar a main thread.
+        warmSvgs(lib.movie, 64);
         return lib;
     }
 
@@ -89,20 +82,10 @@ export class PenguinLibrary {
             this.items.set(itemId, MovieRoom.load(`/assets/clothing/${itemId}`)
                 .then((mv) => {
                     const clip = new Clip(mv);
-                    // Pré-decodifica os SVGs do pack em idle: sem isso o
-                    // primeiro frame de ação (dance/throw) renderiza os itens
-                    // aos poucos por ~1s enquanto as imagens decodificam.
-                    const files = [...new Set(
-                        Object.values(mv.characters || {})
-                            .map((c) => c.file).filter(Boolean)
-                    )];
-                    let i = 0;
-                    const step = () => {
-                        for (let j = 0; j < 16 && i < files.length; j++, i++)
-                            mv._svgImage(files[i]);
-                        if (i < files.length) setTimeout(step, 30);
-                    };
-                    setTimeout(step, 30);
+                    // Pré-decodifica os SVGs do pack: sem isso o primeiro
+                    // frame de ação (dance/throw) renderiza os itens aos
+                    // poucos por ~1s enquanto as imagens decodificam.
+                    warmSvgs(mv);
                     return clip;
                 })
                 .catch(() => null));

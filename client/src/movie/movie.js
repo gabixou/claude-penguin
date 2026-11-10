@@ -259,6 +259,30 @@ export class MovieRoom {
         return p;
     }
 
+    // Dispara o decode de todos os SVGs referenciados pelos characters.
+    // _svgImage cacheia promises, entao o desenho sequencial seguinte
+    // (renderLayer/_drawShape) encontra as imagens prontas.
+    // Sem isso cada layer esperava um decode por vez: ~60s para a town.
+    // chunk > 0 limita os Image pendentes por macrotask — packs grandes
+    // (penguin = ~1800 SVGs) nao saturam a fila de decode de uma vez.
+    prefetchSvgs(chunk = 0) {
+        const files = [...new Set(
+            Object.values(this.characters || {})
+                .map((c) => c.file).filter(Boolean)
+        )];
+        if (!chunk) {
+            for (const f of files) this._svgImage(f);
+            return;
+        }
+        let i = 0;
+        const step = () => {
+            for (let j = 0; j < chunk && i < files.length; j++, i++)
+                this._svgImage(files[i]);
+            if (i < files.length) setTimeout(step, 0);
+        };
+        step();
+    }
+
     // Rasteriza o SVG em canvas na escala informada (vetorial -> nitido).
     async artCanvas(file, char, scale) {
         const key = `${file}|${+scale.toFixed(3)}`;
