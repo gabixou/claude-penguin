@@ -1,1 +1,0 @@
-Analise este screenshot de um guarda-roupa (tela de roupas) de um clone de Club Penguin. Avalie problemas visuais concretos: elementos sobrepostos, itens fora do painel, preview cortado, texto ilegivel, alinhamento. Liste apenas defeitos reais, em portugues.

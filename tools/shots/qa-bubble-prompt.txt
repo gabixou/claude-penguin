@@ -1,8 +1,0 @@
-Compare estas duas imagens do Club Penguin (clone a esquerda, referencia original a direita).
-A imagem da esquerda tem um balão de fala sobre o pinguim do jogador local com o texto "Waddle on! Teste de balão fiel do Club Penguin." — a referencia não tem balão (estado diferente, ignore).
-Avalie ESPECIFICAMENTE:
-1. O balão de fala tem aparência fiel ao estilo Club Penguin original? (cor branca translúcida, borda, rabinho/tail apontando para a cabeça do pinguim, posição acima da cabeça)
-2. O texto dentro do balão usa fonte parecida com Burbank/GoPenguin, preto, centralizado?
-3. O balão está bem posicionado (ponta do rabinho perto da cabeça, não cobrindo o rosto nem o nametag)?
-4. Algum problema visual no balão (cantos distorcidos, rabinho deformado, texto cortado/vazando, tamanho exagerado)?
-Liste divergências concretas e classificação: FIEL / ACEITAVEL / PRECISA CORRECAO.

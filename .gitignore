@@ -14,3 +14,5 @@ tools/probe-card.mjs
 # deps e build
 node_modules/
 dist/
+*.log
+client/vite-dev.log

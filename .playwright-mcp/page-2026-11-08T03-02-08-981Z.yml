@@ -1,3 +1,0 @@
-- generic [active] [ref=e1]:
-  - generic "Room" [ref=e2]
-  - status [ref=e3]: Connecting to GoPenguin... GoPenguin

@@ -1,3 +1,0 @@
-This is a screenshot of a Club Penguin browser clone's inventory (wardrobe) panel.
-Check the item icon grid: every cell should show a recognizable clothing item icon (hat, face item, etc).
-Report: (1) how many cells appear blank/white/empty, (2) any icons that look broken, stretched, or missing, (3) short verdict.

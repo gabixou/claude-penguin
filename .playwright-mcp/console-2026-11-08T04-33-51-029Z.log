@@ -1,4 +1,0 @@
-[    9618ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
-[    9732ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
-[   10289ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
-[   10420ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
