@@ -482,6 +482,29 @@ export class MovieRoom {
         sched(step);
     }
 
+    // Warm ritmado de artCanvas (background): drena a fila de raster do
+    // catalogo durante a leitura sem inundar a fila de decode de SVGs —
+    // mesmo padrao do _scheduleDecode (rIC + teto de Images pendentes).
+    _scheduleArtWarm(items, scale, chunk = 8) {
+        if (!items.length) return;
+        const sched = typeof requestIdleCallback === 'function'
+            ? (fn) => requestIdleCallback(fn, { timeout: 1500 })
+            : (fn) => setTimeout(fn, 50);
+        let i = 0;
+        const step = () => {
+            if (MovieRoom._decodeHold > 0 || _pendingImages > _MAX_PENDING_IMAGES) {
+                sched(step);
+                return;
+            }
+            for (let j = 0; j < chunk && i < items.length; j++, i++) {
+                const [f, ch] = items[i];
+                this.artCanvas(f, ch, scale, true);
+            }
+            if (i < items.length) sched(step);
+        };
+        sched(step);
+    }
+
     prefetchSvgs(chunk = 0) {
         const files = [...new Set(
             Object.values(this.characters || {})
@@ -530,12 +553,21 @@ export class MovieRoom {
         // do browser) — usado pelo catalogo, onde a pagina alvo nao pode
         // esperar o requestIdleCallback (que morre de fome durante renders)
         if (immediate) {
+            if (bg) {
+                // warm de fundo: RITMADO — disparar _svgImage/artCanvas para
+                // centenas de arquivos de uma vez estoura a fila de decode
+                // do browser (_MAX_PENDING_IMAGES) e o render da pagina
+                // atual espera atras do warm inteiro
+                if (scale != null) this._scheduleArtWarm([...arts.entries()], scale);
+                else this._scheduleDecode([...files], chunk);
+                return;
+            }
             for (const f of files) this._svgImage(f);
-            // scale: ja rasteriza os artCanvas em paralelo — o renderFrame
-            // espera cada createImageBitmap em serie (~30-50ms/shape), o que
-            // dominava o custo de primeira visita de cada pagina
+            // scale: ja rasteriza os artCanvas — o renderFrame espera cada
+            // createImageBitmap em serie (~30-50ms/shape), o que dominava
+            // o custo de primeira visita de cada pagina
             if (scale != null) {
-                for (const [f, ch] of arts) this.artCanvas(f, ch, scale, bg);
+                for (const [f, ch] of arts) this.artCanvas(f, ch, scale, false);
             }
             return;
         }
@@ -1042,7 +1074,13 @@ export class MovieRoom {
         // escala efetiva: world pode ampliar o shape (poses de acao 2-4x);
         // rasterizar em scale*|world| evita upscale pixelado do bitmap
         const k = Math.max(Math.hypot(world.a, world.b), Math.hypot(world.c, world.d), 1e-6);
-        const eff = +(scale * Math.min(k, 8)).toFixed(3);
+        // artFlatScale (catalogo): rasteriza sempre em `scale` — sprites
+        // aninhados escalados pediriam eff=scale*k em dezenas de valores
+        // continuos, gerando ~200 misses seriais por pagina densa (p17 =
+        // 13s). Com scale fixo o warm cobre 100% dos shapes; o custo e um
+        // leve suavizacao nos poucos shapes ampliados (como o gopenguin,
+        // que rasteriza tudo a 1x).
+        const eff = this.artFlatScale ? scale : +(scale * Math.min(k, 8)).toFixed(3);
         const canvas = tint
             ? await this.tintedCanvas(file, ch, color, eff)
             : await this.artCanvas(file, ch, eff);
