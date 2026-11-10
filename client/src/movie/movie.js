@@ -69,6 +69,71 @@ function _getManifestWorker() {
     return _manifestWorker;
 }
 
+// Pool de workers p/ tint por pixel: o loop getImageData/putImageData e
+// CPU-bound e sincronico — num cold load de sala com sprites tintados
+// bloqueava a main thread por segundos. ImageBitmap e transferivel,
+// entao o worker recebe os pixels, tinda e devolve um bitmap novo.
+let _tintPool = null;
+const _tintQueue = [];
+function _getTintPool() {
+    if (typeof Worker === 'undefined') return null;
+    if (!_tintPool) {
+        const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+        _tintPool = [];
+        for (let i = 0; i < n; i++) {
+            try {
+                const w = new Worker(
+                    new URL('../workers/tint.worker.js', import.meta.url),
+                    { type: 'module' });
+                const slot = { w, busy: false, dead: false };
+                w.onerror = () => { slot.dead = true; };
+                _tintPool.push(slot);
+            } catch { /* sem suporte a worker */ }
+        }
+        if (!_tintPool.length) _tintPool = null;
+    }
+    return _tintPool;
+}
+
+function _pumpTintQueue() {
+    const pool = _getTintPool();
+    if (!pool) {
+        let j; while ((j = _tintQueue.shift())) j.resolve(null);
+        return;
+    }
+    for (const slot of pool) {
+        if (slot.busy || slot.dead || !_tintQueue.length) continue;
+        const job = _tintQueue.shift();
+        slot.busy = true;
+        let done = false;
+        const finish = (bmp) => {
+            if (done) return;
+            done = true;
+            clearTimeout(job.timer);
+            slot.w.removeEventListener('message', onMsg);
+            slot.busy = false;
+            job.resolve(bmp);
+            _pumpTintQueue();
+        };
+        const onMsg = (e) => finish(e.data?.bitmap || null);
+        slot.w.addEventListener('message', onMsg);
+        job.timer = setTimeout(() => finish(null), 15000);
+        try {
+            slot.w.postMessage({ bitmap: job.bitmap, mult: job.mult, add: job.add }, [job.bitmap]);
+        } catch { finish(null); }
+    }
+    if (_tintQueue.length) setTimeout(_pumpTintQueue, 8);
+}
+
+// Enfileira um tint; resolve ImageBitmap ou null (caller cai no fallback).
+function _tintBitmap(bitmap, mult, add) {
+    if (typeof Worker === 'undefined') return Promise.resolve(null);
+    return new Promise((resolve) => {
+        _tintQueue.push({ bitmap, mult, add, resolve });
+        setTimeout(_pumpTintQueue, 0);
+    });
+}
+
 const matMul = (p, q) => ({
     a: p.a * q.a + p.c * q.b, b: p.b * q.a + p.d * q.b,
     c: p.a * q.c + p.c * q.d, d: p.b * q.c + p.d * q.d,
@@ -419,7 +484,11 @@ export class MovieRoom {
         this._scheduleDecode([...files], chunk);
     }
 
-    // Rasteriza o SVG em canvas na escala informada (vetorial -> nitido).
+    // Rasteriza o SVG na escala informada (vetorial -> nitido).
+    // Retorna ImageBitmap (ou canvas no fallback) — drawImage aceita ambos.
+    // createImageBitmap rasteriza o SVG de forma assincrona no pipeline de
+    // decode do Chrome, em vez do drawImage sincronico na canvas — um dos
+    // gargalos do cold load de salas com muitos shapes.
     async artCanvas(file, char, scale) {
         const key = `${file}|${+scale.toFixed(3)}`;
         let c = this._artCache.get(key);
@@ -430,14 +499,35 @@ export class MovieRoom {
         const h = char?.size?.[1] ?? img.naturalHeight;
         const cw = Math.max(1, Math.ceil(w * scale));
         const ch = Math.max(1, Math.ceil(h * scale));
-        c = document.createElement('canvas');
-        c.width = cw; c.height = ch; c._scale = scale;
-        const ctx = c.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, cw, ch);
+        try {
+            c = await createImageBitmap(img, { resizeWidth: cw, resizeHeight: ch });
+        } catch {
+            c = document.createElement('canvas');
+            c.width = cw; c.height = ch;
+            const ctx = c.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, cw, ch);
+        }
+        c._scale = scale;
         this._artCache.set(key, c);
         return c;
+    }
+
+    // Caminho rapido do tint: bitmap base do cache -> copia transferivel
+    // -> worker aplica mult+add por pixel -> bitmap tintado. A copia via
+    // createImageBitmap nao consome o bitmap base (reutilizado por outros
+    // tints e pelo desenho sem tint).
+    async _tintedBitmap(file, char, color, scale, ck) {
+        const base = await this.artCanvas(file, char, scale);
+        if (!base) return null;
+        let copy = null;
+        try { copy = await createImageBitmap(base); } catch { return null; }
+        const tinted = await _tintBitmap(copy, color.mult, color.add);
+        if (!tinted) { try { copy.close?.(); } catch {} return null; }
+        tinted._scale = scale;
+        this._tintCache.set(ck, tinted);
+        return tinted;
     }
 
     // Variante com colorTransform (mult+add) — exato por pixel, como no
@@ -446,6 +536,9 @@ export class MovieRoom {
         const ck = `${file}|${color.mult.join(',')}|${color.add.join(',')}|${+scale.toFixed(3)}`;
         let c = this._tintCache.get(ck);
         if (c && c._scale === scale) return c;
+        const fast = await this._tintedBitmap(file, char, color, scale, ck);
+        if (fast) return fast;
+        // fallback: canvas + getImageData na main thread
         const base = await this.artCanvas(file, char, scale);
         if (!base) return null;
         c = document.createElement('canvas');
