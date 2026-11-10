@@ -36,7 +36,6 @@ export class Clip {
         this.m = movie;
         this.state = new Map();      // path -> {frame, playing, color, visible, matrix, ...}
         this.playheads = new Map();  // path -> {timeline, frame, playing, counters, seen}
-        this._pixCache = new Map();  // file|color|scale -> canvas (tint por pixel, exato)
         this._solidCache = new Map();
     }
 
@@ -468,28 +467,11 @@ export class Clip {
         return c;
     }
 
-    // colorTransform geral por pixel (exato, cacheado)
-    async _pixelTint(ch, color, scale) {
-        const key = `${ch.file}|${color.mult.join(',')}|${color.add.join(',')}|${scale}`;
-        let c = this._pixCache.get(key);
-        if (c && c._scale === scale) return c;
-        const base = await this.m.artCanvas(ch.file, ch, scale);
-        if (!base) return null;
-        c = document.createElement('canvas');
-        c.width = base.width; c.height = base.height; c._scale = scale;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(base, 0, 0);
-        const img = ctx.getImageData(0, 0, c.width, c.height);
-        const d = img.data;
-        const m = color.mult, a = color.add;
-        for (let i = 0; i < d.length; i += 4) {
-            d[i] = Math.min(255, Math.max(0, d[i] * m[0] + a[0]));
-            d[i + 1] = Math.min(255, Math.max(0, d[i + 1] * m[1] + a[1]));
-            d[i + 2] = Math.min(255, Math.max(0, d[i + 2] * m[2] + a[2]));
-            d[i + 3] = Math.min(255, Math.max(0, d[i + 3] * m[3] + a[3]));
-        }
-        ctx.putImageData(img, 0, 0);
-        this._pixCache.set(key, c);
-        return c;
+    // colorTransform geral por pixel — delegado ao movie.tintedCanvas:
+    // tint roda em worker pool com cache compartilhado entre todas as
+    // instancias (antes: getImageData na main thread + cache por Clip,
+    // o que duplicava bitmaps entre pinguins)
+    _pixelTint(ch, color, scale) {
+        return this.m.tintedCanvas(ch.file, ch, color, scale);
     }
 }
