@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import playerStore from './playerStore.js';
+import { clientIp, isLoopbackIp } from './net.js';
 
 const COOKIE_NAME = 'penguin_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 dias
@@ -37,7 +38,7 @@ function extractSessionToken(req) {
  * Retorna { player, isNew, sessionToken }
  */
 export function identifyPlayer(req, clientToken = null) {
-    const ip = req.socket.remoteAddress || req.connection.remoteAddress || 'unknown';
+    const ip = clientIp(req) || 'unknown';
 
     // 1. Tenta por session token (cookie ou localStorage)
     const sessionToken = clientToken || extractSessionToken(req);
@@ -51,7 +52,7 @@ export function identifyPlayer(req, clientToken = null) {
 
     // 2. Tenta por IP (fallback) — ignorado em localhost para permitir
     // varios pinguins de teste na mesma maquina (todos compartilham ::1)
-    const isLoopback = ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1';
+    const isLoopback = isLoopbackIp(ip);
     const playerByIp = isLoopback ? null : playerStore.getPlayerByIp(ip);
     if (playerByIp) {
         // Se encontrou por IP mas não tem token, gera um novo
