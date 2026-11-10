@@ -1,3 +1,7 @@
 # Secrets
 .env
 .devin/mcp_config.local.json
+/.devin
+/.playwright-mcp
+catalog1.png
+gopenguin.png

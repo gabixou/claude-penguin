@@ -658,6 +658,9 @@ export default class RoomScene extends Phaser.Scene {
                 // cria playheads sem rasterizar — sem isso, rooms vindos do
                 // cache IndexedDB ficavam com animacao congelada
                 movie.warmPlayheads();
+                // decode paralelo de todos os SVGs do pack: sem isso cada
+                // renderLayer esperava um decode por vez (~60s na town)
+                movie.prefetchSvgs();
                 // interacoes de cenario (botoes up/over/down + walk-to-door)
                 this._interactions = new RoomInteractions(this, movie, roomKey);
                 this._interactions.build();
