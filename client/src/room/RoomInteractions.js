@@ -115,7 +115,9 @@ export class RoomInteractions {
         }
         if (b) {
             this.movie.setButtonState(b.path, 'over');
-            for (const a of b.hover) this.movie.gotoPath(a.path, a.over, true);
+            // hover actions seguram o frame 'over' (gotoAndStop) — como no
+            // gp, o estado fica ate o hover-out. playOver toca a animacao.
+            for (const a of b.hover) this.movie.gotoPath(a.path, a.over, !!a.playOver);
             if (b.sfxHover !== undefined) playRoomSfx(this.roomKey, b.sfxHover);
         }
         this.hovered = path;

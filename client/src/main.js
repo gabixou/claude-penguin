@@ -11,8 +11,8 @@ import { WORLD_W, WORLD_H } from './display.js';
 const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
-    // Backing inicial 1520x960; RoomScene ajusta dinamicamente via computeSupersample()
-    // (mundo continua em coordenadas 760x480 com camera zoom = fator SS)
+    // Backing inicial 1520x960; RoomScene ajusta para SS_FIXED (2.25x)
+    // via computeSupersample() — mundo segue em coords 760x480 com camera zoom
     width: WORLD_W * 2,
     height: WORLD_H * 2,
     backgroundColor: '#001833',
@@ -40,6 +40,6 @@ window.addEventListener('load', () => {
     if (!document.fonts?.load) { start(); return; }
     Promise.race([
         document.fonts.load('12px GoPenguin'),
-        new Promise((resolve) => setTimeout(resolve, 1500))
+        new Promise((resolve) => setTimeout(resolve, 600))
     ]).then(start, start);
 });

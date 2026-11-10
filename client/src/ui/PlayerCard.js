@@ -118,6 +118,7 @@ export default class PlayerCard {
         this.scene?.wardrobe?.close();
         if (this.dim) { this.dim.destroy(); this.dim = null; }
         if (this.container) { this.container.destroy(true); this.container = null; }
+        this._cardBounds = null;
         // textura do card e por-abertura (playercard_<ts>) — sem remover,
         // cada open vazava uma CanvasTexture na GPU
         if (this._texKey && this.scene?.textures.exists(this._texKey)) {
@@ -262,6 +263,10 @@ export default class PlayerCard {
         const dw = w * scale, dh = h * scale;
         const cont = scene.add.container(cx - dw / 2, cy - dh / 2).setDepth(20000000);
         this.container = cont;
+        // métricas do card em coords de mundo — wardrobe se posiciona
+        // à direita usando a borda real (getBounds é frágil: filhos com
+        // coords absolutas dentro do container inflam o bounds)
+        this._cardBounds = { left: cx - dw / 2, right: cx + dw / 2, top: cy - dh / 2, bottom: cy + dh / 2 };
 
         const texKey = `playercard_${Date.now()}`;
         this._texKey = texKey;
@@ -314,8 +319,9 @@ export default class PlayerCard {
 
         // Botão de renomear (apenas para o jogador local e se canRename)
         if (isSelf && scene.network?.canRename) {
-            const renameY = cy + dh / 2 - 20;
-            const renameBtn = scene.add.container(cx, renameY);
+            // coords LOCAIS do container (card vai de 0..dw, 0..dh) —
+            // antes usava coords de mundo e o botao renderizava fora do card
+            const renameBtn = scene.add.container(dw / 2, dh - 20);
             const renameBg = scene.add.graphics();
             renameBg.fillStyle(0xffcc00, 1);
             renameBg.fillRoundedRect(-40, -12, 80, 24, 4);

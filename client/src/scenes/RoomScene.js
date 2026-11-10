@@ -692,6 +692,29 @@ export default class RoomScene extends Phaser.Scene {
         this.wardrobe.open(this.localPlayer);
     }
 
+    // Apos o reveal: baixa os packs das salas ainda nao visitadas, uma por
+    // idle callback (modelo de prefetch do gopenguin.lol). O manifest e
+    // parseado em worker; packs vao para o IDB — proxima visita sai quente.
+    _prefetchRoomsIdle() {
+        if (this._prefetchScheduled) return;
+        this._prefetchScheduled = true;
+        const bases = [...new Set(
+            Object.values(MOVIE_ROOM_MAP).map((p) => `/assets/movies/${p}`))];
+        const sched = typeof requestIdleCallback === 'function'
+            ? (fn) => requestIdleCallback(fn, { timeout: 8000 })
+            : (fn) => setTimeout(fn, 300);
+        let i = 0;
+        const step = () => {
+            const b = bases[i++];
+            if (b === undefined) return;
+            if (MovieRoom._sharedAssets.has(b)) return sched(step);
+            MovieRoom.prefetchRoom(b)
+                .catch(() => {})
+                .finally(() => sched(step));
+        };
+        sched(step);
+    }
+
     // Carrega o pacote vetorial /assets/movies/<pack>/ (timelines.json + SVGs).
     // Sem fallback: se o pack nao carregar, mostra retangulo de erro.
     _initMovie(roomKey) {
@@ -764,6 +787,8 @@ export default class RoomScene extends Phaser.Scene {
                     // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
                     // (ficou na fila durante o load para nao competir)
                     PenguinLibrary.startWarm?.();
+                    // prefetch idle dos packs das salas nao visitadas (IDB)
+                    this._prefetchRoomsIdle();
                     // garante que o pinguim está em posição acessível
                     this._applySafeSpawn();
                 };

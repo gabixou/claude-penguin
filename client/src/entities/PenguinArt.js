@@ -108,6 +108,28 @@ export class PenguinLibrary {
         return this.items.get(itemId);
     }
 
+    // Prefetch priorizado dos SVGs que este look realmente desenha.
+    // Os frames logicos (idle 1-8, walk 9-16, sit 17-24, emotes) sao
+    // remapeados para secret frames via animationFrame — decodificar so
+    // esses arquivos (e nao os ~1800 do pack inteiro) faz o primeiro walk
+    // ficar pronto rapido; sem isso o pinguim "deslizava" aguardando decode.
+    // Ordem: walk primeiro (acao mais visivel), depois idle/sit/emotes.
+    prefetchLook(look) {
+        const seen = new Set();
+        const afs = [];
+        const push = (f) => { if (!seen.has(f)) { seen.add(f); afs.push(f); } };
+        for (const f of [9, 10, 11, 12, 13, 14, 15, 16,
+            1, 2, 3, 4, 5, 6, 7, 8,
+            17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30]) push(this.animationFrame(look, f));
+        for (let f = 31; f <= 76; f++) push(this.animationFrame(look, f));
+        this.movie.prefetchFrames(afs, 12);
+        for (const slot of ITEM_DRAW_ORDER) {
+            const id = look?.[slot];
+            if (id) this.itemClip(id).then((clip) => clip?.m.prefetchFrames(afs, 12));
+        }
+    }
+
     // fh() do gp.js: frame real a desenhar dado look equipado + frame logico
     animationFrame(look, frame) {
         const max = this.movie.data.main?.frames?.length || 76;
@@ -233,7 +255,12 @@ export class PenguinView {
                 this.items.delete(slot);
             }
         }
-        if (changed) this.dirty = true;
+        if (changed) {
+            this.dirty = true;
+            // garante que os frames deste look (walk/idle/sit) estejam
+            // decodificados antes do primeiro uso — evita o "deslizar"
+            this.lib.prefetchLook?.(look);
+        }
     }
 
     // frame: numero do frame logico da timeline principal (1..76)
