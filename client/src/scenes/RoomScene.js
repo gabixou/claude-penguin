@@ -827,28 +827,38 @@ export default class RoomScene extends Phaser.Scene {
                     // garante que o pinguim está em posição acessível
                     this._applySafeSpawn();
                 };
-                // Rasteriza as layers EM SEQUENCIA com yields: renderizar
-                // todas em paralelo saturava a main thread (tela preta por
-                // minutos + screenshot/browser travando). Sequencial mostra
-                // o cenario progressivamente e mantem a UI responsiva.
+                // Rasteriza as layers em LANES paralelas: o grosso do tempo
+                // de _renderSegment e espera de decode/raster (artCanvas /
+                // createImageBitmap), nao CPU — serializar os segmentos
+                // deixava a main thread ociosa entre decodes. Cada segmento
+                // desenha no proprio canvas (ops seguem seriais dentro dele),
+                // entao 3 lanes so sobrepoem as esperas; o raster 2D em si
+                // continua single-thread. Yields entre segmentos mantem a
+                // UI responsiva e o progresso parcial visivel no loader.
                 const boot = async () => {
-                    let done = 0;
-                    for (const layer of this.movieLayers) {
-                        if (this.movie !== movie) { releaseHold(); return; } // sala trocou
-                        if (layer._busy) { await new Promise((r) => setTimeout(r, 30)); continue; }
-                        layer._busy = true;
-                        try {
-                            await this._renderSegment(layer);
-                        } catch (e) {
-                            console.warn('[seg] render', e);
-                        } finally {
-                            layer.tex?.refresh();
-                            layer._busy = false;
+                    const LANES = 3;
+                    let next = 0, done = 0;
+                    const worker = async () => {
+                        while (this.movie === movie) {
+                            const layer = this.movieLayers[next++];
+                            if (!layer) return;
+                            if (layer._busy) { await new Promise((r) => setTimeout(r, 30)); continue; }
+                            layer._busy = true;
+                            try {
+                                await this._renderSegment(layer);
+                            } catch (e) {
+                                console.warn('[seg] render', e);
+                            } finally {
+                                layer.tex?.refresh();
+                                layer._busy = false;
+                            }
+                            done++;
+                            report(done);
+                            await new Promise((r) => setTimeout(r, 0));
                         }
-                        done++;
-                        report(done);
-                        await new Promise((r) => setTimeout(r, 0));
-                    }
+                    };
+                    await Promise.all(Array.from({ length: LANES }, worker));
+                    if (this.movie !== movie) { releaseHold(); return; }
                     // overlays dinamicos: render inicial antes do reveal
                     await this._renderDynamics(movie);
                     // salva no cache para a proxima visita (so se nao houve hit)
