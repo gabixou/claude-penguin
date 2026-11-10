@@ -1,0 +1,77 @@
+Aqui está a análise comparativa detalhada entre o clone em desenvolvimento (Imagem 1) e a interface de referência do jogo (Imagem 2).
+
+---
+
+## 1. Estado das cenas
+- **Diferença de contexto**: A **Imagem 1 (Clone)** mostra o jogo completo rodando no navegador (cenário do Centro/Town ao fundo, HUD inferior com chat/ações, botão de mapa, contador de mensagens) com a janela de inventário/Player Card aberta no centro. A **Imagem 2 (Ref)** mostra apenas o componente visual (asset/template limpo) do Player Card e da janela de inventário isolados sobre fundo branco.
+- **Conclusão**: A comparação será focada **exclusivamente na janela do Player Card e no Painel de Inventário**, que é o elemento presente em ambas as imagens.
+
+---
+
+## 2. Diferenças visuais encontradas
+
+### Enquadramento / Painel do Player Card (Lado Esquerdo - Cartão Azul)
+
+- **Textos dos status de Moedas e Selos (Coins / Stamps)**
+  - **Clone**: Apresenta apenas os ícones redondos de moeda e de selo no canto inferior esquerdo, sem nenhum texto ao lado.
+  - **Ref**: Exibe explicitamente as legendas em texto preto ao lado dos ícones: `"Your Coins:"` e `"Your Stamps:"`.
+  - **Correção provável**: Adicionar objetos de texto Phaser (`Phaser.GameObjects.Text`) à direita de cada ícone no painel esquerdo: `"Your Coins:"` (posição rel. aprox. `x: 60, y: [coin_icon_y]`) e `"Your Stamps:"` (posição rel. aprox. `x: 60, y: [stamp_icon_y]`), fonte sans-serif preta (ex: Arial/Burbank, ~14px-16px, color `#000000`).
+
+- **Ícone do Telefone Secreto (EPF / Spy Phone)**
+  - **Clone**: Ausente no canto inferior direito do quadro azul interno do pinguim.
+  - **Ref**: Possui o ícone do telefone de espião/agente secreto ancorado no canto inferior direito da tela de visualização do pinguim.
+  - **Correção provável**: Adicionar o sprite do Spy Phone na camada sobreposta do quadro azul interno do pinguim, alinhado à direita/baixo (aprox. `x: 230, y: 250` relativo ao card azul).
+
+- **Botão de Ajuda ("?") e Botão de Fechar ("X")**
+  - **Clone**: Exibe um botão circular com ponto de interrogação `?` ao lado do botão `X` de fechar. Além disso, o nome do jogador `"Penguin_9ASU"` está renderizado no topo.
+  - **Ref**: Não possui o botão `?` no topo do cartão; possui apenas o botão circular azul com `X` no canto superior direito do cartão azul interno.
+  - **Correção provável**: Remover o botão `?` da header do Player Card clássico ou ocultá-lo para alinhar ao layout de referência.
+
+---
+
+## 3. Painel de Inventário (Lado Direito - Grade de Itens)
+
+- **Bug de Texto Sobreposto ("Coins: 1500")**
+  - **Clone**: Há um texto azul solto e desalinhado (`Coins: 1500`) renderizado por cima da primeira linha de itens da grade do inventário.
+  - **Ref**: Não existe este texto dentro da área de inventário.
+  - **Correção provável**: Remover a renderização deste texto do container do inventário ou corrigir sua posição/visibilidade (provavelmente é um debug ou label antigo que ficou no lugar errado).
+
+- **Abas de Categoria (Navegação)**
+  - **Clone**: Exibe abas de texto no topo do inventário: `"All | Head | Face | Neck | Shirt | Hand | Feet | Color"`.
+  - **Ref**: O topo do painel de inventário é limpo e arredondado. A seleção de categoria é representada por um botão oval/pílula na parte inferior central contendo a legenda `"All Items"`.
+  - **Correção provável**: Remover o menu de abas em texto do topo da janela de inventário e implementar o botão em formato de pílula arredondada branca/cinza claro no rodapé central do inventário (`"All Items"`), criando o container curvo projetado para baixo.
+
+- **Design das Molduras/Grid dos Itens**
+  - **Clone**: Desenha molduras quadradas brancas com bordas pretas espessas e bem marcadas ao redor dos ícones dos itens (quando equipados/listados), e o item selecionado ganha uma moldura verde destacada.
+  - **Ref**: A grade original é composta por 12 slots (3 colunas x 4 linhas) fixos, representados por quadrados brancos de cantos levemente arredondados com um traço contínuo cinza suave/claro (sem preenchimento escuro e sem bordas pretas grossas).
+  - **Correção provável**: Alterar o estilo visual dos slots do grid. Definir background dos slots como branco `#FFFFFF` com borda/stroke cinza claro (ex: `#C0C0C0` ou `#D0D0D0`, espessura 2px, radius 8px). Remover a borda preta espessa das imagens dos itens.
+
+- **Barra de Rolagem / Botões de Navegação (Scroll)**
+  - **Clone**: Botões de seta em círculos finos pretos (para cima e para baixo) no canto direito. Exibe texto de paginação no rodapé: `"Page 1 of 6 - 61 Items"`.
+  - **Ref**: Possui uma calha/barra lateral cinza dedicada à direita com botões circulares metálicos/cinza estilizados de seta para cima `▲` e para baixo `▼` em relevo (com anéis concêntricos). Não exibe texto de paginação abaixo do grid.
+  - **Correção provável**: Substituir os sprites das setas por versões fiéis (botões redondos cinza com borda gradiente e relevo). Remover o texto `"Page 1 of 6..."` ou ocultá-lo.
+
+- **Aba Lateral Azul (Tab de Extensão)**
+  - **Clone**: A aba azul que sobressai no canto direito do inventário está mal posicionada ou coberta parcialmente.
+  - **Ref**: Possui uma aba azul arredondada se projetando da lateral direita da caixa de inventário branca, contendo uma pequena seta/triângulo escuro apontando para a direita/esquerda.
+  - **Correção provável**: Ajustar a profundidade (z-index) e o alinhamento da aba lateral azul (`x: direita do painel branco, y: centralizado verticalmente`).
+
+---
+
+## 3. O que já está igual
+
+1. **Formato Base do Player Card**: O cartão azul da esquerda possui a curvatura correta, a "aba de ventilação" superior metálica e a aba do badge de Member no canto superior esquerdo.
+2. **Ícones base**: O visual dos ícones de Moeda (dourado) e Selo (engrenagem/selo azul) são muito fiéis aos originais.
+3. **Badge de Member**: O selo amarelo com estrela e a faixa "MEMBER" no topo esquerdo do cartão correspondem bem ao design original.
+4. **Dimensões gerais**: A proporção entre o painel esquerdo (Player Card) e o painel direito (Inventário) está correta (aprox. 1:1.3).
+
+---
+
+## 4. Prioridades de Correção
+
+1. **[CRÍTICO] Remoção do texto fantasma/sobreposto (`Coins: 1500`)**: Eliminar a interferência visual grave sobre os itens do inventário.
+2. **[ALTA] Adição das legendas de texto (`"Your Coins:"` e `"Your Stamps:"`)**: Elemento de UI funcional e essencial que está totalmente ausente no clone.
+3. **[ALTA] Restilização da Grade do Inventário**: Trocar as bordas pretas pesadas dos itens pelas molduras padrão de slots cinza claro/suave (3x4).
+4. **[MÉDIA] Reestruturação da Navegação de Categorias**: Remover as abas em texto do topo do inventário e implementar o botão em pílula inferior (`"All Items"`).
+5. **[MÉDIA] Adição do Ícone do Telefone (Spy Phone)**: Incluir o sprite no canto inferior direito da área do pinguim.
+6. **[BAIXA] Ajuste dos botões de scroll e aba lateral**: Atualizar os sprites das setas para a versão metálica cinza e alinhar a aba azul lateral direita.

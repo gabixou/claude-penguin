@@ -1,0 +1,79 @@
+Aqui está a análise visual exaustiva comparando o **Clone (Imagem 1)** com a **Referência (Imagem 2)**.
+
+---
+
+## 1. Estado das cenas
+- **Confirmação**: Ambas as imagens mostram a mesma sala principal do jogo (**Town / Centro**), contendo os prédios *Coffee*, *Night Club / Disco* e *Gift Shop*.
+- **Divergência de entidade**: O Clone mostra apenas 1 pinguim azul no centro (`Penguin_3209`), enquanto a Referência contém 2 pinguins (`Icy110` no centro e o NPC `Captain Rockhopper` acompanhado de um Puffle vermelho à esquerda).
+
+---
+
+## 2. Diferenças visuais encontradas
+
+### Enquadramento / Canvas
+- **Diferença**: Presença de barras pretas laterais (letterboxing/pillarboxing).
+  - **Clone**: Possui barras pretas verticais espessas nas laterais esquerda e direita, indicando que a tela/canvas não preenche toda a largura da janela da aba.
+  - **Ref**: O canvas preenche 100% da largura útil sem barras pretas laterais.
+  - **Correção provável**: Ajustar a configuração de escala do Phaser 3 para `Phaser.Scale.FIT` com autoCenter ou ajustar a resolução base/aspect ratio do container HTML (`width: 100%`, `height: 100%`).
+
+### HUD Superior / Lateral
+- **Diferença 1**: Badge de notificação no ícone do Correio (canto superior esquerdo).
+  - **Clone**: O envelope possui uma bolinha vermelha com o número `"99"` no canto superior direito do ícone.
+  - **Ref**: O envelope é simples, sem nenhum badge ou contador numérico de mensagens.
+  - **Correção provável**: Ocultar/desativar a renderização da camada de notificação (`badge.setVisible(false)`) no ícone do correio.
+
+- **Diferença 2**: Balão de fala amarelo flutuante (canto inferior direito).
+  - **Clone**: Há um balão de fala amarelo vazio (`speech bubble prompt`) flutuando logo acima do lado direito da barra do HUD inferior.
+  - **Ref**: Esse balão de fala amarelo não existe sobre o HUD.
+  - **Correção provável**: Remover a sprite ou game object do balão amarelo que foi instanciado erroneamente nessa cena.
+
+### Personagens / Penguins
+- **Diferença 1**: Quantidade de entidades na sala.
+  - **Clone**: 1 pinguim (`Penguin_3209`).
+  - **Ref**: 2 pinguins (`Icy110` e `Captain Rockhopper` com Puffle).
+  - **Correção provável**: Adicionar a lógica de spawn de outros pinguins/NPCs se a cena for de teste estático.
+
+- **Diferença 2**: Estilo e renderização do Name Tag (Nome do pinguim).
+  - **Clone**: Fonte genérica sem serifa (aparentemente Arial), cor preta `#000000`, tamanho ~12px, ligeiramente mais distante dos pés do pinguim.
+  - **Ref**: Fonte compacta padrão Club Penguin (ex: *Burbank Small* ou Arial Bold reduzida), tamanho ~10px-11px, mais próxima da aura azul dos pés.
+  - **Correção provável**: Alterar a família de fonte do componente de texto para a fonte oficial do jogo, reduzir o tamanho do texto para `11px` e ajustar o offset Y para `-2px` em relação à posição atual.
+
+### HUD Inferior
+- **Diferença 1**: Posicionamento vertical da barra de ação azul.
+  - **Clone**: A barra azul do HUD está ligeiramente deslocada para cima, deixando uma fresta/borda inferior visível sob a barra.
+  - **Ref**: A barra azul está colada exatamente na borda inferior do canvas (`y = game.config.height`).
+  - **Correção provável**: Definir a posição Y da barra inferior para alinhar perfeitamente ao rodapé da tela (`originY: 1`, `y: height`).
+
+- **Diferença 2**: Botão do Mapa (canto inferior esquerdo).
+  - **Clone**: O ícone do mapa ("MAP") está posicionado um pouco mais alto e afastado do canto inferior esquerdo.
+  - **Ref**: O ícone do mapa está posicionado mais próximo da borda inferior e sobrepõe levemente a curva de neve.
+  - **Correção provável**: Ajustar as coordenadas (X, Y) do botão do mapa para que fique mais rente ao canto inferior esquerdo.
+
+### Tipografia
+- **Diferença**: Tipografia de nomes de usuário.
+  - **Clone**: Fonte do sistema não renderizada com antialiasing ideal ou fonte incorreta.
+  - **Ref**: Fonte bitmap/vetorial legível e nítida em baixa resolução.
+  - **Correção provável**: Carregar e usar a WebFont correta (`Burbank Small Bold` / `Arial`) com alinhamento `center`.
+
+### Efeitos visuais
+- **Diferença**: Proporção do facho de luz do Nightclub.
+  - **Clone**: O facho de luz amarelado sobre o Nightclub se estende até o topo cortado pela borda superior.
+  - **Ref**: O facho de luz possui o mesmo gradiente, porém devido à diferença de zoom/enquadramento, o topo do prédio e a luz parecem ligeiramente mais próximos da câmera.
+  - **Correção provável**: Apenas consequência do ajuste de enquadramento do Canvas.
+
+---
+
+## 3. O que já está igual
+- **Cenário**: A ilustração vetorial de fundo (Coffee, Nightclub, Gift Shop, neve, montanhas ao fundo) está idêntica em cores, formas e disposição.
+- **HUD Inferior (Design)**: A barra azul metálica, o campo central de chat azul escuro e os ícones circulares azuis (chat, emoticons, ações, puffle, etc.) usam exatamente as mesmas sprites.
+- **Pinguim central**: O sprite do pinguim azul, a pose idle e a aura/círculo azul e amarelo sob os pés estão visualmente idênticos.
+
+---
+
+## 4. Prioridades de correção (em ordem de impacto)
+
+1. 🔴 **REMOVER O BALÃO AMARELO FLUTUANTE**: É um elemento fantasma na tela que chama atenção imediata por não pertencer à cena.
+2. 🔴 **CORRIGIR O ENQUADRAMENTO DA TELA (CANVAS)**: Remover as barras pretas laterais ajustando a escala do Phaser para preencher a largura corretamente.
+3. 🟡 **REMOVER O BADGE "99" DO CORREIO**: O ícone de carta no topo esquerdo não deve ter a notificação vermelha por padrão.
+4. 🟡 **AJUSTAR A TIPOGRAFIA DOS NOMES**: Corrigir a fonte, tamanho e alinhamento do nome dos pinguins abaixo dos pés.
+5. 🟢 **ALINHAR HUD INFERIOR**: Encostar a barra azul inferior e o botão do Mapa perfeitamente no rodapé da tela.

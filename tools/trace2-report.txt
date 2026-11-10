@@ -1,0 +1,75 @@
+trace span s: 40600.3
+
+--- top 40 self-time (ms) ---
+   44225 RunTask
+    1104 v8.callFunction
+    1041 RunMicrotasks
+     808 v8::Debugger::AsyncTaskRun
+     797 GPUTask
+     768 Decode Image
+     648 PageAnimator::serviceScriptedAnimations
+     640 FireAnimationFrame
+     453 EventDispatch
+     417 FunctionCall ::step
+     357 CppGC.ConcurrentMark
+     297 V8.StackGuard
+     297 V8.HandleInterrupts
+     239 V8.InvokeApiInterruptCallbacks
+     239 CpuProfiler::StartProfiling
+      76 CppGC.ConcurrentSweep
+      61 V8.GC_MC_BACKGROUND_MARKING
+      60 WidgetBaseInputHandler::OnHandleInputEvent
+      59 WebFrameWidgetImpl::HandleInputEvent
+      51 FunctionCall ::img.onload
+      49 Commit
+      47 MajorGC
+      47 V8.GCFinalizeMC
+      46 V8.GC_MARK_COMPACTOR
+      35 FrameLoader::CommitDocumentLoader
+      32 CppGC.IncrementalSweep
+      31 Paint
+      31 DocumentLoader::CommitNavigation
+      31 CppGC.SweepInTask
+      31 PrePaint
+      29 CppGC.AtomicWeak
+      24 CppGC.IncrementalMark
+      23 CppGC.MarkTransitiveClosureWithDeadline
+      22 CppGC.MarkTransitiveClosure
+      21 V8.GCIncrementalMarking
+      21 V8.GC_MC_INCREMENTAL
+      21 V8.GC_MC_INCREMENTAL_EMBEDDER_TRACING
+      15 DecodedDataDocumentParser::AppendBytes
+      14 CppGC.WeakContainerCallbacksProcessing
+      14 UpdateLayoutTree
+
+--- long tasks >80ms (top 30) ---
+ 40586.9s     333ms tid 10732
+ 40583.1s     256ms tid 13964
+ 40595.2s     256ms tid 10732
+ 40586.6s     255ms tid 10732
+ 40594.1s     254ms tid 10732
+ 40594.6s     224ms tid 10732
+ 40586.7s     184ms tid 11232
+ 40594.4s     183ms tid 10732
+ 40595.0s     183ms tid 10732
+ 40587.1s     151ms tid 13964
+ 40594.9s     140ms tid 10732
+ 40587.2s     135ms tid 10732
+ 40595.5s     132ms tid 10732
+ 40583.1s     121ms tid 10732
+total long tasks: 14
+
+--- requests: 10 ---
+     2.7MB    10 x    3070ms http://localhost:3000/assets/movies/interface
+
+--- top 20 maiores requests (decoded bytes) ---
+    0.73MB      76ms http://localhost:3000/assets/movies/interface/timelines.json
+    0.25MB     309ms http://localhost:3000/assets/movies/interface/chars/chunk-2-46df82bb.pack
+    0.25MB     332ms http://localhost:3000/assets/movies/interface/chars/chunk-4-2a290ac2.pack
+    0.25MB     324ms http://localhost:3000/assets/movies/interface/chars/chunk-3-073b9b98.pack
+    0.25MB     252ms http://localhost:3000/assets/movies/interface/chars/chunk-0-ad4d84a0.pack
+    0.24MB     301ms http://localhost:3000/assets/movies/interface/chars/chunk-1-c99a1d27.pack
+    0.24MB     376ms http://localhost:3000/assets/movies/interface/chars/chunk-7-6aef6e96.pack
+    0.24MB     342ms http://localhost:3000/assets/movies/interface/chars/chunk-5-1e537c8b.pack
+    0.24MB     370ms http://localhost:3000/assets/movies/interface/chars/chunk-6-de3fcd22.pack
+    0.04MB     389ms http://localhost:3000/assets/movies/interface/chars/chunk-8-21f75708.pack

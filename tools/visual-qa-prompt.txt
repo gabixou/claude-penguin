@@ -1,0 +1,2 @@
+This screenshot shows a Club Penguin purchase confirmation dialog from our browser clone. It should look like the original Club Penguin "prompt" dialog: a centered rounded panel with the message text and Yes/No buttons below it.
+Check for visual defects: missing panel art, text overflow or cut off, buttons missing/misaligned, transparent/broken rendering, wrong fonts. Describe what you see and verdict PASS or ISSUES.

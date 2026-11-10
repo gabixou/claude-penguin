@@ -1,0 +1,274 @@
+// PenguinArt.js — pinguim vetorial do GoPenguin (/swf/penguin/ + clothing/sprites).
+// Porta a logica da classe `bi` (Penguin) do cliente web:
+//   - art = Clip da timeline principal (76 frames = poses/acoes)
+//   - animationFrame = fh(look, frame) — "secret frames" por roupa equipada
+//   - itens de roupa = Clips de /assets/clothing/<id>/, desenhados na ordem De
+//   - cor do corpo via colorTransform solido (ve()): mult=0, add=rgb
+
+import { MovieRoom } from '../movie/movie.js';
+import { Clip } from '../movie/clip.js';
+
+// Ordem de desenho dos itens (De no gp.js)
+export const ITEM_DRAW_ORDER = ['feet', 'body', 'neck', 'hand', 'face', 'head'];
+// Assinatura do look para penguin_action_frames (vr no gp.js)
+const VR = ['head', 'face', 'neck', 'body', 'hand', 'feet'];
+
+export const veColor = (rgb) => ({
+    mult: [0, 0, 0, 1],
+    add: [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 0],
+});
+
+export class PenguinLibrary {
+    static async load(base = '/assets/movies/penguin') {
+        const lib = new PenguinLibrary();
+        lib.base = base;
+        lib.movie = await MovieRoom.load(base);
+        lib.movie.setScale(1);
+        lib.actionData = await fetch('/assets/penguin-action-frames.json')
+            .then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+        // dh: actionFrame -> Map("head,face,neck,body,hand,feet" -> secret_frame)
+        lib.dh = new Map();
+        for (const [frame, list] of Object.entries(lib.actionData)) {
+            const m = new Map();
+            for (const t of list || []) {
+                const sig = VR.map((o) => t[o] ?? 0).join(',');
+                m.set(sig, t.secret_frame);
+            }
+            lib.dh.set(Number(frame), m);
+        }
+        lib.items = new Map();      // itemId -> Promise<Clip|null>
+        lib.bounds = lib._unionBounds();
+        // decode de SVG e lazy: _svgImage e chamado sob demanda por
+        // artCanvas/Clip e fica em cache. Aquecer os characters do pack
+        // (~centenas de SVGs) em idle evita pop-in de itens/poses de acao.
+        {
+            const files = [...new Set(
+                Object.values(lib.movie.characters || {})
+                    .map((c) => c.file).filter(Boolean)
+            )];
+            let i = 0;
+            const step = () => {
+                for (let j = 0; j < 16 && i < files.length; j++, i++)
+                    lib.movie._svgImage(files[i]);
+                if (i < files.length) setTimeout(step, 30);
+            };
+            setTimeout(step, 30);
+        }
+        return lib;
+    }
+
+    // Clip base do pinguim (cada PenguinView instancia o seu)
+    baseClip() { return new Clip(this.movie); }
+
+    // bounds uniao de todos os frames (coords de mundo, y para cima = negativo)
+    _unionBounds() {
+        const clip = this.baseClip();
+        const m = this.movie;
+        let b = null;
+        const main = m.data.main;
+        for (let f = 1; f <= (main.frames?.length || 1); f++) {
+            const entries = main.frames[f - 1] || [];
+            const fb = clip._boundsOf(entries, { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 }, '');
+            if (!fb) continue;
+            b = b ? [Math.min(b[0], fb[0]), Math.min(b[1], fb[1]), Math.max(b[2], fb[2]), Math.max(b[3], fb[3])]
+                  : fb;
+        }
+        if (!b) b = [-20, -60, 20, 10];
+        // margem para poses maiores que a uniao inicial
+        return { x0: Math.floor(b[0]) - 4, y0: Math.floor(b[1]) - 4,
+                 x1: Math.ceil(b[2]) + 4, y1: Math.ceil(b[3]) + 4 };
+    }
+
+    get viewW() { return this.bounds.x1 - this.bounds.x0; }
+    get viewH() { return this.bounds.y1 - this.bounds.y0; }
+
+    // Carrega (lazy) o clip de um item de roupa; cache por id.
+    itemClip(itemId) {
+        if (!itemId) return Promise.resolve(null);
+        if (!this.items.has(itemId)) {
+            this.items.set(itemId, MovieRoom.load(`/assets/clothing/${itemId}`)
+                .then((mv) => {
+                    const clip = new Clip(mv);
+                    // Pré-decodifica os SVGs do pack em idle: sem isso o
+                    // primeiro frame de ação (dance/throw) renderiza os itens
+                    // aos poucos por ~1s enquanto as imagens decodificam.
+                    const files = [...new Set(
+                        Object.values(mv.characters || {})
+                            .map((c) => c.file).filter(Boolean)
+                    )];
+                    let i = 0;
+                    const step = () => {
+                        for (let j = 0; j < 16 && i < files.length; j++, i++)
+                            mv._svgImage(files[i]);
+                        if (i < files.length) setTimeout(step, 30);
+                    };
+                    setTimeout(step, 30);
+                    return clip;
+                })
+                .catch(() => null));
+        }
+        return this.items.get(itemId);
+    }
+
+    // fh() do gp.js: frame real a desenhar dado look equipado + frame logico
+    animationFrame(look, frame) {
+        const max = this.movie.data.main?.frames?.length || 76;
+        const s = this.dh.get(frame);
+        if (!s) return frame;
+        const sig = VR.map((o) => look[o] ?? 0).join(',');
+        const i = s.get(sig);
+        return i !== undefined && i <= max ? i : frame;
+    }
+}
+
+// View de um pinguim: art + itens + estado de animacao.
+// render() desenha num canvas 2D ja com transform de escala aplicado.
+// Arte do balão de fala — port do layoutBalloon() do cliente web GoPenguin.
+// Renderiza os masters (corpo sprite114, rabinho sprite156) sem o message_txt;
+// a composição por mensagem segue a mesma matemática do original:
+//   d = min(114, maxLineW + 4) + 14   (largura do balão)
+//   f = nLines * 13.8 + 11            (altura do corpo)
+//   corpo: scale (d/bw, f/bh) com base em y=-48.25 ; rabinho: scaleX=d/vw, y=-48.25
+let _bubbleArtPromise = null;
+export function bubbleArt(scene) {
+    if (!_bubbleArtPromise) {
+        _bubbleArtPromise = (async () => {
+            const movie = scene.game._interfaceMoviePromise
+                ? await scene.game._interfaceMoviePromise
+                : await MovieRoom.load('/assets/movies/interface').then((m) => { m.setScale(1); return m; });
+            if (!movie) return null;
+
+            // fonte embarcada do editTexts (font 157 = Burbank Small Medium)
+            try {
+                const ff = new FontFace('BurbankSmallMedium', 'url(/assets/movies/interface/chars/font_157.ttf)');
+                await ff.load();
+                document.fonts.add(ff);
+            } catch (e) { console.warn('[bubble] font', e); }
+
+            const clip = new Clip(movie);
+            const IDENT = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+            const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
+            const R = 3;
+
+            async function master(spriteId) {
+                const entries = movie.sprites[String(spriteId)]?.frames?.[0] || [];
+                const b = clip._boundsOf(entries, IDENT, '');
+                if (!b) return null;
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.ceil((b[2] - b[0]) * R);
+                canvas.height = Math.ceil((b[3] - b[1]) * R);
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(R, 0, 0, R, -b[0] * R, -b[1] * R);
+                await clip._drawListFrame(ctx, entries, IDENT, '', IDENT_COLOR, R);
+                return { canvas, bounds: b };
+            }
+
+            const body = await master(114);   // balloon_mc -> corpo
+            const ptr = await master(156);    // pointer_mc -> faixa + rabinho
+            if (!body || !ptr) return null;
+            return { body, ptr, R };
+        })().catch((e) => { console.warn('[bubble] art', e); return null; });
+    }
+    return _bubbleArtPromise;
+}
+
+// Quebra o texto em linhas como o original (wordWrap ~114px, fonte 12px).
+export function bubbleLines(message) {
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = '12px "BurbankSmallMedium", GoPenguin, Arial, sans-serif';
+    const maxW = 114;
+    const lines = [];
+    for (const para of String(message).split(/\r\n|\r|\n/)) {
+        let line = '';
+        for (const word of para.split(' ')) {
+            const cand = line ? line + ' ' + word : word;
+            if (c.measureText(cand).width <= maxW || !line) { line = cand; continue; }
+            lines.push(line); line = word;
+            while (c.measureText(line).width > maxW && line.length > 1) {
+                let cut = line.length - 1;
+                while (cut > 1 && c.measureText(line.slice(0, cut)).width > maxW) cut--;
+                lines.push(line.slice(0, cut));
+                line = line.slice(cut);
+            }
+        }
+        lines.push(line);
+    }
+    return lines;
+}
+
+export class PenguinView {
+    constructor(lib, color = 0x0088ff) {
+        this.lib = lib;
+        this.art = lib.baseClip();
+        this.art.set('body', { color: veColor(color) });
+        this.art.set('ring', { visible: false });
+        this.art.set('hotspot', { visible: false });
+        this.items = new Map();       // slot -> Clip instance
+        this.look = { head: 0, face: 0, neck: 0, body: 0, hand: 0, feet: 0 };
+        this.frame = 1;
+        this.drawnFrame = 0;
+        this.dirty = true;
+    }
+
+    setColor(rgb) {
+        this.art.set('body', { color: veColor(rgb) });
+        this.dirty = true;
+    }
+
+    // look: {feet,body,neck,hand,face,head} -> itemId ou null
+    setLook(look) {
+        let changed = false;
+        for (const slot of ITEM_DRAW_ORDER) {
+            const id = look?.[slot] ? Number(look[slot]) : 0;
+            if ((this.look[slot] || 0) === id) continue;
+            this.look[slot] = id;
+            changed = true;
+            if (id) {
+                this.lib.itemClip(id).then((clip) => {
+                    if (!clip || this.look[slot] !== id) return;
+                    const inst = clip.instance();
+                    inst.set('ring', { visible: false });
+                    this.items.set(slot, inst);
+                    this.dirty = true;
+                });
+            } else {
+                this.items.delete(slot);
+            }
+        }
+        if (changed) this.dirty = true;
+    }
+
+    // frame: numero do frame logico da timeline principal (1..76)
+    setFrame(frame) {
+        const f = Math.max(1, Math.min(76, Math.round(frame) || 1));
+        if (f === this.frame) return;
+        this.frame = f;
+        this.dirty = true;
+    }
+
+    get animationFrame() {
+        return this.lib.animationFrame(this.look, this.frame);
+    }
+
+    // avanca sub-playheads (chamar ~24fps)
+    advance() {
+        this.art.advance();
+        for (const it of this.items.values()) it.advance();
+    }
+
+    // desenha no ctx (transform de scale ja aplicada pelo chamador)
+    async render(ctx, scale) {
+        const af = this.animationFrame;
+        if (this.drawnFrame !== af) {
+            this.art.resetPlayback();
+            for (const it of this.items.values()) it.resetPlayback();
+            this.drawnFrame = af;
+        }
+        await this.art.draw(ctx, af, scale);
+        for (const slot of ITEM_DRAW_ORDER) {
+            const it = this.items.get(slot);
+            if (it) await it.draw(ctx, af, scale);
+        }
+        this.dirty = false;
+    }
+}

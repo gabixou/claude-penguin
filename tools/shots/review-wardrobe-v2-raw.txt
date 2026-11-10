@@ -1,0 +1,16 @@
+Com base na análise do screenshot, aqui estão os **defeitos visuais reais** identificados na interface do guarda-roupa:
+
+1. **Estouro de elementos fora do painel (*Overflow*):**
+   * Os três slots (quadrados brancos) da última fileira vazam para fora da borda inferior do painel modal branco.
+
+2. **Sobreposição de texto com slot de item:**
+   * O texto de paginação (`"Page 1 of 2 - 15 items"`) está posicionado parcialmente atrás/sobreposto pelo primeiro slot de item da linha inferior, dificultando a leitura.
+
+3. **Duplicação / Sobreposição de título nas abas:**
+   * O rótulo/cabeçalho `"Head"` no canto superior esquerdo está duplicado e colado diretamente acima da aba `"Head"`.
+
+4. **Previews de itens ausentes (Conteúdo em branco):**
+   * Todos os 9 slots da grade estão completamente brancos, sem carregar as imagens/ícones de pré-visualização das roupas.
+
+5. **Desalinhamento dos controles de navegação (Setas):**
+   * A seta inferior (`V`) no canto direito ficou isolada dentro do painel branco, enquanto a grade de itens vazou para baixo, criando um desalinhamento claro entre os controles de rolagem e o conteúdo real.

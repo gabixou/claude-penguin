@@ -1,0 +1,8 @@
+Com base nos critérios solicitados, aqui estão os **defeitos concretos** identificados na interface:
+
+1. **Ausência da grade de itens (Lado direito):** A área à direita sob as abas está completamente vazia. Não há células claras, ícones de itens nem nomes sendo exibidos.
+2. **Preview do pinguim ausente e desalinhado (Lado esquerdo):** 
+   - A caixa de preview retangular à esquerda está totalmente vazia/escura, sem exibir o pinguim.
+   - Existe uma miniatura muito pequena e sombreada de um pinguim renderizada incorretamente no centro inferior do painel principal, fora do quadro de preview.
+
+*(Observação: As abas "Head, Face, Neck, etc." estão devidamente alinhadas e não há itens vazando para fora das bordas do painel azul principal).*

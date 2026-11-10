@@ -1,0 +1,13 @@
+Com base na análise visual do screenshot, aqui estão os defeitos concretos identificados na interface do guarda-roupa:
+
+1. **Ausência total dos ícones/imagens dos itens (Graphics/Sprites ausentes):**
+   * Em todos os 15 slots da grade do inventário, aparece apenas o texto com o nome do item (ex: *"Black Toque"*, *"Hard Hat"*), mas a imagem/miniatura do item não é renderizada dentro de nenhum dos quadrados.
+
+2. **Aba "Color" fora do alinhamento e estourando o painel:**
+   * No menu superior de categorias, o texto **"Color"** está deslocado excessivamente para a direita, quase colado na borda interna da janela e fora do alinhamento da grade de itens.
+
+3. **Desalinhamento e distribuição inadequada das abas superiores:**
+   * Há 7 categorias (*Head, Face, Neck, Shirt, Hand, Feet, Color*) distribuídas sobre uma grade de apenas 4 colunas. Isso faz com que os nomes das abas não fiquem alinhados com as colunas correspondentes de forma simétrica.
+
+4. **Posicionamento vertical inadequado do texto nos slots:**
+   * O nome de cada item está posicionado na extremidade inferior dos quadrados. Como as imagens dos itens estão ausentes, isso deixa um grande espaço vazio inutilizado no centro de cada slot, gerando um desequilíbrio visual no layout.

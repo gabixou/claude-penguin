@@ -1,0 +1,36 @@
+[     415ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[     741ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[     868ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[     969ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[    1004ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[    1005ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[    1005ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[    1007ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[   96763ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[   97305ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[   97397ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[   97427ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[   97427ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[   97427ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[   97430ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  254449ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[  254839ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  254919ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  254949ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  254949ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  254949ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  254952ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  259131ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[  259460ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  259515ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  259539ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  259539ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  259539ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  259541ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  262104ms] [LOG] %c %c %c %c %c Phaser v3.90.0 (WebGL | Web Audio) %c https://phaser.io/v390 background: #ff0000 background: #ffff00 background: #00ff00 background: #00ffff color: #ffffff; background: #000000 background: transparent @ http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb:8456
+[  262516ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  262586ms] [LOG] [NetworkClient] Conectando a ws://localhost:8080... @ http://localhost:3000/src/network/NetworkClient.js:25
+[  262613ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29
+[  262614ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  262614ms] [WARNING] [NetworkClient] Não foi possível enviar JOIN_ROOM: socket desconectado. @ http://localhost:3000/src/network/NetworkClient.js:70
+[  262616ms] [LOG] [NetworkClient] Conectado ao servidor WebSocket com sucesso! @ http://localhost:3000/src/network/NetworkClient.js:29

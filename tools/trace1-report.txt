@@ -1,0 +1,116 @@
+trace span s: 40463.8
+
+--- top 40 self-time (ms) ---
+   14264 RunTask
+    3758 v8::Debugger::AsyncTaskRun
+    1528 v8.callFunction
+     976 EventDispatch
+     898 FunctionCall ::image.onload
+     657 FrameLoader::CommitDocumentLoader
+     602 GPUTask
+     567 DocumentLoader::CommitNavigation
+     543 PageAnimator::serviceScriptedAnimations
+     542 FireAnimationFrame
+     537 FunctionCall ::step
+     440 v8.parseOnBackgroundParsing
+     433 BackgroundJSStreamManager::RunScriptStreamingTask ::http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb
+     433 v8.parseOnBackground ::http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb
+     377 v8.evaluateModule
+     328 RunMicrotasks
+     241 DecodedDataDocumentParser::AppendBytes
+     223 DocumentLoader::StartLoadingResponse
+     219 UpdateLayoutTree
+     156 DocumentLoader::FinishedLoading
+     138 ParseHTML
+     107 Layout
+      95 LocalFrameView::performLayout
+      82 ThrottlingURLLoader::Start
+      77 ThrottlingURLLoader::StartNow
+      63 DocumentLoader::InitializeWindow
+      61 DocumentLoader::CreateParserPostCommit
+      55 v8.parseOnBackgroundWaiting
+      53 V8.GC_MC_BACKGROUND_MARKING
+      48 LocalFrame
+      36 V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL
+      35 MinorGC
+      34 v8::Debugger::AsyncTaskScheduled
+      33 V8.StackGuard
+      32 V8.HandleInterrupts
+      31 EvaluateScript ::chrome-extension://gighmmpiobklfepjocnamgkkbiglidom/vendor/@eyeo/webext-ad-filtering-solut
+      30 DocumentLoader::DidInstallNewDocument
+      30 V8.GCScavenger
+      29 ScriptCompiled ::http://localhost:3000/
+      29 V8.GC_SCAVENGER
+
+--- long tasks >80ms (top 30) ---
+ 40459.1s     897ms tid 13964
+ 40460.2s     443ms tid 13964
+ 40458.4s     378ms tid 13964
+ 40458.8s     265ms tid 13964
+ 40457.6s     202ms tid 10732
+ 40459.4s     195ms tid 10732
+ 40459.2s     164ms tid 10732
+ 40457.9s     159ms tid 10732
+ 40458.2s     151ms tid 13964
+ 40460.5s     109ms tid 10732
+ 40459.1s     105ms tid 10732
+total long tasks: 11
+
+--- requests: 88 ---
+     6.4MB     1 x     478ms http://localhost:3000/node_modules/.vite/deps
+     5.2MB    21 x    9572ms http://localhost:3000/assets/movies/penguin
+     0.7MB    10 x -364146591ms http://localhost:3000/assets/movies/interface
+     0.4MB     1 x      48ms http://localhost:3000/assets/fonts/presentation-font.ttf
+     0.2MB     1 x      76ms http://localhost:3000/src/scenes/RoomScene.js
+     0.2MB     1 x     185ms http://localhost:3000/src/movie/movie.js
+     0.1MB     1 x      94ms http://localhost:3000/@vite/client
+     0.1MB     1 x     143ms http://localhost:3000/src/movie/clip.js
+     0.1MB    10 x -323685781ms http://localhost:3000/assets/movies/town
+     0.1MB     1 x     138ms http://localhost:3000/src/ui/Wardrobe.js
+     0.1MB     1 x     139ms http://localhost:3000/src/entities/Penguin.js
+     0.1MB     1 x     170ms http://localhost:3000/src/ui/PlayerCard.js
+     0.1MB     1 x      68ms http://localhost:3000/src/entities/PenguinArt.js
+     0.1MB     1 x     119ms http://localhost:3000/assets/penguin-action-frames.json
+     0.0MB     1 x     181ms http://localhost:3000/src/ui/WebHud.js
+     0.0MB     1 x     181ms http://localhost:3000/src/ui/IslandMap.js
+     0.0MB     1 x     186ms http://localhost:3000/src/ui/VectorHud.js
+     0.0MB     1 x      56ms http://localhost:3000/src/network/NetworkClient.js
+     0.0MB     1 x      69ms http://localhost:3000/src/ui/paperDoll.js
+     0.0MB     1 x     195ms http://localhost:3000/src/ui/LoadingScreen.js
+     0.0MB     1 x      63ms http://localhost:3000/src/scenes/BootScene.js
+     0.0MB     1 x      69ms http://localhost:3000/src/items/catalog.js
+     0.0MB     1 x     170ms http://localhost:3000/src/ui/ActionControls.js
+     0.0MB     1 x      92ms http://localhost:3000/src/main.js
+     0.0MB     1 x      33ms http://localhost:3000/assets/ui/loader_arrows.gif
+     0.0MB     1 x      73ms http://localhost:3000/src/display.js
+     0.0MB     1 x      54ms http://localhost:3000/node_modules/vite/dist
+     0.0MB     1 x     142ms http://localhost:3000/assets/hud/btn-8.png
+     0.0MB     1 x      53ms http://localhost:3000http://localhost:3000/3c0cdfc8-4f00-4e10-8437-84d78bd01638
+     0.0MB     1 x     146ms http://localhost:3000/assets/hud/btn-10.png
+     0.0MB     1 x      49ms http://localhost:3000http://localhost:3000/36124be1-89f3-4dd6-9d83-f00e460c938d
+     0.0MB     1 x     135ms http://localhost:3000/assets/hud/btn-3.png
+     0.0MB     1 x      52ms http://localhost:3000http://localhost:3000/ce17a270-fa2c-41e6-9f52-aa7557bdee88
+     0.0MB     1 x     133ms http://localhost:3000/assets/hud/btn-2.png
+     0.0MB     1 x      54ms http://localhost:3000http://localhost:3000/dfead3ea-82a3-420e-b0cd-c5e699402e8a
+
+--- top 20 maiores requests (decoded bytes) ---
+    6.37MB     478ms http://localhost:3000/node_modules/.vite/deps/phaser.js?v=9fa45ddb
+    0.73MB     450ms http://localhost:3000/assets/movies/interface/timelines.json
+    0.48MB     135ms http://localhost:3000/assets/movies/penguin/timelines.json
+    0.39MB      48ms http://localhost:3000/assets/fonts/presentation-font.ttf
+    0.25MB     575ms http://localhost:3000/assets/movies/penguin/chars/chunk-9-b214a27d.pack
+    0.25MB     559ms http://localhost:3000/assets/movies/penguin/chars/chunk-5-79688a9b.pack
+    0.25MB      59ms http://localhost:3000/assets/movies/penguin/chars/chunk-0-6ae28336.pack
+    0.25MB     574ms http://localhost:3000/assets/movies/penguin/chars/chunk-8-7be970f4.pack
+    0.25MB      78ms http://localhost:3000/assets/movies/penguin/chars/chunk-3-a8e43ac6.pack
+    0.25MB     573ms http://localhost:3000/assets/movies/penguin/chars/chunk-7-c4653868.pack
+    0.25MB     575ms http://localhost:3000/assets/movies/penguin/chars/chunk-10-dfda59e9.pack
+    0.25MB      71ms http://localhost:3000/assets/movies/penguin/chars/chunk-2-239b5ba0.pack
+    0.25MB     572ms http://localhost:3000/assets/movies/penguin/chars/chunk-6-82f13e81.pack
+    0.25MB     579ms http://localhost:3000/assets/movies/penguin/chars/chunk-18-65248c61.pack
+    0.25MB      68ms http://localhost:3000/assets/movies/penguin/chars/chunk-1-a8ec97e5.pack
+    0.25MB     578ms http://localhost:3000/assets/movies/penguin/chars/chunk-17-c8c6748b.pack
+    0.25MB     544ms http://localhost:3000/assets/movies/penguin/chars/chunk-4-fb537ba0.pack
+    0.25MB     575ms http://localhost:3000/assets/movies/penguin/chars/chunk-13-277510b9.pack
+    0.25MB     576ms http://localhost:3000/assets/movies/penguin/chars/chunk-15-98f0319b.pack
+    0.25MB     576ms http://localhost:3000/assets/movies/penguin/chars/chunk-11-0e9562f9.pack

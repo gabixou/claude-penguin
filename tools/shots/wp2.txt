@@ -1,0 +1,1 @@
+Analise este screenshot do guarda-roupa de um clone de Club Penguin. Verifique: 1) grade de itens dentro do painel azul a direita, celulas claras com icone+nome visiveis? 2) abas (Head Face Neck Shirt Hand Feet Color) alinhadas dentro do painel? 3) preview do pinguim a esquerda inteiro? 4) itens vazando fora do painel? Liste apenas defeitos concretos.

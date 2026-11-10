@@ -1,0 +1,71 @@
+Aqui está a análise visual detalhada comparando o clone em desenvolvimento (Imagem 1) com a referência original do jogo (Imagem 2).
+
+---
+
+## 1. Estado das cenas
+**Atenção:** As imagens **não mostram o mesmo estado de cena**. 
+- A **Imagem 1 (Clone)** exibe a tela cheia do jogo, com a sala "Town" (Centro) ao fundo, o HUD inferior de chat/ações, botões externos (Mail, Map, Rename) e o cartão do pinguim aberto com um personagem vestido e inventário preenchido com itens.
+- A **Imagem 2 (Referência)** exibe exclusivamente o componente isolado da interface do **Player Card (Cartão de Perfil do Pinguim)** sobre fundo branco/transparente, sem elementos de cenário, com o pinguim sem roupas e inventário com slots vazios.
+
+*A análise a seguir limita-se estritamente à comparação da interface do **Player Card (Perfil + Inventário)**, que é o elemento presente em ambas.*
+
+---
+
+## 2. Diferenças visuais encontradas
+
+### Enquadramento/canvas
+- **Clone:** O Player Card está sobreposto ao cenário do jogo e centralizado na tela. | **Ref:** O Player Card é exibido isoladamente como asset/janela completa. | **Correção provável:** Manter a renderização do modal centralizada sobre a cena no Phaser, garantindo profundidade (depth/zIndex) superior.
+
+### Cenário/background
+- *(Não comparável diretamente, pois a Imagem 2 não possui cenário de fundo).*
+
+### Personagens/penguins & Moldura de Perfil (Painel Azul Esquerdo)
+- **Ícone do Spy Phone (EPF):**
+  - **Clone:** Ausente no painel do pinguim.
+  - **Ref:** Possui o ícone do Spy Phone/comunicador posicionado no canto inferior direito dentro da caixa azul escura do pinguim.
+  - **Correção provável:** Adicionar o sprite do Spy Phone no canto inferior direito da caixa do pinguim (aprox. `x: 230px, y: 240px` relativo ao card).
+- **Botões do Cabeçalho `(?)` e `(X)`:**
+  - **Clone:** Exibe um botão circular com interrogação `(?)` abaixo do botão de fechar `(X)`, além do nome do pinguim ("Penguin_MWYQ") no topo.
+  - **Ref:** Possui apenas o botão circular de fechar `(X)` no canto superior direito do painel azul escuro. Não há botão `(?)`.
+  - **Correção provável:** Remover o botão `(?)` e reposicionar/redimensionar o botão `(X)` para alinhar perfeitamente à borda superior direita do painel interno.
+- **Rótulos de Moedas e Selos (Coins & Stamps):**
+  - **Clone:** Os ícones de moeda e selo estão soltos dentro do painel azul escuro do pinguim (canto inferior esquerdo), sem nenhum texto ao lado. O valor de moedas ("Coins: 1500") está renderizado incorretamente fora do card, no canto inferior direito do canvas.
+  - **Ref:** Os ícones ficam na área azul clara inferior. Ao lado do ícone da moeda há o texto `"Your Coins:"` e ao lado do ícone do selo há o texto `"Your Stamps:"`.
+  - **Correção provável:** Mover os ícones de moeda e selo para o painel azul claro inferior e adicionar os objetos de texto `"Your Coins:"` e `"Your Stamps:"` (cor preta/cinza escuro, fonte Arial/Burbank Sans, tamanho ~14px). Remover o texto `Coins: 1500` flutuante no fundo.
+
+### Painel de Inventário (Painel Branco Direito)
+- **Contorno da Aba Inferior ("All Items"):**
+  - **Clone:** O botão/aba "All Items" na parte inferior do inventário aparece levemente desalinhado e sem a borda contínua preta unificada com o corpo da janela.
+  - **Ref:** A aba "All Items" faz parte da geometria externa da moldura, possuindo um stroke/contorno preto contínuo (`#000000`, 2px/3px) que desenha o "dente" inferior.
+  - **Correção provável:** Reajustar a máscara ou o desenho vetorial da moldura inferior (Graphics/NineSlice) para que a aba "All Items" seja desenhada de forma contínua com a borda externa.
+- **Aba de Recolher Lateral (Aba Azul à direita):**
+  - **Clone:** Possui uma seta branca apontando para a direita `>`.
+  - **Ref:** Possui uma seta menor escura em formato de triângulo apontando para a esquerda/baixo na aba azul centralizada verticalmente na borda direita do inventário.
+  - **Correção provável:** Substituir o ícone da seta da aba lateral direita pelo triângulo correto e ajustar sua cor e rotação.
+- **Grade de Itens (Slots):**
+  - **Clone:** Mostra itens carregados com bordas arredondadas e seleção verde no item selecionado.
+  - **Ref:** Mostra os slots vazios como retângulos brancos com bordas arredondadas e contorno cinza claro suave (`#CCCCCC`, 2px).
+  - **Correção provável:** Garantir que o estado "vazio" dos slots do inventário exiba os retângulos cinzas vazios com o mesmo raio de curvatura (border-radius ~8px) e bordas suaves.
+
+### Tipografia
+- **Textos informativos do Perfil:**
+  - **Clone:** Nome do jogador em negrito preto no topo. Texto de moedas fora do painel.
+  - **Ref:** Rótulos `"Your Coins:"` e `"Your Stamps:"` em fonte limpa, sem serifa, alinhados à esquerda dos ícones no rodapé do perfil.
+  - **Correção provável:** Padronizar a fonte dos rótulos do rodapé do perfil usando a tipografia oficial (Burbank Small / Arial Bold, cor `#000000`).
+
+---
+
+## 3. O que já está igual
+- **Estrutura e Proporções do Modal:** A divisão entre o painel azul (perfil) à esquerda e o painel branco (inventário) à direita em 4x3 slots está com proporções e dimensões muito fiéis.
+- **Medalha/Escudo "MEMBER":** O badge no canto superior esquerdo está no lugar correto e com o design visual idêntico.
+- **Barra de Rolagem:** O estilo da barra de rolagem lateral direita (trilho cinza claro com botões circulares no topo e na base contendo setas para cima/baixo) está visualmente muito próximo da referência.
+
+---
+
+## 4. Prioridades de Correção
+
+1. **Alta:** **Adicionar os textos "Your Coins:" e "Your Stamps:"** e reposicionar os ícones de moeda/selo para o painel azul claro inferior (eliminando o texto solto "Coins: 1500" no HUD).
+2. **Alta:** **Adicionar o ícone do Spy Phone** no canto inferior direito do painel azul do pinguim.
+3. **Média:** **Remover o botão `(?)` excedente** no topo do painel e ajustar o botão `(X)`.
+4. **Média:** **Corrigir o contorno/stroke preto** da aba inferior `"All Items"` para fundi-la com a moldura principal.
+5. **Baixa:** **Ajustar o ícone da aba azul lateral direita** (seta triangular de recolher).

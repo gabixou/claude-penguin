@@ -1,0 +1,22 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+p.on('pageerror', (e) => console.log('PAGEERR', e.message));
+await p.goto('http://localhost:3000/', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => window.__penguin && window.__penguin.view, null, { timeout: 90000 });
+await p.waitForFunction(() => { const sc = window.__penguin.scene; return sc.movie && sc._movieReady && (!sc.loadingScreen || !sc.loadingScreen.visible); }, null, { timeout: 180000 });
+await p.evaluate(() => window.__penguin.scene.catalogue?.open('clothing'));
+await p.waitForFunction(() => window.__penguin.scene.catalogue?.isOpen, null, { timeout: 60000 });
+await p.waitForTimeout(2500);
+const r = await p.evaluate(async () => {
+    const c = window.__penguin.scene.catalogue;
+    const m = c.movie;
+    window.__movieDebug = true;
+    window.__maskStats = [];
+    m.goto('book', 2);
+    await new Promise(r => setTimeout(r, 300));
+    await c._render();
+    return { stats: window.__maskStats, controls: c.controls.length };
+});
+console.log(JSON.stringify(r, null, 1));
+await b.close();

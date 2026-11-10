@@ -1,0 +1,10 @@
+Descreva este HUD do Club Penguin (GoPenguin web) com PRECISAO CIRURGICA para eu replica-lo em Phaser:
+
+1. Layout geral: posicoes exatas (canto inferior esquerdo, largura, altura) da area do HUD em relacao a tela 760x480.
+2. Barra de chat: formato (retangulo arredondado? cor exata tipo #xxxxxx?), icone a direita, texto placeholder, posicao.
+3. Barra de acoes inferior: cor, formato (reta? curvada? trapezio?), altura, quantos botoes circulares, ordem esquerda->direita com o ICONES de cada um (chat, emoticon, player card, actions/star, snowball, map, igloo, help, membership...).
+4. Icone MAP dobrado: posicao exata (canto inferior esquerdo?), tamanho.
+5. Icone de correio/envelope no topo: posicao.
+6. Cores hex aproximadas de cada elemento (fundo da barra, botoes, bordas, gradientes).
+7. Texto/labels visiveis.
+Seja especifico com coordenadas relativas (ex: "barra ocupa de y=400 a y=470, x=20 a x=740").

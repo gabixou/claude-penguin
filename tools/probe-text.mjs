@@ -1,0 +1,23 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:/Users/GABS/AppData/Local/ms-playwright/chromium-1208/chrome-win64/chrome.exe';
+const b = await chromium.launch({ executablePath: EXE, headless: true });
+const p = await b.newPage();
+await p.goto('http://localhost:3000/', { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(3000);
+const r = await p.evaluate(async () => {
+  const ff = new FontFace('BurbankSmallMedium', 'url(/assets/movies/interface/chars/font_157.ttf)');
+  await ff.load().catch(e => 'loadfail:' + e);
+  document.fonts.add(ff);
+  const cv = document.createElement('canvas'); cv.width = 400; cv.height = 100;
+  const cx = cv.getContext('2d');
+  cx.setTransform(3, 0, 0, 3, 200, 60);
+  cx.font = '12px "BurbankSmallMedium", GoPenguin, Arial, sans-serif';
+  cx.fillStyle = '#000'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.fillText('Waddle on! Teste.', 0, 0);
+  const d = cx.getImageData(0, 0, 400, 100).data;
+  let dark = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] < 100 && d[i+3] > 100) dark++;
+  return { dark, fontStatus: document.fonts.check('12px "BurbankSmallMedium"') };
+});
+console.log(JSON.stringify(r));
+await b.close();

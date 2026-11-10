@@ -1,0 +1,17 @@
+Based on the comparison focusing on the opened Catalogue UI in Image 1:
+
+### Visual Differences & Issues Identified
+
+1. **Dark Rectangular Overlay Artifact:** 
+   * A dark, semi-transparent rectangular box artifact is visible across the lower portion of the cover art (overlapping the penguin's feet and the purple carpet).
+
+2. **Missing Page-Turn Navigation:** 
+   * There is no interactive corner fold, arrow, or page-turning tab visible on the bottom-right corner of the catalogue cover to flip to the next page.
+
+---
+
+### Verdict
+
+**ISSUES TO FIX**
+* Remove the dark rectangular bounding/shadow box artifact appearing at the bottom of the cover art.
+* Implement the bottom-right page flip / turn button on the cover so players can navigate into the catalogue pages.

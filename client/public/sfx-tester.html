@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>SFX Tester</title>
+<style>
+body{background:#123;font-family:Arial,sans-serif;color:#fff;padding:20px}
+h2{color:#8cf}button{margin:4px;padding:8px 14px;font-size:14px;cursor:pointer}
+.room{margin-bottom:18px}
+</style></head><body>
+<h2>Room SFX Tester — clique para ouvir</h2>
+<div id="app">carregando...</div>
+<script>
+const ROOMS=['town','coffee','dance','pizza','plaza','forts','dojo','dock','lodge','mine','shop','book','boiler','pet','cave','stage','forest','light','ship','village','attic','dojoext','cavemine','shack','berg'];
+const app=document.getElementById('app');
+let html='';
+for(const r of ROOMS){
+  html+=`<div class="room"><b>${r}</b><div id="b_${r}"></div></div>`;
+}
+app.innerHTML=html;
+(async()=>{
+  for(const r of ROOMS){
+    const el=document.getElementById('b_'+r);
+    // tenta sound_0..sound_30 ate 404
+    for(let i=0;i<30;i++){
+      const url=`/assets/sfx/${r}/sound_${i}.mp3`;
+      try{
+        const res=await fetch(url,{method:'HEAD'});
+        if(!res.ok) break;
+        const btn=document.createElement('button');
+        btn.textContent=`${r} #${i}`;
+        btn.onclick=()=>{const a=new Audio(url);a.play();};
+        el.appendChild(btn);
+      }catch{break}
+    }
+    if(!el.children.length) el.innerHTML='<i>sem sons</i>';
+  }
+})();
+</script></body></html>

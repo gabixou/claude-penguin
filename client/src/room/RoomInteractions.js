@@ -1,0 +1,133 @@
+// Interacoes de cenario das salas — port simplificado do RoomDirector (Ti) e
+// dos room scripts do gopenguin.lol. Cobre: botoes com hit-test (records
+// hittest), estados up/over/down, walk-to-door no clique e hover actions
+// (ex.: toldo da Dance Club acendendo, porta da Gift Shop).
+
+import { playRoomSfx } from '../audio/Sfx.js';
+
+// Scripts extraidos do bundle do gopenguin (room actions). Chaves casam por
+// sufixo com o path do botao (ex.: 'background_mc.coffee_btn').
+const ROOM_SCRIPTS = {
+    town: {
+        buttons: {
+            coffee_btn: { walk: [275, 225] },
+            dance_btn: {
+                walk: [342, 205],
+                hover: [{ path: 'dance_canopy_mc', over: 2, out: 1 }],
+            },
+            shop_btn: { walk: [505, 233] },
+        },
+    },
+    // Oh() do bundle gopenguin — Dance Club. update() (iluminacao por
+    // jogadores/cores) ainda nao portado.
+    dance: {
+        start: [180, 280],
+        buttons: {
+            'background_mc.town_btn': { walk: [110, 270] },
+            'background_mc.lounge_btn': { walk: [680, 355] },
+            'secretspeaker_mc.boiler_btn': { walk: [480, 210] },
+            'djtable_mc.dj_mc.dj_btn': {
+                walk: [260, 150],
+                hover: [
+                    { path: 'djtable_mc.dj_mc', over: 2, out: 1 },
+                    { path: 'djtable_mc.djled_mc', over: 2, out: 1 },
+                ],
+            },
+            'djtable_mc.dj_mc.mixer_btn': { walk: [330, 160] },
+            'dancetable_mc.table_btn': {
+                walk: [525, 270],
+                hover: [
+                    { path: 'dancetable_mc', over: 2, out: 1, playOver: true },
+                    { path: 'background_mc.danceposter_mc.danceposterlang_mc', over: 2, out: 1 },
+                    { path: 'background_mc.dancepostertrim_mc', over: 2, out: 1 },
+                ],
+            },
+        },
+    },
+};
+
+export class RoomInteractions {
+    constructor(scene, movie, roomKey) {
+        this.scene = scene;
+        this.movie = movie;
+        this.roomKey = roomKey;
+        this.buttons = [];
+        this.hovered = null;
+    }
+
+    build() {
+        if (!this.movie) return;
+        const script = ROOM_SCRIPTS[this.roomKey] || {};
+        const defs = script.buttons || {};
+        this.buttons = this.movie.findButtons()
+            .map((b) => {
+            const key = Object.keys(defs).find(
+                (k) => b.path === k || b.path.endsWith('.' + k) || b.name === k
+            );
+            const def = key ? defs[key] : {};
+            // AS parseado do SWF (onRelease) — fonte autoritativa
+            const parsed = this.movie._matchPath(this.movie.interactions.click, b.path, b.name);
+            const parsedDis = this.movie.interactions.disabled.has(b.path)
+                || [...this.movie.interactions.disabled].some((d) => b.path.endsWith('.' + d) || d.endsWith('.' + b.path));
+            return {
+                ...b,
+                walk: def.walk || parsed?.walk || this._defaultWalk(b),
+                hover: def.hover || [],
+                sfxHover: def.sfxHover,
+                sfxClick: def.sfxClick,
+                content: def.content || parsed?.content,
+                game: def.game || parsed?.game,
+                disabled: parsedDis || !!def.disabled
+                    // interface_mc so interage se o AS der acao real
+                    // (catalogo/jogo); sem acao, botao de HUD nao anda o pinguim
+                    || (b.path.startsWith('interface_mc') && !parsed?.content && !parsed?.game && !parsed?.walk),
+            };
+        }).filter((b) => !b.disabled);
+        this.hovered = null;
+    }
+
+    // Sem script: anda ate o centro do botao (a trigger da porta resolve a troca).
+    _defaultWalk(b) {
+        const [x0, y0, x1, y1] = b.bounds;
+        return [Math.round((x0 + x1) / 2), Math.round((y0 + y1) / 2)];
+    }
+
+    // Botao no topo da pilha (desenhado por ultimo = maior prioridade).
+    buttonAt(x, y) {
+        for (let i = this.buttons.length - 1; i >= 0; i--) {
+            const b = this.buttons[i];
+            const [x0, y0, x1, y1] = b.bounds;
+            if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return b;
+        }
+        return null;
+    }
+
+    // Chamado a cada pointermove — aplica states up/over e hover actions.
+    hoverAt(x, y) {
+        if (!this.movie || !this.buttons.length) return;
+        const b = this.buttonAt(x, y);
+        const path = b ? b.path : null;
+        if (path === this.hovered) return;
+        if (this.hovered) {
+            const old = this.buttons.find((o) => o.path === this.hovered);
+            this.movie.setButtonState(this.hovered, 'up');
+            for (const a of old?.hover || []) this.movie.gotoPath(a.path, a.out, false);
+        }
+        if (b) {
+            this.movie.setButtonState(b.path, 'over');
+            for (const a of b.hover) this.movie.gotoPath(a.path, a.over, true);
+            if (b.sfxHover !== undefined) playRoomSfx(this.roomKey, b.sfxHover);
+        }
+        this.hovered = path;
+    }
+
+    // Clique no botao: retorna {walk} ou {content}/{game} do onRelease.
+    clickTarget(x, y) {
+        const b = this.buttonAt(x, y);
+        if (b?.sfxClick !== undefined) playRoomSfx(this.roomKey, b.sfxClick);
+        if (!b) return null;
+        if (b.content) return { content: b.content };
+        if (b.game) return { game: b.game };
+        return { x: b.walk[0], y: b.walk[1] };
+    }
+}

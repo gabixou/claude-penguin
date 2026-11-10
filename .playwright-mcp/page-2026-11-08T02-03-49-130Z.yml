@@ -1,0 +1,4 @@
+- generic [active] [ref=f1e1]:
+  - generic "Room" [ref=f1e2]
+  - text: GoPenguin
+  - textbox "Chat" [ref=f1e4]
