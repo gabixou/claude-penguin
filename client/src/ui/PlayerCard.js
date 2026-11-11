@@ -30,6 +30,7 @@ const CARD_BUTTONS = {
     sort_mc: 'sort', // frame 3: menu de categorias
     next_btn: 'next',
     back_btn: 'back',
+    moderatorButtonEditPlayer: 'rename', // botao "?" abaixo do X (self)
 };
 
 // ordem de desenho do paperdoll no card (io do layoutBalloon original:
@@ -299,7 +300,10 @@ export default class PlayerCard {
             // menu de categorias) — por enquanto abre o guarda-roupa vetorial
             // como placeholder; implementacao real usaria o menu_mc_holder
             // e o painel branco lateral (tab_mc) do interface pack
-            if (isSelf && action !== 'close' && action !== 'inventory' && action !== 'sort' && action !== 'next' && action !== 'back') continue;
+            if (isSelf && action !== 'close' && action !== 'inventory' && action !== 'sort' && action !== 'next' && action !== 'back' && action !== 'rename') continue;
+            // rename so existe no card proprio e enquanto canRename —
+            // reaproveita o botao "?" (moderatorButtonEditPlayer) da arte
+            if (action === 'rename' && (!isSelf || !scene.network?.canRename)) continue;
             const eb = clip._boundsOf([e], IDENT, '');
             if (!eb) continue;
             const [bx, by] = px((eb[0] + eb[2]) / 2, (eb[1] + eb[3]) / 2);
@@ -318,31 +322,6 @@ export default class PlayerCard {
                 .setInteractive({ useHandCursor: true });
             dz.on('pointerdown', () => { scene.wardrobe?.open(scene.localPlayer); });
             cont.add(dz);
-        }
-
-        // Botão de renomear (apenas para o jogador local e se canRename)
-        if (isSelf && scene.network?.canRename) {
-            // coords LOCAIS do container (card vai de 0..dw, 0..dh).
-            // Icone de lapis em botao circular — padrao dos icones do card,
-            // em vez da caixa amarela "Rename" que destoa da arte original
-            const renameBtn = scene.add.container(dw / 2, dh - 18);
-            const pencilBg = scene.add.graphics();
-            pencilBg.fillStyle(0xffffff, 0.95);
-            pencilBg.fillCircle(0, 0, 10);
-            pencilBg.lineStyle(1.5, 0x999999, 1);
-            pencilBg.strokeCircle(0, 0, 10);
-            const pencil = scene.add.graphics();
-            pencil.fillStyle(0xffcc00, 1);
-            pencil.fillRoundedRect(-1.6, -8, 3.2, 9, 1);          // corpo
-            pencil.fillStyle(0xe8c39e, 1);
-            pencil.fillTriangle(-1.6, 1, 1.6, 1, 0, 4.5);          // madeira
-            pencil.fillStyle(0x333333, 1);
-            pencil.fillTriangle(-0.7, 2.8, 0.7, 2.8, 0, 4.2);      // grafite
-            pencil.setRotation(Phaser.Math.DegToRad(-45));
-            renameBtn.add([pencilBg, pencil]);
-            renameBtn.setInteractive(new Phaser.Geom.Circle(0, 0, 10), Phaser.Geom.Circle.Contains, { useHandCursor: true });
-            renameBtn.on('pointerdown', () => this.nameChangeModal.open());
-            cont.add(renameBtn);
         }
 
         // Coins do jogador local — editText nativo coins_txt (id 667:
