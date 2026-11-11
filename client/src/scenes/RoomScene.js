@@ -381,7 +381,6 @@ export default class RoomScene extends Phaser.Scene {
 
         window.__penguin = this.localPlayer; // debug
         this._updateCoinsDisplay();
-        this._showGuestIndicator();
 
         // Se já estava autenticado, entra na sala
         if (this.network.isConnected) {
@@ -394,19 +393,6 @@ export default class RoomScene extends Phaser.Scene {
         const coins = this.network?.coins || 0;
         // TODO: implementar display de coins no HUD
         console.log('[RoomScene] Coins:', coins);
-    }
-
-    // Mostra indicador de guest mode
-    _showGuestIndicator() {
-        if (this._guestIndicator) return;
-        const text = this.add.text(WORLD_W - 10, 10, 'Guest Mode', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '10px',
-            color: '#ffffff',
-            backgroundColor: '#0072ce',
-            padding: { x: 6, y: 3 },
-        }).setOrigin(1, 0).setDepth(10000001);
-        this._guestIndicator = text;
     }
 
     setupNetworkEvents() {
