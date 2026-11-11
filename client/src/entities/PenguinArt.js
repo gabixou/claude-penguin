@@ -114,7 +114,12 @@ export class PenguinLibrary {
     // esses arquivos (e nao os ~1800 do pack inteiro) faz o primeiro walk
     // ficar pronto rapido; sem isso o pinguim "deslizava" aguardando decode.
     // Ordem: walk primeiro (acao mais visivel), depois idle/sit/emotes.
-    prefetchLook(look) {
+    // scale: supersampling do canvas do pinguim (_viewScale). Com ele o
+    // prefetch tb aquece o artCanvas (raster createImageBitmap) — sem isso
+    // cada shape do walk ainda pagava o primeiro raster sob demanda e o
+    // pinguim "deslizava" ate o cache (file|eff) esquentar em todas as
+    // direcoes, exatamente o sintoma relatado.
+    prefetchLook(look, scale = null) {
         const seen = new Set();
         const afs = [];
         const push = (f) => { if (!seen.has(f)) { seen.add(f); afs.push(f); } };
@@ -130,12 +135,12 @@ export class PenguinLibrary {
         // demanda — por isso so ficava certo depois de andar p/ todos os
         // lados. O resto segue paced via _imgCache (idempotente).
         const hotAfs = afs.slice(0, 16);
-        this.movie.prefetchFrames(hotAfs, 12, true, null, false);
+        this.movie.prefetchFrames(hotAfs, 12, true, scale, false);
         this.movie.prefetchFrames(afs, 12);
         for (const slot of ITEM_DRAW_ORDER) {
             const id = look?.[slot];
             if (id) this.itemClip(id).then((clip) => {
-                clip?.m.prefetchFrames(hotAfs, 12, true, null, false);
+                clip?.m.prefetchFrames(hotAfs, 12, true, scale, false);
                 clip?.m.prefetchFrames(afs, 12);
             });
         }
@@ -247,7 +252,9 @@ export class PenguinView {
     }
 
     // look: {feet,body,neck,hand,face,head} -> itemId ou null
-    setLook(look) {
+    // scale: supersampling do render — repassado ao prefetchLook p/ aquecer
+    // o artCanvas dos frames quentes neste tamanho de raster.
+    setLook(look, scale = null) {
         let changed = false;
         for (const slot of ITEM_DRAW_ORDER) {
             const id = look?.[slot] ? Number(look[slot]) : 0;
@@ -270,7 +277,7 @@ export class PenguinView {
             this.dirty = true;
             // garante que os frames deste look (walk/idle/sit) estejam
             // decodificados antes do primeiro uso — evita o "deslizar"
-            this.lib.prefetchLook?.(look);
+            this.lib.prefetchLook?.(look, scale);
         }
     }
 
