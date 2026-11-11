@@ -57,6 +57,24 @@ export class IceFishingGame {
         // continuo = tela piscando + FPS baixo (mesmo fix do catalogo)
         this.movie.artFlatScale = true;
 
+        // hotspots (sprite 55 = quadrado preto 22x22) sao so hit-test no
+        // SWF original — o pack os contem como shapes visiveis; escondemos
+        // todos os paths *hotspot/*disthotspot para nao renderizar retangulos.
+        // Paths explicitos: collectInteractive so ve o frame atual e os
+        // peixes so existem no frame de gameplay.
+        const HOT_NAMES = [...FISH_OBJECTS, 'bigFish', 'bigFishApproach',
+            'sharkLeft', 'sharkRight', 'hook', 'fishflee', 'grayfishflee'];
+        for (const n of HOT_NAMES)
+            for (const s of ['.obj.hotspot', '.obj.disthotspot', '.hotspot', '.disthotspot'])
+                this.movie.set(`${n}${s}`, { visible: false });
+
+        // qualquer mutacao do movie pode mudar botoes visiveis -> invalida
+        const mv = this.movie;
+        for (const m of ['goto', 'play', 'stop', 'set']) {
+            const orig = mv[m].bind(mv);
+            mv[m] = (...a) => { this._invalidateButtons(); return orig(...a); };
+        }
+
         // estado (struct Fishing do C)
         this.positions = new Map();
         this.watched = new Map();
@@ -107,13 +125,17 @@ export class IceFishingGame {
 
     // ---------- botoes nativos do movie ----------
 
+    _invalidateButtons() { this._btnCache.frame = -1; }
+
     _buttons() {
         const c = this._btnCache;
         const frame = this.movie?._mainFrame ?? -1;
-        // re-coleta se o frame principal mudou ou a cada 150ms (visibilidade
-        // de prompt/gameOver_mc muda sem trocar o frame)
-        if (c.frame !== frame || performance.now() - c.at > 150) {
-            c.frame = frame; c.at = performance.now(); c.list = [];
+        // re-coleta so quando invalidado (frame do main muda ou qualquer
+        // goto/play/set — ex.: prompt/gameOver_mc aparecem sem trocar frame).
+        // collectInteractive percorre a arvore inteira: nada de timer.
+        if (c.frame !== frame) {
+            c.frame = frame;
+            c.list = [];
             try {
                 const { entries } = this.movie.collectInteractive();
                 for (const e of entries) {
@@ -708,10 +730,19 @@ export class IceFishingGame {
             try { this._tick(); } catch (e) { console.warn('[icefishing] tick', e); }
         }
         // render so quando o movie avancou (24fps) — renderFrame redesenha
-        // a timeline inteira; renderizar a 60fps o mesmo frame era desperdicio
+        // a timeline inteira; renderizar a 60fps o mesmo frame era desperdicio.
+        // Desenha num buffer offscreen e faz UM blit sincrono: sem isso o
+        // clearRect+draws assincronos exibiam frames parciais = tela piscando.
         if (ticked) {
             try {
-                await this.movie.renderFrame(undefined, this.canvas, 2);
+                if (!this._buf) {
+                    this._buf = document.createElement('canvas');
+                    this._buf.width = this.canvas.width; this._buf.height = this.canvas.height;
+                }
+                await this.movie.renderFrame(undefined, this._buf, 2);
+                const ctx = this.canvas.getContext('2d');
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.drawImage(this._buf, 0, 0);
             } catch (e) { console.warn('[icefishing] render', e); }
         }
         this._raf = requestAnimationFrame(() => this._loop());
