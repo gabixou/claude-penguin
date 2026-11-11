@@ -194,7 +194,9 @@ export class IceFishingGame {
         const c = this.penguinColor;
         const rgb = Array.isArray(c) ? c : [(c >> 16) & 255, (c >> 8) & 255, c & 255];
         const [r, g, b] = rgb;
-        const col = { mult: [1, 1, 1, 1], add: [r, g, b, 0] };
+        // SWLColor do game_fish.c: mult zera o RGB original, add pinta a cor
+        // do jogador — mult=[1,1,1] somava a cor sobre a arte (tint errado)
+        const col = { mult: [0, 0, 0, 1], add: [r, g, b, 0] };
         for (const p of ['penguin.body', 'gameOver_mc.body', '#2#12.body', '#2.body', '#2#32.body'])
             this.movie.set(p, { color: col });
     }
