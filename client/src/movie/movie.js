@@ -248,6 +248,7 @@ export class MovieRoom {
             tl, packs, files, exits, interactions: tmp.interactions,
             svgCache: new Map(), imgCache: new Map(),
             artCache: new Map(), tintCache: new Map(), fontCache: new Map(),
+            svgOverrides: new Map(),
         };
     }
 
@@ -295,6 +296,7 @@ export class MovieRoom {
         room._artCache = s.artCache;
         room._tintCache = s.tintCache;
         room._fontCache = s.fontCache;
+        room._svgOverrides = s.svgOverrides;
         room._playheads = new Map();  // path -> playhead "ativo" (ultimo resolvido; goto/currentFrame)
         room._playheadAll = new Map(); // path+''+spriteId -> playhead (instancias co-existentes)
         room._buttonStates = new Map(); // path -> 'up'|'over'|'down' (interacoes)
@@ -418,7 +420,24 @@ export class MovieRoom {
         this._scale = scale;
     }
 
+    // Override de arte por arquivo (ex.: trocar o glifo "?" do botao de
+    // rename do player card por um lapis). Compartilhado entre instancias
+    // do mesmo pack — os caches sao os mesmos, entao tambem os purga.
+    setSvgOverride(file, svg) {
+        if (!this._svgOverrides) this._svgOverrides = new Map();
+        this._svgOverrides.set(file, svg);
+        this._svgCache?.delete(file);
+        this._imgCache?.delete(file);
+        const prefix = `${file}|`;
+        for (const cache of [this._artCache, this._tintCache]) {
+            for (const k of [...(cache?.keys() || [])])
+                if (k.startsWith(prefix)) cache.delete(k);
+        }
+    }
+
     _svgText(file) {
+        const o = this._svgOverrides?.get(file);
+        if (o !== undefined) return o;
         let s = this._svgCache.get(file);
         if (s !== undefined) return s;
         const ref = this.files.get(file);
