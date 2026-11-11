@@ -52,6 +52,10 @@ export class IceFishingGame {
         this.movie = await MovieRoom.load(PACK);
         if (this._destroyed) return;
         this.movie.prefetchSvgs?.();
+        // raster fixo em scale=2: sem isso eff=scale*k muda a cada frame
+        // (peixes se movem) -> cache de artCanvas nunca acerta -> re-raster
+        // continuo = tela piscando + FPS baixo (mesmo fix do catalogo)
+        this.movie.artFlatScale = true;
 
         // estado (struct Fishing do C)
         this.positions = new Map();
@@ -695,13 +699,19 @@ export class IceFishingGame {
         this._acc += dt;
         const step = 1000 / RATE;
         let guard = 0;
+        let ticked = false;
         while (this._acc >= step && guard++ < 8) {
             this._acc -= step;
+            ticked = true;
             try { this._tick(); } catch (e) { console.warn('[icefishing] tick', e); }
         }
-        try {
-            await this.movie.renderFrame(undefined, this.canvas, 2);
-        } catch (e) { console.warn('[icefishing] render', e); }
+        // render so quando o movie avancou (24fps) — renderFrame redesenha
+        // a timeline inteira; renderizar a 60fps o mesmo frame era desperdicio
+        if (ticked) {
+            try {
+                await this.movie.renderFrame(undefined, this.canvas, 2);
+            } catch (e) { console.warn('[icefishing] render', e); }
+        }
         this._raf = requestAnimationFrame(() => this._loop());
     }
 
