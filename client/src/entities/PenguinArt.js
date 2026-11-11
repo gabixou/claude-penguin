@@ -114,12 +114,7 @@ export class PenguinLibrary {
     // esses arquivos (e nao os ~1800 do pack inteiro) faz o primeiro walk
     // ficar pronto rapido; sem isso o pinguim "deslizava" aguardando decode.
     // Ordem: walk primeiro (acao mais visivel), depois idle/sit/emotes.
-    // scale: supersampling do canvas do pinguim (_viewScale). Com ele o
-    // prefetch tb aquece o artCanvas (raster createImageBitmap) — sem isso
-    // cada shape do walk ainda pagava o primeiro raster sob demanda e o
-    // pinguim "deslizava" ate o cache (file|eff) esquentar em todas as
-    // direcoes, exatamente o sintoma relatado.
-    prefetchLook(look, scale = null) {
+    prefetchLook(look) {
         const seen = new Set();
         const afs = [];
         const push = (f) => { if (!seen.has(f)) { seen.add(f); afs.push(f); } };
@@ -135,12 +130,12 @@ export class PenguinLibrary {
         // demanda — por isso so ficava certo depois de andar p/ todos os
         // lados. O resto segue paced via _imgCache (idempotente).
         const hotAfs = afs.slice(0, 16);
-        this.movie.prefetchFrames(hotAfs, 12, true, scale, false);
+        this.movie.prefetchFrames(hotAfs, 12, true, null, false);
         this.movie.prefetchFrames(afs, 12);
         for (const slot of ITEM_DRAW_ORDER) {
             const id = look?.[slot];
             if (id) this.itemClip(id).then((clip) => {
-                clip?.m.prefetchFrames(hotAfs, 12, true, scale, false);
+                clip?.m.prefetchFrames(hotAfs, 12, true, null, false);
                 clip?.m.prefetchFrames(afs, 12);
             });
         }
@@ -244,6 +239,9 @@ export class PenguinView {
         this.frame = 1;
         this.drawnFrame = 0;
         this.dirty = true;
+        this._scaleHint = null;
+        this._warmToken = 0;
+        this._warmCtx = null;
     }
 
     setColor(rgb) {
@@ -252,23 +250,25 @@ export class PenguinView {
     }
 
     // look: {feet,body,neck,hand,face,head} -> itemId ou null
-    // scale: supersampling do render — repassado ao prefetchLook p/ aquecer
-    // o artCanvas dos frames quentes neste tamanho de raster.
+    // scale: supersampling do render — guardado p/ o warmFrames usar a
+    // mesma escala de raster do draw real.
     setLook(look, scale = null) {
+        if (scale != null) this._scaleHint = scale;
         let changed = false;
+        const loads = [];
         for (const slot of ITEM_DRAW_ORDER) {
             const id = look?.[slot] ? Number(look[slot]) : 0;
             if ((this.look[slot] || 0) === id) continue;
             this.look[slot] = id;
             changed = true;
             if (id) {
-                this.lib.itemClip(id).then((clip) => {
+                loads.push(this.lib.itemClip(id).then((clip) => {
                     if (!clip || this.look[slot] !== id) return;
                     const inst = clip.instance();
                     inst.set('ring', { visible: false });
                     this.items.set(slot, inst);
                     this.dirty = true;
-                });
+                }).catch(() => {}));
             } else {
                 this.items.delete(slot);
             }
@@ -277,8 +277,60 @@ export class PenguinView {
             this.dirty = true;
             // garante que os frames deste look (walk/idle/sit) estejam
             // decodificados antes do primeiro uso — evita o "deslizar"
-            this.lib.prefetchLook?.(look, scale);
+            this.lib.prefetchLook?.(look);
+            // depois que as roupas carregam, practice-render dos frames
+            // quentes esquenta o cache de raster (artCanvas/solid/tint)
+            // com as chaves eff reais — sem isso o primeiro walk de cada
+            // direcao pagava dezenas de createImageBitmap sob demanda
+            const token = ++this._warmToken;
+            this._warmDone = false;
+            Promise.all(loads).then(() => {
+                if (token === this._warmToken) this.warmFrames();
+            });
         }
+    }
+
+    // "Practice render" dos frames quentes: desenha walk+idle 1x num canvas
+    // minusculo pelo MESMO caminho do render real. Isso popula _artCache,
+    // _solidCache e _pixelTint com as chaves (file|eff) exatas — eff =
+    // scale*k varia por sprite (~10.6 e ~0.5 no pinguim, NAO ss^2), por
+    // isso o warm por prefetchFrames(scale) nao cobria nada. Sequencial:
+    // no maximo poucos creates pendentes por vez, e pausa durante
+    // _decodeHold para nao competir com o load da sala.
+    async warmFrames() {
+        const token = this._warmToken;
+        const sc = this._scaleHint || this._renderScale || 5.0625;
+        if (!this._warmCtx) {
+            const cv = document.createElement('canvas');
+            cv.width = cv.height = 8;
+            this._warmCtx = cv.getContext('2d');
+        }
+        const ctx = this._warmCtx;
+        const look = { ...this.look };
+        // Clips DESCARTAVEIS: o waddle anima sprites com timelines de 7-8f
+        // (playheads playing). Se o warm usasse os clips vivos, reset/
+        // advance corromperia a animacao real — instancias novas compartilham
+        // so os caches do movie (artCanvas/_svgImage), que e o objetivo.
+        const clips = [new Clip(this.art.m)];
+        for (const it of this.items.values()) clips.push(new Clip(it.m));
+        for (const f of [9, 10, 11, 12, 13, 14, 15, 16,
+            1, 2, 3, 4, 5, 6, 7, 8]) {
+            if (token !== this._warmToken) return;
+            while (MovieRoom._decodeHold > 0)
+                await new Promise((r) => setTimeout(r, 120));
+            const af = this.lib.animationFrame(look, f);
+            // 9 passos cobrem o loop de 8f dos sub-sprites (draw no frame
+            // atual, advance, repete) — mesmo padrao do render real
+            for (let step = 0; step < 9; step++) {
+                if (token !== this._warmToken) return;
+                try {
+                    for (const c of clips) await c.draw(ctx, af, sc);
+                } catch { /* warm e best-effort */ }
+                for (const c of clips) c.advance();
+                await new Promise((r) => setTimeout(r, 0));
+            }
+        }
+        if (token === this._warmToken) this._warmDone = true;
     }
 
     // frame: numero do frame logico da timeline principal (1..76)
@@ -301,6 +353,7 @@ export class PenguinView {
 
     // desenha no ctx (transform de scale ja aplicada pelo chamador)
     async render(ctx, scale) {
+        this._renderScale = scale;
         const af = this.animationFrame;
         if (this.drawnFrame !== af) {
             this.art.resetPlayback();
