@@ -380,14 +380,18 @@ function handlePacket(ws, req, packet) {
                 return;
             }
 
-            // Recompensa de minigame (ex.: Pufflescape) — 50 coins por level
-            // concluido, repetivel. O cliente envia um evento por conclusao.
+            // Recompensa de minigame — 50 coins por level concluido, ou
+            // `amount` explicito do cliente (ex.: Ice Fishing manda o score
+            // da rodada). Cap de 500 para evitar abuso.
             const level = Math.floor(Number(data.level));
             if (!Number.isFinite(level) || level < 1 || level > 99) {
                 sendError(ws, 'INVALID_DATA', 'level inválido');
                 return;
             }
-            const reward = 50;
+            const amount = Math.floor(Number(data.amount));
+            const reward = Number.isFinite(amount) && amount >= 1
+                ? Math.min(amount, 500)
+                : 50;
             playerStore.addCoins(session.playerId, reward);
             const playerData = playerStore.getPublicPlayerData(session.playerId);
             session.coins = playerData.coins;

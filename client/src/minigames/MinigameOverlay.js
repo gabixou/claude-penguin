@@ -9,6 +9,8 @@ const MINIGAMES = {
     pufflescape: 'pufflescape',
     // sacos de cafe do Coffee Shop (triggers_mc.beans_mc -> sendJoinGame "beans")
     beans: 'beancounters',
+    // porta "Go Fishing" da Ski Lodge (triggers_mc.fish_mc -> sendJoinGame "fish")
+    fish: 'icefishing',
 };
 
 export class MinigameOverlay {
@@ -78,15 +80,17 @@ export class MinigameOverlay {
         const iframe = this.frame.querySelector('iframe');
         if (!iframe || e.source !== iframe.contentWindow) return;
         const d = e.data;
-        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters')) return;
+        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters' && d.source !== 'icefishing')) return;
         if (d.type === 'exit') {
             // botao X original do jogo — volta para a sala (retoma musica etc.)
             this.scene._closeMinigame?.();
             return;
         }
         if (d.type === 'level-complete') {
-            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1 });
-            this._toast(`Level ${d.level || 1} complete! +50 coins`);
+            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1, amount: d.amount });
+            this._toast(d.amount
+                ? `+${d.amount} coins`
+                : `Level ${d.level || 1} complete! +50 coins`);
         }
     }
 
