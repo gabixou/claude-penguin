@@ -9,8 +9,7 @@ const MINIGAMES = {
     pufflescape: 'pufflescape',
     // sacos de cafe do Coffee Shop (triggers_mc.beans_mc -> sendJoinGame "beans")
     beans: 'beancounters',
-    // porta "Go Fishing" da Ski Lodge (triggers_mc.fish_mc -> sendJoinGame "fish")
-    fish: 'icefishing',
+    // "Go Fishing" da Ski Lodge roda o movie original nativo (IceFishingGame)
 };
 
 export class MinigameOverlay {
@@ -30,7 +29,8 @@ export class MinigameOverlay {
 
     open(game) {
         const url = MinigameOverlay.urlFor(game);
-        if (!url) return false;
+        const native = game === 'fish'; // Ice Fishing roda o movie original (sem iframe)
+        if (!url && !native) return false;
         this.close();
 
         const W = 1520, H = 960;
@@ -42,6 +42,25 @@ export class MinigameOverlay {
         this.frame = document.createElement('div');
         this.frame.style.cssText = `position:relative; width:${W}px; height:${H}px;`;
 
+        if (native) {
+            // Ice Fishing: movie vetorial original via MovieRoom — full canvas,
+            // sem iframe. Carrega async; close() antes de terminar cancela.
+            import('./icefishing/icefishing.js').then(({ IceFishingGame }) => {
+                if (!this.frame) return;
+                this._native = new IceFishingGame(this.scene, this.frame, {
+                    onExit: () => this.scene._closeMinigame?.(),
+                    onCoins: (n) => {
+                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, amount: n });
+                        if (n > 0) this._toast(`+${n} coins`);
+                    },
+                    penguinColor: this.scene.localPlayer?.penguinColor,
+                });
+                this._native.init().catch((e) => {
+                    console.warn('[icefishing] init', e);
+                    this.scene._closeMinigame?.();
+                });
+            });
+        } else {
         const iframe = document.createElement('iframe');
         iframe.src = url;
         iframe.style.cssText =
@@ -49,6 +68,7 @@ export class MinigameOverlay {
             'background:#242424;';
         iframe.setAttribute('allow', 'autoplay');
         this.frame.appendChild(iframe);
+        } // fim do branch iframe (jogos não-nativos)
 
         // botao X generico — minigames sem saida propria (ex.: Bean Counters)
         // precisam de uma forma de voltar para a sala
@@ -78,13 +98,16 @@ export class MinigameOverlay {
         return true;
     }
 
+    // expõe o frame para o jogo nativo (Ice Fishing desenha direto no DOM)
+    get frameEl() { return this.frame; }
+
     // Mensagens do iframe do minigame (ex.: level completo -> reward de coins)
     _handleMessage(e) {
         if (!this.el || !this.frame) return;
         const iframe = this.frame.querySelector('iframe');
         if (!iframe || e.source !== iframe.contentWindow) return;
         const d = e.data;
-        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters' && d.source !== 'icefishing')) return;
+        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters')) return;
         if (d.type === 'exit') {
             // botao X original do jogo — volta para a sala (retoma musica etc.)
             this.scene._closeMinigame?.();
@@ -123,6 +146,8 @@ export class MinigameOverlay {
         if (this._onMessage) window.removeEventListener('message', this._onMessage);
         this._onMessage = null;
         this._closeBtn = null;
+        this._native?.destroy();
+        this._native = null;
         this._loop?.wake?.();
         this._loop = null;
         this.el?.remove();
