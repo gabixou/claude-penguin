@@ -49,18 +49,6 @@ export class IceFishingGame {
         this.canvas.style.cssText = 'position:absolute; inset:0; width:100%; height:100%;';
         this.frame.appendChild(this.canvas);
 
-        // botoes DOM (o cliente web original tem bottom bar nativa; aqui
-        // usamos DOM por cima do movie — Play/Store/Exit)
-        this._ui = document.createElement('div');
-        this._ui.style.cssText = 'position:absolute; left:0; right:0; bottom:0; height:64px;' +
-            'display:flex; align-items:center; justify-content:center; gap:14px; z-index:3;';
-        this._btnPlay = this._btn('PLAY', () => this._onPlay());
-        this._btnStore = this._btn('STORE FISH', () => this._onStore());
-        this._btnWorm = this._btn('NEW WORM', () => this._onStore());
-        this._btnExit = this._btn('EXIT', () => this._finish());
-        this._ui.append(this._btnPlay, this._btnStore, this._btnExit);
-        this.frame.appendChild(this._ui);
-
         this.movie = await MovieRoom.load(PACK);
         if (this._destroyed) return;
         this.movie.prefetchSvgs?.();
@@ -79,17 +67,28 @@ export class IceFishingGame {
         this.finished = false;
         this.model = this._newModel();
 
-        // input
-        this._onMove = (e) => {
+        // input — botoes sao os do proprio movie (buttonActions do pack:
+        // play_btn, getWorm, getCoins, sendGameOver). Hit-test nos bounds
+        // coletados por collectInteractive(); clique fora de botao = acao
+        // de pesca (soltar anzol/acima do gelo = store).
+        this._btnCache = { frame: -1, at: 0, list: [] };
+        this._stagePos = (e) => {
             const r = this.canvas.getBoundingClientRect();
-            const y = (e.clientY - r.top) / r.height * STAGE_H;
+            return [(e.clientX - r.left) / r.width * STAGE_W,
+                    (e.clientY - r.top) / r.height * STAGE_H];
+        };
+        this._onMove = (e) => {
+            const [, y] = this._stagePos(e);
             this.model.mouseY = Math.max(0, Math.min(STAGE_H, y));
+            this._hoverButtons(e);
         };
         this._onDown = (e) => {
             if (e.target !== this.canvas) return;
+            const [sx, sy] = this._stagePos(e);
+            const hit = this._buttonAt(sx, sy);
+            if (hit) { this._pressButton(hit, 'down'); return; }
             this._onMove(e);
-            if (!this.started) return;
-            if (!this.model.running) return;
+            if (!this.started || !this.model.running) return;
             this._fishDrop();
             this._newWorm(0);
         };
@@ -98,26 +97,53 @@ export class IceFishingGame {
 
         // menu: start_screen (frame 2 do main)
         this.movie.goto('', 2);
-        this._setUi('menu');
         this._last = performance.now();
         this._loop();
     }
 
-    _btn(label, fn) {
-        const b = document.createElement('div');
-        b.textContent = label;
-        b.style.cssText = 'padding:10px 22px; font:bold 15px Arial,sans-serif; color:#fff;' +
-            'background:rgba(20,30,50,.85); border:2px solid rgba(255,255,255,.55);' +
-            'border-radius:10px; cursor:pointer; user-select:none;';
-        b.addEventListener('click', fn);
-        return b;
+    // ---------- botoes nativos do movie ----------
+
+    _buttons() {
+        const c = this._btnCache;
+        const frame = this.movie?._mainFrame ?? -1;
+        // re-coleta se o frame principal mudou ou a cada 150ms (visibilidade
+        // de prompt/gameOver_mc muda sem trocar o frame)
+        if (c.frame !== frame || performance.now() - c.at > 150) {
+            c.frame = frame; c.at = performance.now(); c.list = [];
+            try {
+                const { entries } = this.movie.collectInteractive();
+                for (const e of entries) {
+                    if (!e.acts?.release) continue;
+                    c.list.push({ path: e.path, bounds: e.bounds, release: e.acts.release });
+                }
+            } catch (_) { /* collectInteractive indisponivel */ }
+        }
+        return c.list;
     }
 
-    _setUi(mode) {
-        this._btnPlay.style.display = mode === 'menu' ? '' : 'none';
-        this._btnStore.style.display = mode === 'game' ? '' : 'none';
-        this._btnWorm.style.display = mode === 'game' ? '' : 'none';
-        this._btnExit.style.display = mode === 'game' || mode === 'over' ? '' : 'none';
+    _buttonAt(x, y) {
+        for (const b of this._buttons()) {
+            const [x0, y0, x1, y1] = b.bounds;
+            if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return b;
+        }
+        return null;
+    }
+
+    _hoverButtons(e) {
+        const [sx, sy] = this._stagePos(e);
+        const over = this._buttonAt(sx, sy);
+        for (const b of this._buttons())
+            this.movie.setButtonState?.(b.path, b === over ? 'over' : 'up');
+    }
+
+    _pressButton(b, state) {
+        this.movie.setButtonState?.(b.path, state);
+        setTimeout(() => this.movie.setButtonState?.(b.path, 'up'), 120);
+        const r = b.release;
+        if (/play\s*\(/.test(r)) this._onPlay();
+        else if (/getWorm/.test(r)) this._newWorm(30);
+        else if (/getCoins|sendGameOver/.test(r)) this._finish();
+        else if (/gotoAndStop/.test(r)) this.movie.goto('', 2);
     }
 
     _newModel() {
@@ -158,7 +184,6 @@ export class IceFishingGame {
         this._label('gameOver_mc.gameOver', 'ui_gameover');
         this._label('gameOver_mc.collectCoins.label', 'ingame_collectcoins');
         this._applyPenguinColor();
-        this._setUi('game');
     }
 
     _applyPenguinColor() {
@@ -578,7 +603,6 @@ export class IceFishingGame {
         this._visible('gameOver_mc', true);
         if (m.gray) this._goto('gameOver_mc', 2, false);
         this._scoreText('gameOver_mc');
-        this._setUi('over');
     }
 
     _mullet() {
@@ -587,7 +611,6 @@ export class IceFishingGame {
         m.running = false; m.over = m.won = true;
         this._scoreText('gameOver_mc'); // C usa root#2#32; gameOver_mc cobre os dois
         this._visible('gameOver_mc', true);
-        this._setUi('over');
     }
 
     _now() { return this.model.ticks * (1000 / RATE); }
@@ -654,14 +677,6 @@ export class IceFishingGame {
         this._watch();
     }
 
-    _store() { // store fish acima do gelo = fish_drop forcado (B do controle)
-        this.model.mouseY = 80;
-        this._fishDrop();
-        this._newWorm(30);
-    }
-
-    _onStore() { if (this.started && this.model.running) this._store(); }
-
     _finish() {
         if (this.finished) return;
         this.finished = true;
@@ -695,7 +710,6 @@ export class IceFishingGame {
         cancelAnimationFrame(this._raf);
         this.canvas?.removeEventListener('mousemove', this._onMove);
         this.canvas?.removeEventListener('mousedown', this._onDown);
-        this._ui?.remove();
         this.canvas?.remove();
     }
 }
