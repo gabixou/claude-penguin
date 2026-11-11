@@ -123,18 +123,19 @@ export class PenguinLibrary {
             17, 18, 19, 20, 21, 22, 23, 24,
             25, 26, 27, 28, 29, 30]) push(this.animationFrame(look, f));
         for (let f = 31; f <= 76; f++) push(this.animationFrame(look, f));
-        // walk (afs[0..7]) em modo immediate: burst direto de _svgImage
-        // para decodificar DURANTE o load da sala — se ficar na fila
-        // agendada, espera atras dos ~560 SVGs da sala + warm do pack
-        // inteiro (~1837) e o primeiro andar "desliza" por dezenas de
-        // segundos. O resto segue paced via _imgCache (idempotente).
-        const walkAfs = afs.slice(0, 8);
-        this.movie.prefetchFrames(walkAfs, 12, true);
+        // walk+idle (afs[0..15]) em BURST real: bg=false dispara todos os
+        // _svgImage de uma vez. O modo agendado enfileirava atras do warm
+        // da sala (~250 images pendentes + rIC) e o primeiro andar/
+        // rotacao de idle "deslizava" ate cada direcao decodificar sob
+        // demanda — por isso so ficava certo depois de andar p/ todos os
+        // lados. O resto segue paced via _imgCache (idempotente).
+        const hotAfs = afs.slice(0, 16);
+        this.movie.prefetchFrames(hotAfs, 12, true, null, false);
         this.movie.prefetchFrames(afs, 12);
         for (const slot of ITEM_DRAW_ORDER) {
             const id = look?.[slot];
             if (id) this.itemClip(id).then((clip) => {
-                clip?.m.prefetchFrames(walkAfs, 12, true);
+                clip?.m.prefetchFrames(hotAfs, 12, true, null, false);
                 clip?.m.prefetchFrames(afs, 12);
             });
         }
