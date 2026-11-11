@@ -31,7 +31,7 @@ It is a love letter to the penguin that stole our childhoods: authentic HUD, rea
 
 ### ▶ [claudepenguin.mooo.com](https://claudepenguin.mooo.com)
 
-![Claude Penguin gameplay screenshot](assets/claudepenguin.png)
+![Claude Penguin gameplay screenshot](assets/claudepenguin.jpg)
 
 - 🖱️ **Click anywhere** on the room to walk there — your penguin waddles over with the classic animation
 - 💬 **Chat bar** at the bottom — talk to other players in real time
