@@ -44,12 +44,27 @@ function addBags() {
 	}
 }
 
+// refs de UI cacheadas — o HTML do .game e recriado no GameOver/MainMenu,
+// entao revalida com parent().length antes de reusar
+var _ui = null, _lastSrc = '', _lastLife = -1, _lastTruck = -1, _lastScore = -1
+
 app.mainLoop(function() {
 	if(app.currentState() == "Game") {
-		$(".player").first().css("left", playerPos+"px")
+		if(!_ui || !_ui.player.parent().length) {
+			_ui = {
+				player: $(".player").first(),
+				pimg: $(".player img").first(),
+				lives: $(".lives").first(),
+				truckNum: $(".truck-num").first(),
+				score: $(".score").first(),
+			}
+			_lastSrc = ''; _lastLife = _lastTruck = _lastScore = -1
+		}
+		_ui.player.css("left", playerPos+"px")
 		if(!dead && $(".truck.ready").length) {
-			// Update the player sprite and position
-			$(".player img").first().attr("src", "Assets/Player/"+holding+".png")
+			// Update the player sprite e position (so escreve o src quando muda)
+			var psrc = "Assets/Player/"+holding+".png"
+			if(psrc !== _lastSrc) { _lastSrc = psrc; _ui.pimg.attr("src", psrc) }
 			if(moving == 1) {
 				// Moving left
 				playerPos -= 16
@@ -70,9 +85,10 @@ app.mainLoop(function() {
 			}
 			
 			// Loop through each falling hazard / bag
+			var hitboxEl = $(".hitbox").first()[0];
 			$(".play-area").first().find(".hazard").each(function() {
 				// Check if the player's hitbox is colliding
-				if(collidesWith($(".hitbox").first()[0], this) && $(this).attr("fallin")) {
+				if(collidesWith(hitboxEl, this) && $(this).attr("fallin")) {
 					// Remove the hazard
 					$(this).attr("gone",1).remove()
 					// Check which hazard it is
@@ -116,11 +132,11 @@ app.mainLoop(function() {
 				})
 			}
 		}
-		// Update the scoreboard
-		$(".lives").first().text(life)
-		$(".truck-num").first().text(truck)
-		$(".score").first().text(score)
-		
+		// Update the scoreboard (so escreve quando o valor muda)
+		if(life !== _lastLife) { _lastLife = life; _ui.lives.text(life) }
+		if(truck !== _lastTruck) { _lastTruck = truck; _ui.truckNum.text(truck) }
+		if(score !== _lastScore) { _lastScore = score; _ui.score.text(score) }
+
 	}
 	handleInput()
 }, {fps:25})

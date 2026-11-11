@@ -85,25 +85,34 @@ function newHazard() {
 		}
 		var maxHeight = device.randomNum(390, 404)
 		
+		// posicao em JS + transform: css("left","-=x") do jQuery le o
+		// computed style (layout sincrono) por chamada; writes de left/
+		// bottom tambem invalidam layout. translate() e compositor —
+		// zero layout por frame, visual identico.
+		var hel = $h[0]
+		var hx = parseFloat(getComputedStyle(hel).left) || 0
+		var hb = parseFloat(getComputedStyle(hel).bottom) || 0
+		var hx0 = hx, hb0 = hb
 		var move = function() {
 			if(!$h.length || $h.hasClass("broken") || $h.attr("gone")) {
 				return
 			}
-			if(parseInt($h.css("left")) > launchTo) {
-				$h.css("left", "-=10")
+			if(hx > launchTo) {
+				hx -= 10
 			}
 			else if(launchTo < 470) {
-				$h.css("left", "-=5")
+				hx -= 5
 			}
 			else {
-				$h.css("left", "-=1.85")
+				hx -= 1.85
 			}
-			if(parseInt($h.css("bottom")) < maxHeight && !$h.attr("fallin")) {
-				$h.css("bottom", "+=4.5")
+			var fin = $h.attr("fallin")
+			if(hb < maxHeight && !fin) {
+				hb += 4.5
 			}
-			else if($h.attr("fallin")) {
-				if($h.attr("fallin") == fall) {
-					if(parseInt($h.css("bottom")) <= 70) {
+			else if(fin) {
+				if(fin == fall) {
+					if(hb <= 70) {
 						$h.addClass("broken")
 						if(hazard.name != "Life") {
 							$h.attr("src", "Assets/Hazards/"+hazard.name+"_Broken.png")
@@ -121,19 +130,21 @@ function newHazard() {
 						}
 					}
 					else if(launchTo < 470) {
-						$h.css("bottom", "-=10")
+						hb -= 10
 					}
 					else {
-						$h.css("bottom", "-=13.6")
+						hb -= 13.6
 					}
 				}
 				else {
-					$h.attr("fallin", parseInt($h.attr("fallin"))+1)
+					$h.attr("fallin", parseInt(fin)+1)
 				}
 			}
 			else {
 				$h.attr("fallin", 0)
 			}
+			// um unico write compositor por tick (left+bottom via translate)
+			hel.style.transform = "translate("+(hx-hx0)+"px,"+(hb0-hb)+"px)"
 			setTimeout(function() {
 				move()
 			}, 12)
@@ -158,18 +169,9 @@ function newHazard() {
 
 // Collision detection
 function collidesWith(element1, element2) {
-    var Element1 = {};
-    var Element2 = {};
-
-    Element1.top = $(element1).offset().top;
-    Element1.left = $(element1).offset().left;
-    Element1.right = Number($(element1).offset().left) + Number($(element1).width());
-    Element1.bottom = Number($(element1).offset().top) + Number($(element1).height());
-
-    Element2.top = $(element2).offset().top;
-    Element2.left = $(element2).offset().left;
-    Element2.right = Number($(element2).offset().left) + Number($(element2).width());
-    Element2.bottom = Number($(element2).offset().top) + Number($(element2).height());
-
-    return Element1.right > Element2.left && Element1.left < Element2.right && Element1.top < Element2.bottom && Element1.bottom > Element2.top;
+    // getBoundingClientRect: 2 reads por par — o original chamava
+    // .offset()/.width()/.height() 8x por par (layout sincrono cada um)
+    var r1 = element1.getBoundingClientRect();
+    var r2 = element2.getBoundingClientRect();
+    return r1.right > r2.left && r1.left < r2.right && r1.top < r2.bottom && r1.bottom > r2.top;
 }
