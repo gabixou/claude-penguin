@@ -25,6 +25,22 @@
 
 It is a love letter to the penguin that stole our childhoods: authentic HUD, real game assets, chat, rooms, outfits, catalogues, minigames and a multiplayer world rebuilt from scratch for the web.
 
+## How to play
+
+**No signup, no download — just open and play:**
+
+### ▶ [claudepenguin.mooo.com](https://claudepenguin.mooo.com)
+
+![Claude Penguin gameplay screenshot](assets/claudepenguin.png)
+
+- 🖱️ **Click anywhere** on the room to walk there — your penguin waddles over with the classic animation
+- 💬 **Chat bar** at the bottom — talk to other players in real time
+- 🗺️ **Island map / HUD buttons** — explore rooms, open your inventory & wardrobe, check player cards
+- 🛍️ **Catalogues** — buy clothes and items with coins in the shop rooms, then equip them from your wardrobe
+- 👥 **Multiplayer** — other players appear live: you see them walk, emote, sit and chat
+
+> Tip: everything runs in the browser and progress (penguin, coins, items) is saved on the server — come back anytime and you're the same penguin.
+
 ## Features
 
 - 🎬 **Authentic vector renderer** — a JavaScript port of the GoPenguin `MovieRoom` engine: parses the original SWF-derived timelines (`timelines.json` + packed SVGs) and replays the real display lists, buttons (`up`/`over`/`down`), masked layers and animated overlays — rooms like the Nightclub with its DISCO sign, disco ball and dance floor.
