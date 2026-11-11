@@ -1,204 +1,277 @@
-// NameChangeModal.js — modal para renomear o pinguim (uma única vez)
-import Phaser from 'phaser';
+// NameChangeModal.js — rename do pinguim (uma única vez) usando o dialogo
+// autentico `interface_mc.prompt_mc` frame 9 do interface.swf: a variante
+// com campo de texto (text_input + continue_btn + close_btn + message_txt),
+// o mesmo clip que o gp usa para prompts com input. O campo editavel e um
+// <input> DOM posicionado sobre o text_input (mesmo esquema do chat input).
+import { MovieRoom } from '../movie/movie.js';
 import { WORLD_W, WORLD_H } from '../display.js';
 
 const DEPTH = 30000000;
+const PROMPT_PATH = 'interface_mc.prompt_mc';
+const PROMPT_FRAME = 9; // frame com text_input/continue/close
+const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
+const matMul = (p, q) => ({
+    a: p.a * q.a + p.c * q.b, b: p.b * q.a + p.d * q.b,
+    c: p.a * q.c + p.c * q.d, d: p.b * q.c + p.d * q.d,
+    x: p.a * q.x + p.c * q.y + p.x, y: p.b * q.x + p.d * q.y + p.y,
+});
+const arrMat = (m) => ({ a: m[0], b: m[1], c: m[2], d: m[3], x: m[4], y: m[5] });
 
 export default class NameChangeModal {
     constructor(scene) {
         this.scene = scene;
-        this.container = null;
-        this.dim = null;
+        this.cont = null;
         this.username = '';
         this.usernameInput = null;
-        this.errorText = null;
+        this.infoText = null;
+        this._moviePromise = null;
+        this._gen = 0;
+        this._opening = false;
+        this._warmed = false;
+        this._submitting = false;
+        this._submitTimeout = null;
+        this._continueZone = null;
+        this._inputRect = null; // bounds mundo do text_input p/ layout do input
+        this._texKey = null;
+        this._layoutBound = null;
     }
 
-    get isOpen() { return !!this.container; }
+    get isOpen() { return !!this.cont; }
 
-    open() {
-        if (this.isOpen) this.close();
-        this.username = this.scene.network?.username || '';
-        this._build();
+    // Mesmo MovieRoom do PromptUI/VectorHud (pack interface compartilhado).
+    _ensureMovie() {
+        if (!this._moviePromise) {
+            this._moviePromise = (this.scene.game._interfaceMoviePromise
+                || MovieRoom.load('/assets/movies/interface'))
+                .then((m) => { m.setScale?.(1); return m; })
+                .catch((e) => { console.warn('[rename] interface load', e); return null; });
+        }
+        return this._moviePromise;
+    }
+
+    async open() {
+        if (this.isOpen || this._opening) return;
+        this._opening = true;
+        const gen = ++this._gen;
+        try {
+            const scene = this.scene;
+            scene.chatInputRef?.blur?.();
+            const movie = await this._ensureMovie();
+            if (gen !== this._gen || !movie || !scene.sys.isActive()) return;
+            if (!this._warmed) { movie.warmPlayheads?.(); this._warmed = true; }
+            await movie.ensureFonts();
+            if (gen !== this._gen || !scene.sys.isActive()) return;
+            this.username = scene.network?.username || '';
+            this._build(movie);
+        } finally {
+            if (gen === this._gen) this._opening = false;
+        }
     }
 
     close() {
-        if (this.dim) { this.dim.destroy(); this.dim = null; }
-        if (this.container) { this.container.destroy(true); this.container = null; }
+        this._gen++;
+        this._opening = false;
+        if (this._submitTimeout) { clearTimeout(this._submitTimeout); this._submitTimeout = null; }
+        this._submitting = false;
         this.usernameInput?.remove();
         this.usernameInput = null;
+        if (this._layoutBound) { this.scene.scale?.off('resize', this._layoutBound); this._layoutBound = null; }
+        if (this.cont) { this.cont.destroy(true); this.cont = null; }
+        if (this._texKey && this.scene.textures.exists(this._texKey)) {
+            this.scene.textures.remove(this._texKey);
+        }
+        this._texKey = null;
+        this._continueZone = null;
+        this._inputRect = null;
     }
 
-    _build() {
+    async _build(movie) {
         const scene = this.scene;
-        const cx = WORLD_W / 2, cy = WORLD_H / 2;
-        const w = 300, h = 200;
+        const gen = this._gen;
+        const ss = scene._ss || 2;
 
-        // Fundo escurecido
-        this.dim = scene.add.rectangle(cx, cy, WORLD_W, WORLD_H, 0x000000, 0.6)
-            .setOrigin(0.5).setDepth(DEPTH - 1).setInteractive();
-        this.dim.on('pointerdown', () => this.close());
+        // estado do prompt: frame 9 (input), textos dinamicos via editTexts
+        movie.goto(PROMPT_PATH, PROMPT_FRAME);
+        movie.set(`${PROMPT_PATH}.block_mc`, { visible: false });
+        movie.set(`${PROMPT_PATH}.message_txt`, { text: '' });
+        movie.set(`${PROMPT_PATH}.continue_txt`, { text: 'Save' });
+        // text_input NAO recebe set({text}): com editTexts presente o draw
+        // vira _drawEditText (so o texto, sem o SVG do campo branco).
+        // Sem override o char 777.svg (caixa branca) renderiza sozinho e o
+        // input DOM fica por cima.
+        movie.set(`${PROMPT_PATH}.icon_mc`, { visible: false });
+        movie.collectInteractive();
 
-        // Container principal
-        const cont = scene.add.container(0, 0).setDepth(DEPTH);
-        this.container = cont;
+        const btns = {};
+        for (const name of ['continue_btn', 'close_btn', 'text_input']) {
+            const b = movie.boundsFor(`${PROMPT_PATH}.${name}`);
+            if (b) btns[name] = b;
+        }
 
-        // Fundo do modal
-        const bg = scene.add.graphics();
-        bg.fillStyle(0xf8f8f8, 1);
-        bg.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 12);
-        bg.lineStyle(2, 0x0072ce, 0.8);
-        bg.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 12);
-        cont.add(bg);
+        // render do subtree prompt_mc num canvas full-stage (mesmo do PromptUI)
+        const cw = Math.round(WORLD_W * ss), ch = Math.round(WORLD_H * ss);
+        const canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        const ctx = canvas.getContext('2d');
+        const mainFrame = movie._mainTl.frames[movie._mainFrame - 1] || movie._mainTl.frames[0] || [];
+        const imEntry = mainFrame.find((e) => e.name === 'interface_mc');
+        const imFrame = imEntry && movie.sprites?.[String(imEntry.id)]?.frames?.[0] || [];
+        const pEntry = imFrame.find((e) => e.name === 'prompt_mc');
+        if (pEntry) {
+            const world = matMul(
+                matMul({ a: ss, b: 0, c: 0, d: ss, x: 0, y: 0 }, arrMat(imEntry.matrix || ID)),
+                arrMat(pEntry.matrix || ID));
+            const h = movie._playhead(PROMPT_PATH, String(pEntry.id));
+            const pFrame = h ? (h.tl.frames[h.frame - 1] || []) : [];
+            await movie._drawEntries(ctx, pFrame, world, PROMPT_PATH, IDENT_COLOR, ss, 1);
+        }
+        if (gen !== this._gen || !scene.sys.isActive()) return;
 
-        // Título
-        cont.add(scene.add.text(cx, cy - h / 2 + 20, 'Rename Penguin', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '16px',
-            fontStyle: 'bold',
-            color: '#0072ce',
-        }).setOrigin(0.5));
+        const texKey = `rename_ui_${Date.now()}`;
+        this._texKey = texKey;
+        this.scene.textures.addCanvas(texKey, canvas);
+        const cont = this.scene.add.container(0, 0).setDepth(DEPTH);
+        this.cont = cont;
+        cont.add(this.scene.add.image(WORLD_W / 2, WORLD_H / 2, texKey)
+            .setDisplaySize(WORLD_W, WORLD_H));
 
-        // Aviso de uso único
-        cont.add(scene.add.text(cx, cy - h / 2 + 42, 'You can only change your name once!', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '10px',
-            color: '#ff6600',
-            align: 'center',
-        }).setOrigin(0.5));
+        // zona bloqueante fullscreen (embaixo dos botoes) — prompt e modal
+        const swallow = this.scene.add.zone(WORLD_W / 2, WORLD_H / 2, WORLD_W, WORLD_H)
+            .setInteractive({ useHandCursor: false });
+        cont.addAt(swallow, 0);
 
-        // Input de username (DOM)
-        this.usernameInput = document.createElement('input');
-        this.usernameInput.type = 'text';
-        this.usernameInput.value = this.username;
-        this.usernameInput.placeholder = 'New username';
-        this.usernameInput.maxLength = 16;
-        Object.assign(this.usernameInput.style, {
-            position: 'fixed',
-            left: (cx - 110) + 'px',
-            top: (cy - 10) + 'px',
-            width: '220px',
-            height: '30px',
-            fontSize: '14px',
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            padding: '4px 8px',
-            border: '2px solid #0072ce',
-            borderRadius: '6px',
-            outline: 'none',
-            zIndex: '100000',
-            boxSizing: 'border-box',
-        });
-        this.usernameInput.addEventListener('input', (e) => {
-            this.username = e.target.value;
-            this._validate();
-        });
-        this.usernameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') this._submit();
-            if (e.key === 'Escape') this.close();
-        });
-        document.body.appendChild(this.usernameInput);
-
-        // Botões — mesmo padrão do CreatePlayerModal (azul #0072ce + stroke
-        // branco, cantos 6) para manter a identidade visual do jogo
-        const btnY = cy + h / 2 - 38;
-        const mkBtn = (x, label, color, cb) => {
-            const btn = scene.add.container(x, btnY);
-            const bg = scene.add.graphics();
-            bg.fillStyle(color, 1);
-            bg.fillRoundedRect(-55, -14, 110, 28, 6);
-            bg.lineStyle(2, 0xffffff, 0.8);
-            bg.strokeRoundedRect(-55, -14, 110, 28, 6);
-            const txt = scene.add.text(0, 0, label, {
-                fontFamily: 'GoPenguin, Arial, sans-serif',
-                fontSize: '13px',
-                fontStyle: 'bold',
-                color: '#ffffff',
-            }).setOrigin(0.5);
-            btn.add([bg, txt]);
-            btn.setSize(110, 28);
-            btn.setInteractive(new Phaser.Geom.Rectangle(-55, -14, 110, 28), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
-            btn.on('pointerdown', cb);
-            cont.add(btn);
-            return { btn, bg, txt };
+        const mkBtn = (name, cb) => {
+            const b = btns[name];
+            if (!b) return null;
+            const [x0, y0, x1, y1] = b;
+            const z = this.scene.add.zone((x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0)
+                .setInteractive({ useHandCursor: true });
+            z.on('pointerdown', () => {
+                this.scene._promptClosedAt = this.scene.time?.now ?? 0;
+                cb?.();
+            });
+            cont.add(z);
+            return z;
         };
-        const confirm = mkBtn(cx - 62, 'Save', 0x0072ce, () => this._submit());
-        this._confirmBtn = confirm.btn;
-        this._confirmBtnBg = confirm.bg;
-        this._confirmBtnText = confirm.txt;
-        mkBtn(cx + 62, 'Cancel', 0x999999, () => this.close());
+        this._continueZone = mkBtn('continue_btn', () => this._submit());
+        mkBtn('close_btn', () => this.close());
 
-        // Texto de erro
-        this.errorText = scene.add.text(cx, cy + h / 2 - 10, '', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '10px',
-            color: '#ff4444',
+        // instrucao acima do campo (message_txt do clip e multilinha e
+        // centralizado — qualquer texto encosta na borda do campo branco)
+        this.infoText = this.scene.add.text(WORLD_W / 2, 214, 'Enter your new name:', {
+            fontFamily: "'gpf-195', Arial, sans-serif",
+            fontSize: '13px',
+            fontStyle: 'bold',
+            color: '#ffffff',
             align: 'center',
         }).setOrigin(0.5);
-        cont.add(this.errorText);
+        cont.add(this.infoText);
 
+        // status/erro no gap entre o campo e o botao Save
+        this.statusText = this.scene.add.text(WORLD_W / 2, 272, '', {
+            fontFamily: "'gpf-195', Arial, sans-serif",
+            fontSize: '11px',
+            fontStyle: 'bold',
+            color: '#ffffff',
+            align: 'center',
+        }).setOrigin(0.5);
+        cont.add(this.statusText);
+
+        // input DOM sobre o campo text_input (bounds em coords de mundo)
+        this._inputRect = btns.text_input || null;
+        this._buildInput();
+        this._setInfo('');
+    }
+
+    _buildInput() {
+        const r = this._inputRect;
+        if (!r) return;
+        const scene = this.scene;
+        const [x0, y0, x1, y1] = r;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.username;
+        input.maxLength = 16;
+        input.spellcheck = false;
+        Object.assign(input.style, {
+            position: 'fixed',
+            border: 'none', outline: 'none',
+            background: 'transparent',
+            color: '#000000',
+            fontFamily: "'gpf-195', Arial, sans-serif",
+            zIndex: '100000',
+            boxSizing: 'border-box',
+            display: 'none',
+        });
+        input.addEventListener('input', () => { this.username = input.value; this._validate(); });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.stopPropagation(); this._submit(); }
+            else if (e.key === 'Escape') { e.stopPropagation(); this.close(); }
+        });
+        document.body.appendChild(input);
+        this.usernameInput = input;
+        this._layoutInput();
+        this._layoutBound = () => this._layoutInput();
+        scene.scale?.on('resize', this._layoutBound);
+        input.focus();
+        input.select();
         this._validate();
-        this.usernameInput.focus();
-        this.usernameInput.select();
+    }
+
+    // posiciona o input DOM sobre o retangulo do text_input — canvas e
+    // escalado via FIT, entao converte coords de mundo -> px de tela
+    _layoutInput() {
+        const input = this.usernameInput, r = this._inputRect;
+        if (!input || !r) return;
+        const rect = this.scene.game.canvas.getBoundingClientRect();
+        const sx = rect.width / WORLD_W, sy = rect.height / WORLD_H;
+        const [x0, y0, x1, y1] = r;
+        Object.assign(input.style, {
+            display: 'block',
+            left: (rect.left + x0 * sx + 8) + 'px',
+            top: (rect.top + y0 * sy + 3) + 'px',
+            width: Math.max(40, (x1 - x0) * sx - 16) + 'px',
+            height: Math.max(18, (y1 - y0) * sy - 6) + 'px',
+            fontSize: Math.max(12, 20 * sy) + 'px',
+        });
+    }
+
+    _setInfo(msg, color = '#ffffff') {
+        if (this.statusText) this.statusText.setText(msg).setColor(color);
     }
 
     _validate() {
         const trimmed = this.username?.trim() || '';
-        const valid = trimmed.length >= 3 && trimmed.length <= 16 && trimmed !== this.scene.network?.username;
-        this._confirmBtn.setAlpha(valid ? 1 : 0.5);
-        return valid;
+        return trimmed.length >= 3 && trimmed.length <= 16
+            && trimmed !== this.scene.network?.username;
     }
 
     _submit() {
         if (this._submitting) return;
         if (!this._validate()) {
-            this.errorText.setText('Invalid username or same as current');
+            this._setInfo('Invalid username (3-16 chars, must differ)', '#ffb0a0');
             return;
         }
-
-        const username = this.username.trim();
-        
-        // Loading state
         this._submitting = true;
-        this._setLoading(true);
-        this.errorText.setText('');
-        
-        this.scene.network?.renamePlayer(username);
-        
-        // Timeout de segurança
+        this._continueZone?.disableInteractive();
+        this._setInfo('Saving…');
+        this.scene.network?.renamePlayer(this.username.trim());
         this._submitTimeout = setTimeout(() => {
             this._submitting = false;
-            this._setLoading(false);
-            this.errorText.setText('Connection timeout. Please try again.');
+            this._continueZone?.enableInteractive();
+            this._setInfo('Connection timeout. Try again.', '#ffb0a0');
         }, 10000);
-    }
-
-    _setLoading(loading) {
-        if (this._confirmBtn) {
-            this._confirmBtn.setAlpha(loading ? 0.7 : 1);
-        }
-        if (this._confirmBtnText) {
-            this._confirmBtnText.setText(loading ? 'Saving...' : 'Save');
-        }
-        if (this._confirmBtnBg) {
-            this._confirmBtnBg.clear();
-            this._confirmBtnBg.fillStyle(loading ? 0x666666 : 0x0072ce, 1);
-            this._confirmBtnBg.fillRoundedRect(-55, -14, 110, 28, 6);
-            this._confirmBtnBg.lineStyle(2, 0xffffff, 0.8);
-            this._confirmBtnBg.strokeRoundedRect(-55, -14, 110, 28, 6);
-        }
     }
 
     onServerResponse(success, message = '') {
         this._submitting = false;
-        if (this._submitTimeout) {
-            clearTimeout(this._submitTimeout);
-            this._submitTimeout = null;
-        }
-        this._setLoading(false);
+        if (this._submitTimeout) { clearTimeout(this._submitTimeout); this._submitTimeout = null; }
+        this._continueZone?.enableInteractive();
         if (success) {
             this.close();
-        } else if (message) {
-            this.errorText.setText(message);
+        } else {
+            this._setInfo(message || 'Rename failed.', '#ffb0a0');
         }
     }
 }
