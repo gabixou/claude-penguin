@@ -51,7 +51,7 @@ export default class BootScene extends Phaser.Scene {
         halo.setDepth(-1);
 
         // Logo do projeto centralizado e em destaque (como no loader original)
-        this.add.image(width / 2, height * 0.44, 'logo').setOrigin(0.5).setDisplaySize(430, 430 * 777 / 1822);
+        this.add.image(width / 2, height * 0.44, 'logo').setOrigin(0.5).setDisplaySize(645, 645 * 777 / 1822);
 
         // Barra de progresso em capsula: container azul-escuro, icone circular
         // de setas a esquerda e preenchimento amarelo-alaranjado em gradiente.

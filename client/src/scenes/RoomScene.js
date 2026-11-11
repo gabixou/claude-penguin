@@ -123,6 +123,9 @@ export default class RoomScene extends Phaser.Scene {
 
         // 1. Cena vetorial SWF (timelines.json + SVG) — unica fonte de cenario
         this.loadingScreen = new LoadingScreen(this);
+        // boot inicial fica sob a tela do logo (BootScene -> showBoot);
+        // o loader azul "Joining..." so aparece em trocas de sala
+        this._booting = true;
         this._initMovie(this.currentRoom);
         musicPlayer.play(this.currentRoom);
 
@@ -132,8 +135,8 @@ export default class RoomScene extends Phaser.Scene {
         this.createPlayerModal = new CreatePlayerModal(this);
         this.nameChangeModal = new NameChangeModal(this);
 
-        // Mostra loading durante autenticação
-        this.loadingScreen?.show('Connecting to Club Penguin...', 0.1);
+        // Boot: a tela do logo (BootScene) continua — sem loader intermediario
+        this.loadingScreen?.showBoot();
 
         // Configura eventos de autenticação antes de criar o pinguim
         this._setupAuthEvents();
@@ -185,6 +188,11 @@ export default class RoomScene extends Phaser.Scene {
             const hits = this.input.hitTestPointer(pointer)
                 .filter((obj) => obj && obj.input && obj.input.enabled);
             if (hits.length > 0) return;
+
+            // clicou na sala para andar com o chat ainda focado: perde o foco
+            // (o input DOM nao recebe o clique — sem isso o texto continuava ativo)
+            if (this.chatInputRef && document.activeElement === this.chatInputRef)
+                this.chatInputRef.blur();
 
             // clique em cima de um pinguim abre o player card (nao anda)
             const clicked = this._penguinAt(wx, wy);
@@ -743,7 +751,8 @@ export default class RoomScene extends Phaser.Scene {
         // ~10 chains de decode e a entrada ficava PIOR que sem prefetch
         MovieRoom._decodeHold++;
         const releaseHold = () => { MovieRoom._decodeHold = Math.max(0, MovieRoom._decodeHold - 1); };
-        this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
+        if (this._booting) this.loadingScreen?.showBoot();
+        else this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
         MovieRoom.load(`/assets/movies/${pack}`)
             .then(async (movie) => {
                 if (this.currentRoom !== roomKey) { releaseHold(); return; } // sala trocou durante o load
@@ -809,6 +818,7 @@ export default class RoomScene extends Phaser.Scene {
                     if (this.movie !== movie) return;
                     for (const layer of this.movieLayers) layer.img.setVisible(true);
                     this._movieReady = true;
+                    this._booting = false;
                     this.loadingScreen?.hide();
                     // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
                     // (ficou na fila durante o load para nao competir)
@@ -1015,6 +1025,7 @@ export default class RoomScene extends Phaser.Scene {
     }
 
     _showRoomFail(roomKey) {
+        this._booting = false;
         this.loadingScreen?.hide();
         this.cameras.main.setBackgroundColor(0x263238);
         this.roomFailText = this.add.text(WORLD_W / 2, WORLD_H / 2,

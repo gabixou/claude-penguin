@@ -30,6 +30,7 @@ const CARD_BUTTONS = {
     sort_mc: 'sort', // frame 3: menu de categorias
     next_btn: 'next',
     back_btn: 'back',
+    moderatorButtonEditPlayer: 'rename', // botao "?" abaixo do X (self)
 };
 
 // ordem de desenho do paperdoll no card (io do layoutBalloon original:
@@ -61,6 +62,18 @@ function assetMovieCached(kind, cache, id) {
 const photoMovie = (id) => assetMovieCached('photos', _photoMovies, id);
 const iconMovie = (id) => assetMovieCached('icons', _iconMovies, id);
 
+// lapis minimalista branco — substitui o glifo "?" (char 665.svg) do botao
+// moderatorButtonEditPlayer. Mesma viewBox/pegada do original (10x13.2,
+// grupo centrado em 5,7.2); so esse botao usa o char 665 no pack interface.
+const PENCIL_SVG = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" height="13.2px" width="10.0px">
+  <g transform="matrix(1.0, 0.0, 0.0, 1.0, 5.0, 7.2)">
+    <g transform="rotate(-45)">
+      <path fill="#ffffff" fill-rule="evenodd" d="M-1.2 -7.7 L1.2 -7.7 L1.5 -6.3 L1.5 2.7 L0 6.6 L-1.5 2.7 L-1.5 -6.3 L-1.2 -7.7 Z"/>
+    </g>
+  </g>
+</svg>`;
+
 export default class PlayerCard {
     constructor(scene) {
         this.scene = scene;
@@ -70,14 +83,23 @@ export default class PlayerCard {
         this._moviePromise = null;
         this._openSeq = 0;
         this._opening = false;
-        this.nameChangeModal = new NameChangeModal(scene);
+        // usa a instancia do scene — o handler de player-data/RENAME_FAILED
+        // do RoomScene so conhece scene.nameChangeModal; uma instancia
+        // separada aqui fazia o rename "nao funcionar" (modal nao fechava)
+        this.nameChangeModal = scene.nameChangeModal || new NameChangeModal(scene);
     }
 
     // MovieRoom do interface pack — carregado lazy, uma vez por sessao.
     _movie() {
         if (!this._moviePromise) {
             this._moviePromise = MovieRoom.load('/assets/movies/interface')
-                .then((m) => { m.setScale(1); return m; })
+                .then((m) => {
+                    m.setScale(1);
+                    // troca o glifo "?" do botao de rename pelo lapis —
+                    // override e por-pack (compartilhado), vale p/ todos os cards
+                    m.setSvgOverride?.('665.svg', PENCIL_SVG);
+                    return m;
+                })
                 .catch((e) => { console.warn('[playercard] interface load', e); return null; });
         }
         return this._moviePromise;
@@ -296,7 +318,10 @@ export default class PlayerCard {
             // menu de categorias) — por enquanto abre o guarda-roupa vetorial
             // como placeholder; implementacao real usaria o menu_mc_holder
             // e o painel branco lateral (tab_mc) do interface pack
-            if (isSelf && action !== 'close' && action !== 'inventory' && action !== 'sort' && action !== 'next' && action !== 'back') continue;
+            if (isSelf && action !== 'close' && action !== 'inventory' && action !== 'sort' && action !== 'next' && action !== 'back' && action !== 'rename') continue;
+            // rename so existe no card proprio e enquanto canRename —
+            // reaproveita o botao "?" (moderatorButtonEditPlayer) da arte
+            if (action === 'rename' && (!isSelf || !scene.network?.canRename)) continue;
             const eb = clip._boundsOf([e], IDENT, '');
             if (!eb) continue;
             const [bx, by] = px((eb[0] + eb[2]) / 2, (eb[1] + eb[3]) / 2);
@@ -315,29 +340,6 @@ export default class PlayerCard {
                 .setInteractive({ useHandCursor: true });
             dz.on('pointerdown', () => { scene.wardrobe?.open(scene.localPlayer); });
             cont.add(dz);
-        }
-
-        // Botão de renomear (apenas para o jogador local e se canRename)
-        if (isSelf && scene.network?.canRename) {
-            // coords LOCAIS do container (card vai de 0..dw, 0..dh) —
-            // antes usava coords de mundo e o botao renderizava fora do card
-            const renameBtn = scene.add.container(dw / 2, dh - 20);
-            const renameBg = scene.add.graphics();
-            renameBg.fillStyle(0xffcc00, 1);
-            renameBg.fillRoundedRect(-40, -12, 80, 24, 4);
-            renameBg.lineStyle(1, 0x000000, 0.3);
-            renameBg.strokeRoundedRect(-40, -12, 80, 24, 4);
-            const renameText = scene.add.text(0, 0, 'Rename', {
-                fontFamily: 'GoPenguin, Arial, sans-serif',
-                fontSize: '11px',
-                fontStyle: 'bold',
-                color: '#000000',
-            }).setOrigin(0.5);
-            renameBtn.add([renameBg, renameText]);
-            renameBtn.setSize(80, 24);
-            renameBtn.setInteractive(new Phaser.Geom.Rectangle(-40, -12, 80, 24), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
-            renameBtn.on('pointerdown', () => this.nameChangeModal.open());
-            cont.add(renameBtn);
         }
 
         // Coins do jogador local — editText nativo coins_txt (id 667:

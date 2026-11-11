@@ -1,0 +1,34 @@
+<html lang="en">
+	<head>
+		<title>Bean Counters (Game)</title>
+		<link rel="stylesheet" href="Include/Style.css">
+		<style>
+		/* preenche edge-to-edge o overlay 1520x960 (nativo: 1000x610).
+		   scale nao-uniforme: distorce ~3.5% na horizontal — imperceptivel,
+		   e evita letterbox (barras) e crop de elementos nas laterais. */
+		html, body { height: 100%; margin: 0; overflow: hidden; background: #242424; }
+		body { display: flex; align-items: center; justify-content: center; }
+		.game { transform: scale(1.52, 1.5738); transform-origin: center center; flex: none; }
+		</style>
+		<script>if(window==top) location.href="./"</script>
+	</head>
+	<body class="loading frame" oncontextmenu="return false">
+		<div class="game">
+			<div class="loading-wrapper">
+				<div class="loading-flex">
+					<img class="loading-icon" src="Assets/Loading.gif">
+					<div class="loading-outer">
+						<div class="loading-bar-wrapper">
+							<div class="loading-bar"></div>
+						</div>
+					</div>
+					<div class="loading-text">Loading Bean Counters</div>
+				</div>
+			</div>
+		</div>
+		<iframe allow="autoplay" src="Assets/Sounds/Silence.mp3" style="display:none"></iframe>
+		<script src="lib/jquery.min.js"></script>
+		<script src="Include/Scripts/sbd-shim.js"></script>
+		<script src="Include/Scripts/Main.js"></script>
+	</body>
+</html>
