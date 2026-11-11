@@ -224,22 +224,28 @@ function handlePacket(ws, req, packet) {
 
     switch (op) {
         case 'AUTH_GUEST': {
-            // Cliente envia sessionToken do localStorage (se houver)
-            const clientToken = data.sessionToken || null;
-            const result = auth.identifyPlayer(req, clientToken);
             const ip = clientIp(req);
 
-            if (result.player) {
-                sendPlayerSession(ws, result.player, result.sessionToken);
-                console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado via ${result.sessionToken ? 'token' : 'IP'}`);
-            } else if (isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req)) {
-                // IP autorizado (PC do tester): recebe o Arenovisk.
-                // Demais IPs e automacao recebem guest novo.
+            // IP autorizado (PC do tester): Arenovisk tem PRIORIDADE sobre
+            // token/IP-fallback — senao qualquer guest criado daquele IP
+            // bloquearia o Arenovisk para sempre. forceGuest/automacao
+            // ainda recebem pinguim normal.
+            if (isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req)) {
                 const player = ensureArenovisk(ip);
                 const sessionToken = crypto.randomBytes(32).toString('hex');
                 playerStore.updatePlayerSession(player.player_id, sessionToken);
                 sendPlayerSession(ws, player, sessionToken);
-                console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido ao localhost`);
+                console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido a ${ip}`);
+                break;
+            }
+
+            // Cliente envia sessionToken do localStorage (se houver)
+            const clientToken = data.sessionToken || null;
+            const result = auth.identifyPlayer(req, clientToken);
+
+            if (result.player) {
+                sendPlayerSession(ws, result.player, result.sessionToken);
+                console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado via ${result.sessionToken ? 'token' : 'IP'}`);
             } else {
                 // Guest flow: cria o pinguim na hora, sem tela de conta
                 const guestName = generateGuestName();
