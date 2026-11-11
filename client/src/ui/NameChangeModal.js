@@ -98,43 +98,34 @@ export default class NameChangeModal {
         });
         document.body.appendChild(this.usernameInput);
 
-        // Botões
-        const btnY = cy + h / 2 - 35;
-        
-        // Botão confirmar
-        const confirmBtn = scene.add.container(cx - 60, btnY);
-        const confirmBg = scene.add.graphics();
-        confirmBg.fillStyle(0x2fb344, 1);
-        confirmBg.fillRoundedRect(-50, -12, 100, 24, 4);
-        const confirmText = scene.add.text(0, 0, 'Confirm', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '12px',
-            fontStyle: 'bold',
-            color: '#ffffff',
-        }).setOrigin(0.5);
-        confirmBtn.add([confirmBg, confirmText]);
-        confirmBtn.setSize(100, 24);
-        confirmBtn.setInteractive(new Phaser.Geom.Rectangle(-50, -12, 100, 24), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
-        confirmBtn.on('pointerdown', () => this._submit());
-        cont.add(confirmBtn);
-        this._confirmBtn = confirmBtn;
-
-        // Botão cancelar
-        const cancelBtn = scene.add.container(cx + 60, btnY);
-        const cancelBg = scene.add.graphics();
-        cancelBg.fillStyle(0x999999, 1);
-        cancelBg.fillRoundedRect(-50, -12, 100, 24, 4);
-        const cancelText = scene.add.text(0, 0, 'Cancel', {
-            fontFamily: 'GoPenguin, Arial, sans-serif',
-            fontSize: '12px',
-            fontStyle: 'bold',
-            color: '#ffffff',
-        }).setOrigin(0.5);
-        cancelBtn.add([cancelBg, cancelText]);
-        cancelBtn.setSize(100, 24);
-        cancelBtn.setInteractive(new Phaser.Geom.Rectangle(-50, -12, 100, 24), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
-        cancelBtn.on('pointerdown', () => this.close());
-        cont.add(cancelBtn);
+        // Botões — mesmo padrão do CreatePlayerModal (azul #0072ce + stroke
+        // branco, cantos 6) para manter a identidade visual do jogo
+        const btnY = cy + h / 2 - 38;
+        const mkBtn = (x, label, color, cb) => {
+            const btn = scene.add.container(x, btnY);
+            const bg = scene.add.graphics();
+            bg.fillStyle(color, 1);
+            bg.fillRoundedRect(-55, -14, 110, 28, 6);
+            bg.lineStyle(2, 0xffffff, 0.8);
+            bg.strokeRoundedRect(-55, -14, 110, 28, 6);
+            const txt = scene.add.text(0, 0, label, {
+                fontFamily: 'GoPenguin, Arial, sans-serif',
+                fontSize: '13px',
+                fontStyle: 'bold',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            btn.add([bg, txt]);
+            btn.setSize(110, 28);
+            btn.setInteractive(new Phaser.Geom.Rectangle(-55, -14, 110, 28), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
+            btn.on('pointerdown', cb);
+            cont.add(btn);
+            return { btn, bg, txt };
+        };
+        const confirm = mkBtn(cx - 62, 'Save', 0x0072ce, () => this._submit());
+        this._confirmBtn = confirm.btn;
+        this._confirmBtnBg = confirm.bg;
+        this._confirmBtnText = confirm.txt;
+        mkBtn(cx + 62, 'Cancel', 0x999999, () => this.close());
 
         // Texto de erro
         this.errorText = scene.add.text(cx, cy + h / 2 - 10, '', {
@@ -184,6 +175,16 @@ export default class NameChangeModal {
     _setLoading(loading) {
         if (this._confirmBtn) {
             this._confirmBtn.setAlpha(loading ? 0.7 : 1);
+        }
+        if (this._confirmBtnText) {
+            this._confirmBtnText.setText(loading ? 'Saving...' : 'Save');
+        }
+        if (this._confirmBtnBg) {
+            this._confirmBtnBg.clear();
+            this._confirmBtnBg.fillStyle(loading ? 0x666666 : 0x0072ce, 1);
+            this._confirmBtnBg.fillRoundedRect(-55, -14, 110, 28, 6);
+            this._confirmBtnBg.lineStyle(2, 0xffffff, 0.8);
+            this._confirmBtnBg.strokeRoundedRect(-55, -14, 110, 28, 6);
         }
     }
 
