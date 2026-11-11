@@ -3,9 +3,12 @@
 		<title>Pizzatron (Game)</title>
 		<link rel="stylesheet" href="Include/Style.css">
 		<style>
-		/* escala para caber no overlay 1520x960 do cliente (nativo: 1000x610) */
-		body { display: flex; align-items: center; justify-content: center; height: 100vh; }
-		.game { transform: scale(1.45); transform-origin: center center; flex: none; }
+		/* preenche edge-to-edge o overlay 1520x960 (nativo: 1000x610).
+		   scale nao-uniforme: distorce ~3.5% na horizontal — imperceptivel,
+		   e evita letterbox (barras) e crop de elementos nas laterais. */
+		html, body { height: 100%; margin: 0; overflow: hidden; background: #242424; }
+		body { display: flex; align-items: center; justify-content: center; }
+		.game { transform: scale(1.52, 1.5738); transform-origin: center center; flex: none; }
 		</style>
 		<script>if(window==top) location.href="./"</script>
 	</head>
