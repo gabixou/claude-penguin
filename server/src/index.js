@@ -12,6 +12,7 @@ import playerStore from './playerStore.js';
 import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
 import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_MINUTE } from './rooms.js';
+import * as accounts from './accounts.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -219,6 +220,30 @@ function sendPlayerSession(ws, player, sessionToken) {
     return finalData;
 }
 
+// Emite sessão nova e envia PLAYER_DATA (+ ACCOUNT_INFO opcional com
+// código de recuperação — mostrado uma única vez ao jogador).
+function sendAccountSession(ws, req, player, accountInfo = null) {
+    const sessionToken = auth.issueSession(player, req);
+    const data = sendPlayerSession(ws, player, sessionToken);
+    if (accountInfo) {
+        ws.send(JSON.stringify({ op: 'ACCOUNT_INFO', data: accountInfo }));
+    }
+    return data;
+}
+
+function recoveryLabelFor(username) {
+    return `Claude Penguin - ${username}`;
+}
+
+// Gera novo recovery code, persiste o hash e devolve o código cru
+// (única vez que o cliente vê o valor).
+function rotateRecoveryCode(playerId, username) {
+    const code = accounts.generateRecoveryCode();
+    const label = recoveryLabelFor(username);
+    playerStore.setRecoveryCode(playerId, accounts.hashRecoveryCode(code), label);
+    return { recoveryCode: code, recoveryLabel: label };
+}
+
 function handlePacket(ws, req, packet) {
     const { op, data } = packet;
     if (!op || !data) return;
@@ -231,10 +256,9 @@ function handlePacket(ws, req, packet) {
             // token/IP-fallback — senao qualquer guest criado daquele IP
             // bloquearia o Arenovisk para sempre. forceGuest/automacao
             // ainda recebem pinguim normal.
-            if (isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req)) {
+            if (isArenoviskIp(ip) && !data.forceGuest && !data.guest && !data.sessionToken && !isAutomationClient(req)) {
                 const player = ensureArenovisk(ip);
-                const sessionToken = crypto.randomBytes(32).toString('hex');
-                playerStore.updatePlayerSession(player.player_id, sessionToken);
+                const sessionToken = auth.issueSession(player, req);
                 sendPlayerSession(ws, player, sessionToken);
                 console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido a ${ip}`);
                 break;
@@ -246,13 +270,16 @@ function handlePacket(ws, req, packet) {
 
             if (result.player) {
                 sendPlayerSession(ws, result.player, result.sessionToken);
-                console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado via ${result.sessionToken ? 'token' : 'IP'}`);
-            } else {
+                console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado`);
+            } else if (data.guest || data.forceGuest) {
                 // Guest flow: cria o pinguim na hora, sem tela de conta
                 const guestName = generateGuestName();
-                const created = auth.createNewPlayer(result.ip, guestName, 1);
+                const created = auth.createNewPlayer(result.ip, guestName, 1, req);
                 sendPlayerSession(ws, created.player, created.sessionToken);
                 console.log(`[AUTH] Novo pinguim '${guestName}' (${created.player.player_id}) criado automaticamente`);
+            } else {
+                // Sem token e sem pedido de guest: cliente mostra tela de login
+                ws.send(JSON.stringify({ op: 'NEED_AUTH', data: {} }));
             }
             break;
         }
@@ -283,8 +310,7 @@ function handlePacket(ws, req, packet) {
             if (player.username.toLowerCase() === ARENOVISK_NAME.toLowerCase()) {
                 player = ensureArenovisk(ip);
             }
-            const sessionToken = crypto.randomBytes(32).toString('hex');
-            playerStore.updatePlayerSession(player.player_id, sessionToken);
+            const sessionToken = auth.issueSession(player, req);
             sendPlayerSession(ws, player, sessionToken);
             console.log(`[LOGIN] '${player.username}' (${player.player_id}) login por nome (allItems=${!!player.all_items})`);
             break;
@@ -299,7 +325,7 @@ function handlePacket(ws, req, packet) {
 
             const { username, colorItemId = 1 } = data;
             try {
-                const result = auth.createNewPlayer(session.ip, username, colorItemId);
+                const result = auth.createNewPlayer(session.ip, username, colorItemId, req);
                 const playerData = playerStore.getPublicPlayerData(result.player.player_id);
 
                 clientPlayerData.set(ws, {
@@ -317,6 +343,184 @@ function handlePacket(ws, req, packet) {
             } catch (err) {
                 sendError(ws, 'CREATE_FAILED', err.message);
             }
+            break;
+        }
+
+        case 'REGISTER': {
+            const ip = clientIp(req);
+            const username = accounts.normalizeUsername(data.username);
+            const password = String(data.password || '');
+            const key = accounts.usernameKey(username);
+
+            if (!accounts.authAttemptAllowed('ip', ip) ||
+                !accounts.authAttemptAllowed('account', key)) {
+                sendError(ws, 'RATE_LIMITED', 'Muitas tentativas. Tente mais tarde.');
+                return;
+            }
+            const fail = (code, msg) => sendError(ws, code, msg);
+            if (!accounts.isValidUsername(username)) {
+                fail('INVALID_USERNAME', 'Nome inválido (3-16 caracteres, sem caracteres especiais)');
+                return;
+            }
+            if (!accounts.isValidPassword(password)) {
+                fail('INVALID_PASSWORD', 'Senha deve ter entre 6 e 72 caracteres');
+                return;
+            }
+            if (playerStore.getPlayerByUsernameKey(key)) {
+                fail('USERNAME_TAKEN', 'Nome de usuário já está em uso');
+                return;
+            }
+
+            try {
+                const colorItemId = Number.isInteger(Number(data.colorItemId)) ? Number(data.colorItemId) : 1;
+                const player = playerStore.createPlayer(ip, username, colorItemId);
+                playerStore.setPasswordHash(player.player_id, accounts.hashPassword(password));
+                const info = rotateRecoveryCode(player.player_id, player.username);
+                accounts.authAttemptSucceeded('account', key);
+                accounts.authAttemptSucceeded('ip', ip);
+                sendAccountSession(ws, req, player, info);
+                console.log(`[REGISTER] Conta '${player.username}' (${player.player_id}) criada`);
+            } catch (err) {
+                sendError(ws, 'REGISTER_FAILED', err.message);
+            }
+            break;
+        }
+
+        case 'LOGIN': {
+            const ip = clientIp(req);
+            const username = accounts.normalizeUsername(data.username);
+            const password = String(data.password || '');
+            const key = accounts.usernameKey(username);
+
+            if (!accounts.authAttemptAllowed('ip', ip) ||
+                !accounts.authAttemptAllowed('account', key)) {
+                sendError(ws, 'RATE_LIMITED', 'Muitas tentativas. Tente mais tarde.');
+                return;
+            }
+            const fail = () => sendError(ws, 'INVALID_CREDENTIALS', 'Usuário ou senha incorretos');
+
+            const player = playerStore.getPlayerByUsernameKey(key);
+            if (!player) { fail(); return; }
+            const stored = playerStore.getPasswordHash(player.player_id);
+            if (!stored) {
+                // Conta sem senha (guest/legada): oferece fluxo de claim
+                sendError(ws, 'NO_PASSWORD', 'Esta conta ainda não tem senha. Use "Definir senha".');
+                return;
+            }
+            if (!accounts.verifyPassword(password, stored)) { fail(); return; }
+
+            accounts.authAttemptSucceeded('account', key);
+            accounts.authAttemptSucceeded('ip', ip);
+            sendAccountSession(ws, req, player);
+            console.log(`[LOGIN] '${player.username}' (${player.player_id}) login por senha`);
+            break;
+        }
+
+        case 'CLAIM_ACCOUNT': {
+            // Migração: conta sem senha pode definir senha enquanto o prazo
+            // de legado estiver ativo. Após o prazo, contas sem senha só
+            // entram como guest (AUTH_GUEST) — sem acesso à conta antiga.
+            const ip = clientIp(req);
+            const username = accounts.normalizeUsername(data.username);
+            const key = accounts.usernameKey(username);
+            if (!accounts.authAttemptAllowed('ip', ip) ||
+                !accounts.authAttemptAllowed('account', key)) {
+                sendError(ws, 'RATE_LIMITED', 'Muitas tentativas. Tente mais tarde.');
+                return;
+            }
+            const player = playerStore.getPlayerByUsernameKey(key);
+            if (!player) {
+                sendError(ws, 'INVALID_CREDENTIALS', 'Conta não encontrada');
+                return;
+            }
+            if (playerStore.hasPassword(player.player_id)) {
+                sendError(ws, 'ALREADY_HAS_PASSWORD', 'Esta conta já tem senha. Faça login.');
+                return;
+            }
+            if (!accounts.legacyGraceActive()) {
+                sendError(ws, 'MIGRATION_EXPIRED', 'Prazo para definir senha expirou');
+                return;
+            }
+            accounts.authAttemptSucceeded('account', key);
+            sendAccountSession(ws, req, player);
+            console.log(`[CLAIM] '${player.username}' (${player.player_id}) reivindicada para definir senha`);
+            break;
+        }
+
+        case 'SET_PASSWORD': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const password = String(data.password || '');
+            if (!accounts.isValidPassword(password)) {
+                sendError(ws, 'INVALID_PASSWORD', 'Senha deve ter entre 6 e 72 caracteres');
+                return;
+            }
+            const player = playerStore.getPlayerById(session.playerId);
+            if (!player) { sendError(ws, 'NOT_FOUND', 'Jogador não encontrado'); return; }
+
+            playerStore.setPasswordHash(player.player_id, accounts.hashPassword(password));
+            const info = rotateRecoveryCode(player.player_id, player.username);
+            // Troca de senha revoga as OUTRAS sessões (a atual continua)
+            const currentHash = crypto.createHash('sha256').update(session.sessionToken || '').digest('hex');
+            accounts.revokeAllSessions(player.player_id, currentHash);
+
+            const playerData = playerStore.getPublicPlayerData(player.player_id);
+            session.coins = playerData.coins;
+            session.inventory = playerData.inventory;
+            sendPlayerData(ws, playerData, session.sessionToken);
+            ws.send(JSON.stringify({ op: 'ACCOUNT_INFO', data: info }));
+            console.log(`[SET_PASSWORD] '${player.username}' definiu senha`);
+            break;
+        }
+
+        case 'RECOVER': {
+            const ip = clientIp(req);
+            const username = accounts.normalizeUsername(data.username);
+            const code = accounts.normalizeRecoveryCode(data.code);
+            const newPassword = String(data.newPassword || '');
+            const key = accounts.usernameKey(username);
+
+            if (!accounts.authAttemptAllowed('ip', ip) ||
+                !accounts.authAttemptAllowed('account', `rec:${key}`)) {
+                sendError(ws, 'RATE_LIMITED', 'Muitas tentativas. Tente mais tarde.');
+                return;
+            }
+            const fail = () => sendError(ws, 'INVALID_RECOVERY', 'Usuário ou código inválido');
+
+            const player = playerStore.getPlayerByUsernameKey(key);
+            const stored = player ? playerStore.getRecoveryHash(player.player_id) : null;
+            if (!player || !stored || stored !== accounts.hashRecoveryCode(code)) {
+                fail();
+                return;
+            }
+            if (!accounts.isValidPassword(newPassword)) {
+                sendError(ws, 'INVALID_PASSWORD', 'Senha deve ter entre 6 e 72 caracteres');
+                return;
+            }
+
+            playerStore.setPasswordHash(player.player_id, accounts.hashPassword(newPassword));
+            const info = rotateRecoveryCode(player.player_id, player.username);
+            accounts.revokeAllSessions(player.player_id); // derruba todos os logins
+            accounts.rateLimitClear(`account:rec:${key}`);
+            accounts.rateLimitClear(`account:${key}`);
+            accounts.rateLimitClear(`ip:${ip}`);
+            ws.send(JSON.stringify({ op: 'RECOVERY_OK', data: info }));
+            console.log(`[RECOVER] '${player.username}' recuperou a conta`);
+            break;
+        }
+
+        case 'LOGOUT': {
+            const session = clientPlayerData.get(ws);
+            if (session?.sessionToken) {
+                accounts.revokeSession(session.sessionToken);
+            }
+            clientPlayerData.delete(ws);
+            handleDisconnect(ws, false);
+            ws.send(JSON.stringify({ op: 'LOGGED_OUT', data: {} }));
+            console.log(`[-] Logout de ${session?.username || 'desconhecido'}`);
             break;
         }
 

@@ -118,6 +118,63 @@ const MIGRATIONS = [
         up: (d) => {
             d.exec('UPDATE players SET session_token = NULL WHERE session_token IS NOT NULL');
         }
+    },
+    {
+        version: 3,
+        name: 'contas: senha/recuperacao, sessions, username_key, meta',
+        up: (d) => {
+            // Colunas de conta em players
+            const cols = d.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
+            for (const [col, ddl] of [
+                ['password_hash', 'ALTER TABLE players ADD COLUMN password_hash TEXT'],
+                ['recovery_hash', 'ALTER TABLE players ADD COLUMN recovery_hash TEXT'],
+                ['recovery_label', 'ALTER TABLE players ADD COLUMN recovery_label TEXT'],
+                ['username_key', 'ALTER TABLE players ADD COLUMN username_key TEXT'],
+            ]) {
+                if (!cols.includes(col)) d.exec(ddl);
+            }
+            // Backfill da chave case-insensitive
+            d.exec('UPDATE players SET username_key = lower(username) WHERE username_key IS NULL');
+            try {
+                d.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_players_username_key ON players(username_key)');
+            } catch {
+                // Nomes legados duplicados ignorando caixa: cai para indice
+                // comum — a unicidade continua garantida no codigo.
+                d.exec('CREATE INDEX IF NOT EXISTS idx_players_username_key ON players(username_key)');
+                console.warn('[db] usernames duplicados ignorando caixa — indice nao-unico');
+            }
+
+            // Sessoes: guarda-se apenas o hash do token (vazamento do banco
+            // nao entrega sessoes utilizaveis)
+            d.exec(`
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    player_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    last_used_at INTEGER NOT NULL,
+                    ip TEXT,
+                    user_agent TEXT,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id);
+                CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+            `);
+
+            // Meta chave-valor (prazos de migracao, flags globais)
+            d.exec(`
+                CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            `);
+            // Prazo para contas antigas definirem senha: 30 dias a partir da
+            // primeira migracao que rodou este schema.
+            const deadline = Date.now() + 30 * 24 * 60 * 60 * 1000;
+            d.exec(
+                `INSERT OR IGNORE INTO meta (key, value) VALUES ('legacy_token_deadline', '${deadline}')`
+            );
+        }
     }
 ];
 
