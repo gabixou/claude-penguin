@@ -14,6 +14,11 @@ const MINIGAMES = {
     // "Go Fishing" da Ski Lodge roda o movie original nativo (IceFishingGame)
 };
 
+// jogos com botao de saida proprio no movie/iframe — o X generico do
+// overlay ficaria redundante (ex.: pufflescape tem Exit, Ice Fishing tem
+// sendGameOver). Bean Counters/Pizzatron nao tem saida mid-game: mantem X.
+const NATIVE_CLOSE = new Set(['roundup', 'pufflescape', 'fish']);
+
 export class MinigameOverlay {
     constructor(scene) {
         this.scene = scene;
@@ -72,8 +77,9 @@ export class MinigameOverlay {
         this.frame.appendChild(iframe);
         } // fim do branch iframe (jogos não-nativos)
 
-        // botao X generico — minigames sem saida propria (ex.: Bean Counters)
-        // precisam de uma forma de voltar para a sala
+        // botao X generico — so para minigames SEM saida propria
+        // (ex.: Bean Counters/Pizzatron nao tem botao de sair no meio do jogo)
+        if (!NATIVE_CLOSE.has(game)) {
         const closeBtn = document.createElement('div');
         closeBtn.textContent = '✕';
         closeBtn.style.cssText =
@@ -85,6 +91,7 @@ export class MinigameOverlay {
         closeBtn.addEventListener('click', () => this.scene._closeMinigame?.());
         this.frame.appendChild(closeBtn);
         this._closeBtn = closeBtn;
+        }
 
         this.el.appendChild(this.frame);
         document.body.appendChild(this.el);
