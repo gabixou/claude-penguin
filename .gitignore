@@ -17,3 +17,7 @@ dist/
 *.log
 client/vite-dev.log
 client/dist-cat/
+
+# Banco de dados local (nunca commitar)
+server/data/
+server/data/backups/
