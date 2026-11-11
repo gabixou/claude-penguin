@@ -3,6 +3,9 @@ include("Include/Scripts/Game")
 include("Include/Scripts/Input")
 include("Include/Scripts/Orders")
 
+// impede drag de imagens (antes um sweep $("img").each rodava todo frame)
+document.addEventListener("dragstart", function(e) { e.preventDefault(); })
+
 // Preload assets with optional callback, and percentage callback
 function preload(a, c, pc) {
 	var count = a.length
@@ -101,33 +104,52 @@ app.mainLoop(function() {
 			break
 		case "Game":
 			let $t;
-			// Move the conveyor belt
+			// Move the conveyor belt — posicao em JS (_px/_ty): o
+			// css("left","+=x") do jQuery le computed style (layout
+			// sincrono) por elemento por frame; agora so escreve style.
 			var $c = $(".conveyor")
 			$c.each(function() {
-				$t = $(this)
-				$t.css("left", "+="+conveyorSpeed+"px")
+				var el = this;
+				// translateX e compositor (zero layout); equivale ao left
+				// relativo que o codigo original acumulava
+				el._dx = (el._dx || 0) + conveyorSpeed;
+				el.style.transform = "translateX("+el._dx+"px)";
 				// Reset the conveyor when a belt has moved off screen
-				if(parseInt($t.siblings(":last").css("left")) > 165) {
-					$t.siblings(":last").remove()
-					$t.parent().prepend('<img class="conveyor" src="Assets/ConveyorBelt.png">')
-					$t.siblings().css("left", "")
+				var sibs = el.parentNode ? el.parentNode.children : [];
+				var last = sibs[sibs.length-1] === el ? sibs[sibs.length-2] : sibs[sibs.length-1];
+				var lastLeft = last ? (last._dx || 0) : 0;
+				if(lastLeft > 165) {
+					$(last).remove();
+					$(el.parentNode).prepend('<img class="conveyor" src="Assets/ConveyorBelt.png">');
+					for(var i = 0; i < sibs.length; i++) {
+						var s = sibs[i];
+						if(s !== el && s.classList && s.classList.contains('conveyor')) {
+							delete s._dx; s.style.transform = "";
+						}
+					}
 				}
 			})
 			// Move the pizza
-			if($(".pizza-dough").length) {
-				$(".pizza-dough").css("left", "+="+conveyorSpeed+"px")
+			var $pd = $(".pizza-dough")
+			if($pd.length) {
+				var pel = $pd[0];
+				if(pel._px === undefined) pel._px = parseFloat(pel.style.left || getComputedStyle(pel).left) || 0;
+				pel._px += conveyorSpeed;
+				pel.style.left = pel._px+"px";
 			}
 
 			// Check for falling objects
 			var $f = $(".dropped")
 			$f.each(function() {
-				$t = $(this)
-				if(parseInt($t.css("top")) < 540) {
+				var el = this;
+				if(el._ty === undefined) el._ty = parseFloat(getComputedStyle(el).top) || 0;
+				if(el._ty < 540) {
 					// Make them fall
-					$t.css("top", "+=8px")
+					el._ty += 8;
+					el.style.top = el._ty+"px"
 				}
 				else {
-					$t.remove()
+					el.remove()
 				}
 			})
 			
@@ -212,7 +234,9 @@ app.mainLoop(function() {
 			}
 			
 			// Pizza went off-screen
-			if($(".pizza-dough").length && parseInt($(".pizza-dough").css("left")) > 1045) {
+			var $pdNow = $(".pizza-dough")[0];
+			var pizzaLeft = $pdNow ? ($pdNow._px !== undefined ? $pdNow._px : (parseFloat(getComputedStyle($pdNow).left) || 0)) : -9999;
+			if(pizzaLeft > 1045) {
 				if(completedOrder) {
 					NextOrder()
 				}
@@ -341,10 +365,7 @@ app.mainLoop(function() {
 			break
 	}
 	
-	// Disable image dragging
-	$("img").each(function() {
-		if(!$(this).attr("draggable")) {
-			$(this).attr("draggable", false)
-		}
-	})
+	// (o sweep de draggable=false por frame foi removido — dragstart
+	// preventDefault no topo do arquivo cobre todos os imgs, inclusive
+	// os criados dinamicamente)
 }, {allowCursor:true})
