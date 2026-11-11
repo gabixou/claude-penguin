@@ -70,7 +70,10 @@ export default class PlayerCard {
         this._moviePromise = null;
         this._openSeq = 0;
         this._opening = false;
-        this.nameChangeModal = new NameChangeModal(scene);
+        // usa a instancia do scene — o handler de player-data/RENAME_FAILED
+        // do RoomScene so conhece scene.nameChangeModal; uma instancia
+        // separada aqui fazia o rename "nao funcionar" (modal nao fechava)
+        this.nameChangeModal = scene.nameChangeModal || new NameChangeModal(scene);
     }
 
     // MovieRoom do interface pack — carregado lazy, uma vez por sessao.
@@ -319,23 +322,25 @@ export default class PlayerCard {
 
         // Botão de renomear (apenas para o jogador local e se canRename)
         if (isSelf && scene.network?.canRename) {
-            // coords LOCAIS do container (card vai de 0..dw, 0..dh) —
-            // antes usava coords de mundo e o botao renderizava fora do card
-            const renameBtn = scene.add.container(dw / 2, dh - 20);
-            const renameBg = scene.add.graphics();
-            renameBg.fillStyle(0xffcc00, 1);
-            renameBg.fillRoundedRect(-40, -12, 80, 24, 4);
-            renameBg.lineStyle(1, 0x000000, 0.3);
-            renameBg.strokeRoundedRect(-40, -12, 80, 24, 4);
-            const renameText = scene.add.text(0, 0, 'Rename', {
-                fontFamily: 'GoPenguin, Arial, sans-serif',
-                fontSize: '11px',
-                fontStyle: 'bold',
-                color: '#000000',
-            }).setOrigin(0.5);
-            renameBtn.add([renameBg, renameText]);
-            renameBtn.setSize(80, 24);
-            renameBtn.setInteractive(new Phaser.Geom.Rectangle(-40, -12, 80, 24), Phaser.Geom.Rectangle.Contains, { useHandCursor: true });
+            // coords LOCAIS do container (card vai de 0..dw, 0..dh).
+            // Icone de lapis em botao circular — padrao dos icones do card,
+            // em vez da caixa amarela "Rename" que destoa da arte original
+            const renameBtn = scene.add.container(dw / 2, dh - 18);
+            const pencilBg = scene.add.graphics();
+            pencilBg.fillStyle(0xffffff, 0.95);
+            pencilBg.fillCircle(0, 0, 10);
+            pencilBg.lineStyle(1.5, 0x999999, 1);
+            pencilBg.strokeCircle(0, 0, 10);
+            const pencil = scene.add.graphics();
+            pencil.fillStyle(0xffcc00, 1);
+            pencil.fillRoundedRect(-1.6, -8, 3.2, 9, 1);          // corpo
+            pencil.fillStyle(0xe8c39e, 1);
+            pencil.fillTriangle(-1.6, 1, 1.6, 1, 0, 4.5);          // madeira
+            pencil.fillStyle(0x333333, 1);
+            pencil.fillTriangle(-0.7, 2.8, 0.7, 2.8, 0, 4.2);      // grafite
+            pencil.setRotation(Phaser.Math.DegToRad(-45));
+            renameBtn.add([pencilBg, pencil]);
+            renameBtn.setInteractive(new Phaser.Geom.Circle(0, 0, 10), Phaser.Geom.Circle.Contains, { useHandCursor: true });
             renameBtn.on('pointerdown', () => this.nameChangeModal.open());
             cont.add(renameBtn);
         }
