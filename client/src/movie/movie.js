@@ -248,6 +248,7 @@ export class MovieRoom {
             tl, packs, files, exits, interactions: tmp.interactions,
             svgCache: new Map(), imgCache: new Map(),
             artCache: new Map(), tintCache: new Map(), fontCache: new Map(),
+            svgOverrides: new Map(),
         };
     }
 
@@ -295,6 +296,7 @@ export class MovieRoom {
         room._artCache = s.artCache;
         room._tintCache = s.tintCache;
         room._fontCache = s.fontCache;
+        room._svgOverrides = s.svgOverrides;
         room._playheads = new Map();  // path -> playhead "ativo" (ultimo resolvido; goto/currentFrame)
         room._playheadAll = new Map(); // path+''+spriteId -> playhead (instancias co-existentes)
         room._buttonStates = new Map(); // path -> 'up'|'over'|'down' (interacoes)
@@ -418,7 +420,24 @@ export class MovieRoom {
         this._scale = scale;
     }
 
+    // Override de arte por arquivo (ex.: trocar o glifo "?" do botao de
+    // rename do player card por um lapis). Compartilhado entre instancias
+    // do mesmo pack — os caches sao os mesmos, entao tambem os purga.
+    setSvgOverride(file, svg) {
+        if (!this._svgOverrides) this._svgOverrides = new Map();
+        this._svgOverrides.set(file, svg);
+        this._svgCache?.delete(file);
+        this._imgCache?.delete(file);
+        const prefix = `${file}|`;
+        for (const cache of [this._artCache, this._tintCache]) {
+            for (const k of [...(cache?.keys() || [])])
+                if (k.startsWith(prefix)) cache.delete(k);
+        }
+    }
+
     _svgText(file) {
+        const o = this._svgOverrides?.get(file);
+        if (o !== undefined) return o;
         let s = this._svgCache.get(file);
         if (s !== undefined) return s;
         const ref = this.files.get(file);
@@ -858,11 +877,15 @@ export class MovieRoom {
         // estatica nao os desenha, senao o frame congelado "vazaria" por
         // tras do overlay animado
         if (this._skipDynamic?.has(childPath)) return;
-        if (this._state?.get(childPath)?.visible === false) return;
-        const local = arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
+        const st = this._state?.get(childPath);
+        if (st?.visible === false) return;
+        // state.matrix (set(path,{matrix})) substitui a matrix local do
+        // entry — equivalente ao swl_transform do cliente gopenguin
+        const local = st?.matrix ? arrMat(st.matrix) : arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
         const world = matMul(matrix, local);
         const sid = String(e.id);
-        const entryColor = e.color ? colorMul(color, e.color) : color;
+        let entryColor = e.color ? colorMul(color, e.color) : color;
+        if (st?.color) entryColor = colorMul(entryColor, st.color);
         if (this.sprites[sid]) {
             const h = this._playhead(childPath, sid);
             if (!h) return;
@@ -878,7 +901,6 @@ export class MovieRoom {
         } else {
             const ch = this.characters[sid];
             if (!ch) return;
-            const st = this._state?.get(childPath);
             if (st?.text !== undefined && (ch.kind === 'text' || this.editTexts?.[sid])) {
                 await this._drawEditText(ctx, ch, sid, world, entryColor, scale, st.text);
                 return;
@@ -1027,11 +1049,13 @@ export class MovieRoom {
     }
 
     _entryBounds(e, matrix, path) {
-        const world = matMul(matrix, arrMat(e.matrix || [1, 0, 0, 1, 0, 0]));
         const childPath = this._path(path, e);
+        const st = this._state?.get(childPath);
+        let local = st?.matrix ? arrMat(st.matrix) : arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
+        const world = matMul(matrix, local);
         const sid = String(e.id);
         const sp = this.sprites[sid];
-        let local = null;
+        local = null;
         if (sp) {
             const h = this._playhead(childPath, sid);
             if (!h) return null;
@@ -1382,6 +1406,9 @@ export class MovieRoom {
         if (!segs.length) return { entry: { id: '__main__', name: 'book' }, path: '', id: '__main__', main: true };
         let entries = this._mainTl.frames[this._mainFrame - 1] || this._mainTl.frames[0] || [];
         let parent = '';
+        let parentPath = '';
+        let parentMatrix = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+        let world = parentMatrix;
         let e = null;
         for (const seg of segs) {
             e = null;
@@ -1393,8 +1420,14 @@ export class MovieRoom {
                     (!cand.name && (seg === '#' + cand.depth || last === seg))) { e = cand; break; }
             }
             if (!e) return null;
-            parent = e.name ? (parent ? parent + '.' + e.name : e.name)
-                            : (parent ? parent + '#' + e.depth : '#' + e.depth);
+            const childPath = e.name ? (parent ? parent + '.' + e.name : e.name)
+                                     : (parent ? parent + '#' + e.depth : '#' + e.depth);
+            const st = this._state?.get(childPath);
+            const local = st?.matrix ? arrMat(st.matrix) : arrMat(e.matrix || [1, 0, 0, 1, 0, 0]);
+            parentPath = parent;
+            parentMatrix = world;
+            world = matMul(world, local);
+            parent = childPath;
             const sid = String(e.id);
             if (this.sprites[sid]) {
                 const h = this._playhead(parent, sid);
@@ -1403,7 +1436,7 @@ export class MovieRoom {
                 entries = [];
             }
         }
-        return e ? { entry: e, path: parent, id: String(e.id) } : null;
+        return e ? { entry: e, path: parent, id: String(e.id), parentPath, parentMatrix, matrix: world } : null;
     }
 
     find(path) { return this._resolve(path); }
@@ -1440,6 +1473,22 @@ export class MovieRoom {
                 if (k === p || k.endsWith('.' + p)) { h = v; break; }
         }
         return h ? h.frame : 1;
+    }
+
+    // Pose ao vivo de um path: {frame, id, path, matrix(mundo), bounds}.
+    // Resolvido contra os playheads atuais — equivalente ao swl_pose do
+    // cliente gopenguin. Usado por minigames que dirigem o movie
+    // (ex.: Ice Fishing faz hit-test de hotspots).
+    pose(path) {
+        const r = this._resolve(path);
+        if (!r || r.main) return null;
+        let frame = 1;
+        if (this.sprites[r.id]) {
+            const h = this._playhead(r.path, r.id);
+            frame = h ? h.frame : 1;
+        }
+        const bounds = this._entryBounds(r.entry, r.parentMatrix, r.parentPath);
+        return { frame, id: r.id, path: r.path, matrix: r.matrix, bounds };
     }
 
     set(path, props = {}) {
