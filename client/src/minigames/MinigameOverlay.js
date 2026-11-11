@@ -57,7 +57,8 @@ export class MinigameOverlay {
                 this._native = new IceFishingGame(this.scene, this.frame, {
                     onExit: () => this.scene._closeMinigame?.(),
                     onCoins: (n) => {
-                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, amount: n });
+                        // Servidor calcula a recompensa — cliente só manda jogo/nível
+                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, game: 'icefishing' });
                         if (n > 0) this._toast(`+${n} coins`);
                     },
                     penguinColor: this.scene.localPlayer?.penguinColor,
@@ -123,10 +124,10 @@ export class MinigameOverlay {
             return;
         }
         if (d.type === 'level-complete') {
-            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1, amount: d.amount });
-            this._toast(d.amount
-                ? `+${d.amount} coins`
-                : `Level ${d.level || 1} complete! +50 coins`);
+            // d.source é o id do jogo ('pufflescape'|'beancounters'|'pizzatron')
+            // — o servidor calcula a recompensa a partir dele
+            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1, game: d.source });
+            this._toast(`Level ${d.level || 1} complete!`);
         }
     }
 

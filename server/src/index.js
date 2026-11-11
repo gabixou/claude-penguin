@@ -11,6 +11,7 @@ import auth from './auth.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
+import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_MINUTE } from './rooms.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -386,18 +387,30 @@ function handlePacket(ws, req, packet) {
                 return;
             }
 
-            // Recompensa de minigame — 50 coins por level concluido, ou
-            // `amount` explicito do cliente (ex.: Ice Fishing manda o score
-            // da rodada). Cap de 500 para evitar abuso.
+            // Recompensa de minigame calculada no servidor: o cliente
+            // informa apenas o jogo e o nível concluído — `amount` do
+            // pacote é ignorado (antes permitia farm de coins).
+            const game = String(data.game || '');
+            const cfg = MINIGAME_REWARDS[game];
+            if (!cfg) {
+                sendError(ws, 'UNKNOWN_MINIGAME', 'Minigame desconhecido');
+                return;
+            }
             const level = Math.floor(Number(data.level));
-            if (!Number.isFinite(level) || level < 1 || level > 99) {
+            if (!Number.isFinite(level) || level < 1 || level > cfg.maxLevel) {
                 sendError(ws, 'INVALID_DATA', 'level inválido');
                 return;
             }
-            const amount = Math.floor(Number(data.amount));
-            const reward = Number.isFinite(amount) && amount >= 1
-                ? Math.min(amount, 500)
-                : 50;
+            // Rate limit: máx. REWARD_MAX_PER_MINUTE recompensas por minuto
+            const now = Date.now();
+            const log = (session.rewardLog ||= []).filter((t) => now - t < 60_000);
+            session.rewardLog = log;
+            if (log.length >= REWARD_MAX_PER_MINUTE) {
+                sendError(ws, 'RATE_LIMITED', 'Muitas recompensas em pouco tempo');
+                return;
+            }
+            const reward = Math.min(level * cfg.perLevel, REWARD_MAX_PER_PACKET);
+            log.push(now);
             playerStore.addCoins(session.playerId, reward);
             const playerData = playerStore.getPublicPlayerData(session.playerId);
             session.coins = playerData.coins;
@@ -442,17 +455,24 @@ function handlePacket(ws, req, packet) {
             }
 
             const { roomId = 'town' } = data;
-            if (typeof roomId !== 'string' || !/^[a-z0-9_-]{1,24}$/i.test(roomId)) {
+            const roomCfg = typeof roomId === 'string' ? getRoomConfig(roomId) : null;
+            if (!roomCfg) {
                 sendError(ws, 'INVALID_ROOM', 'Sala inválida');
                 return;
             }
-            const jx = Math.max(0, Math.min(760, Number(data.x) || 400));
-            const jy = Math.max(0, Math.min(480, Number(data.y) || 300));
+            // Lotação máxima por sala
+            const room = getRoom(roomId);
+            if (room.size >= roomCfg.maxPlayers) {
+                sendError(ws, 'ROOM_FULL', 'Sala lotada, tente outra');
+                return;
+            }
+            const b = roomCfg.bounds;
+            const jx = Math.max(b.minX, Math.min(b.maxX, Number(data.x) || 400));
+            const jy = Math.max(b.minY, Math.min(b.maxY, Number(data.y) || 300));
 
             // Remove de sala anterior caso estivesse em alguma
             handleDisconnect(ws, false);
 
-            const room = getRoom(roomId);
             const player = {
                 playerId: session.playerId,
                 username: session.username,
@@ -498,9 +518,11 @@ function handlePacket(ws, req, packet) {
             if (!session) return;
 
             const { targetX, targetY } = data;
-            // clamp nas coordenadas do mundo (760x480) — impede valores absurdos
-            const cx = Math.max(0, Math.min(760, Number(targetX) || 0));
-            const cy = Math.max(0, Math.min(480, Number(targetY) || 0));
+            // Valida contra os limites da sala atual (rooms.js)
+            const cfg = getRoomConfig(session.roomId);
+            const b = cfg ? cfg.bounds : { minX: 0, minY: 0, maxX: 760, maxY: 480 };
+            const cx = Math.max(b.minX, Math.min(b.maxX, Number(targetX) || 0));
+            const cy = Math.max(b.minY, Math.min(b.maxY, Number(targetY) || 0));
             session.x = cx;
             session.y = cy;
             session.action = null; // andar cancela emote/acao (dance, sit...)

@@ -38,7 +38,8 @@ function makeClient(ws) {
 }
 
 async function onboard(c) {
-    c.send('AUTH_GUEST', {});
+    // forceGuest: evita herdar o Arenovisk em conexões de loopback
+    c.send('AUTH_GUEST', { forceGuest: true });
     const pd = await c.waitOp('PLAYER_DATA'); // auto-cria Penguin_XXXX
     return pd.data;
 }
