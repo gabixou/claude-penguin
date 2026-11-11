@@ -83,7 +83,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
         if (!lib || this.destroyed || !scene || !scene.sys?.isActive()) return;
         this._lib = lib;
         this.view = new PenguinView(lib, color);
-        this.view.setLook(this.gpaOutfit || {});
+        this.view.setLook(this.gpaOutfit || {}, this._viewScale());
         // anel de selecao azul (#3399ff) so no jogador local — como no original
         if (this.isLocal) this.view.art.set('ring', { visible: true });
 
@@ -269,7 +269,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
         if (!slots.includes(slot)) return;
         this.gpaOutfit = this.gpaOutfit || {};
         this.gpaOutfit[slot] = Number.isInteger(itemId) ? itemId : null;
-        if (this.view) { this.view.setLook(this.gpaOutfit); this._render(); }
+        if (this.view) { this.view.setLook(this.gpaOutfit, this._viewScale()); this._render(); }
     }
 
     applyOutfit(raw) {
@@ -280,7 +280,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
                 this.gpaOutfit[slot] = Number.isInteger(v) ? v : (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null);
             }
         }
-        if (this.view) { this.view.setLook(this.gpaOutfit); this._render(); }
+        if (this.view) { this.view.setLook(this.gpaOutfit, this._viewScale()); this._render(); }
     }
 
     // ---------- Chat ----------
