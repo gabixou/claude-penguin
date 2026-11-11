@@ -70,6 +70,10 @@ export class MinigameOverlay {
         window.addEventListener('resize', this._onResize);
         this._onMessage = (e) => this._handleMessage(e);
         window.addEventListener('message', this._onMessage);
+        // suspende o loop de render do Phaser — o overlay cobre a tela toda
+        // e o minigame nao disputa FPS com a sala renderizando atras
+        this._loop = this.scene?.game?.loop || null;
+        this._loop?.sleep?.();
         this._fit();
         return true;
     }
@@ -119,6 +123,8 @@ export class MinigameOverlay {
         if (this._onMessage) window.removeEventListener('message', this._onMessage);
         this._onMessage = null;
         this._closeBtn = null;
+        this._loop?.wake?.();
+        this._loop = null;
         this.el?.remove();
         this.el = null;
         this.frame = null;
