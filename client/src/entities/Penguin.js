@@ -45,7 +45,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
         this._initView(this.penguinColor);
 
         // 3. Nametag abaixo dos pés — escura e em negrito, como no original
-        this.nameTag = scene.add.text(0, 24, this.username, {
+        this.nameTag = scene.add.text(0, 16, this.username, {
             fontFamily: 'GoPenguin, Arial, sans-serif',
             fontSize: '11px',
             color: '#000000',
@@ -89,9 +89,10 @@ export default class Penguin extends Phaser.GameObjects.Container {
 
         const b = lib.bounds;
         const w = lib.viewW, h = lib.viewH;
+        const ss = this._viewScale();
         this._canvas = document.createElement('canvas');
-        this._canvas.width = Math.ceil(w * (scene._ss || 1));
-        this._canvas.height = Math.ceil(h * (scene._ss || 1));
+        this._canvas.width = Math.ceil(w * ss);
+        this._canvas.height = Math.ceil(h * ss);
         const texKey = `penguin_view_${this.playerId}_${++penguinSerial}`;
         scene.textures.addCanvas(texKey, this._canvas);
         this.sprite = scene.add.image(b.x0, b.y0, texKey)
@@ -160,6 +161,15 @@ export default class Penguin extends Phaser.GameObjects.Container {
         this.setPenguinColor(colorItemToRgb(itemId));
     }
 
+    // Fator de raster do canvas do pinguim. As salas desenham com matrix
+    // ss*m + scale ss -> shapes rasterizam a ~ss^2 (~5x) e sao downsampliados.
+    // Aqui world=IDENT, entao eff = scale; usar ss^2 iguala a densidade
+    // (e faz o pinguim dividir o mesmo cache artCanvas/tintedCanvas das salas).
+    _viewScale() {
+        const ss = this._sceneRef?._ss || 1;
+        return ss * ss;
+    }
+
     // Renderiza o frame atual no canvas da textura (assincrono, coalescido).
     _render() {
         const scene = this._sceneRef;
@@ -167,7 +177,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
             this._needsRender = true;
             return;
         }
-        const ss = scene._ss || 1;
+        const ss = this._viewScale();
         if (ss !== this._ss) {
             // supersampling mudou: redimensiona o canvas
             this._ss = ss;
