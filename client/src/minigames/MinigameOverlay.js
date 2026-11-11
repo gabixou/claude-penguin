@@ -9,6 +9,8 @@ const MINIGAMES = {
     pufflescape: 'pufflescape',
     // sacos de cafe do Coffee Shop (triggers_mc.beans_mc -> sendJoinGame "beans")
     beans: 'beancounters',
+    // Pizzatron do Pizza Parlor (sendJoinGame "pizzatron")
+    pizzatron: 'pizzatron',
     // "Go Fishing" da Ski Lodge roda o movie original nativo (IceFishingGame)
 };
 
@@ -107,7 +109,7 @@ export class MinigameOverlay {
         const iframe = this.frame.querySelector('iframe');
         if (!iframe || e.source !== iframe.contentWindow) return;
         const d = e.data;
-        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters')) return;
+        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters' && d.source !== 'pizzatron')) return;
         if (d.type === 'exit') {
             // botao X original do jogo — volta para a sala (retoma musica etc.)
             this.scene._closeMinigame?.();
