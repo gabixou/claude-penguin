@@ -7,6 +7,8 @@ const MINIGAMES = {
     // porta direita do Pet Shop (triggers_mc.roundup_mc -> sendJoinGame)
     roundup: 'pufflescape',
     pufflescape: 'pufflescape',
+    // sacos de cafe do Coffee Shop (triggers_mc.beans_mc -> sendJoinGame "beans")
+    beans: 'beancounters',
 };
 
 export class MinigameOverlay {
@@ -46,6 +48,20 @@ export class MinigameOverlay {
         iframe.setAttribute('allow', 'autoplay');
         this.frame.appendChild(iframe);
 
+        // botao X generico — minigames sem saida propria (ex.: Bean Counters)
+        // precisam de uma forma de voltar para a sala
+        const closeBtn = document.createElement('div');
+        closeBtn.textContent = '✕';
+        closeBtn.style.cssText =
+            'position:absolute; top:14px; right:14px; width:44px; height:44px;' +
+            'display:flex; align-items:center; justify-content:center;' +
+            'font:bold 26px Arial,sans-serif; color:#fff; cursor:pointer;' +
+            'background:rgba(20,30,50,.85); border:2px solid rgba(255,255,255,.6);' +
+            'border-radius:50%; z-index:2;';
+        closeBtn.addEventListener('click', () => this.scene._closeMinigame?.());
+        this.frame.appendChild(closeBtn);
+        this._closeBtn = closeBtn;
+
         this.el.appendChild(this.frame);
         document.body.appendChild(this.el);
 
@@ -62,7 +78,7 @@ export class MinigameOverlay {
         const iframe = this.frame.querySelector('iframe');
         if (!iframe || e.source !== iframe.contentWindow) return;
         const d = e.data;
-        if (!d || d.source !== 'pufflescape') return;
+        if (!d || (d.source !== 'pufflescape' && d.source !== 'beancounters')) return;
         if (d.type === 'exit') {
             // botao X original do jogo — volta para a sala (retoma musica etc.)
             this.scene._closeMinigame?.();
@@ -98,6 +114,7 @@ export class MinigameOverlay {
         window.removeEventListener('resize', this._onResize);
         if (this._onMessage) window.removeEventListener('message', this._onMessage);
         this._onMessage = null;
+        this._closeBtn = null;
         this.el?.remove();
         this.el = null;
         this.frame = null;
