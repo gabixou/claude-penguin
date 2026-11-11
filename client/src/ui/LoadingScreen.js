@@ -34,7 +34,7 @@ export default class LoadingScreen extends Phaser.GameObjects.Container {
             this._boot.add(g);
             this._boot.add(scene.add.image(0, 0, 'boot_bg').setOrigin(0).setDisplaySize(WORLD_W, WORLD_H));
             this._boot.add(scene.add.image(WORLD_W / 2, WORLD_H * 0.44, 'logo')
-                .setOrigin(0.5).setDisplaySize(215, 215 * 777 / 1822));
+                .setOrigin(0.5).setDisplaySize(322, 322 * 777 / 1822));
 
             // capsula de progresso (mesmo desenho do BootScene, x0.5)
             const capW = 120, capH = 13;
