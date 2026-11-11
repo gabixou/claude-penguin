@@ -71,6 +71,7 @@ export class IceFishingGame {
         // qualquer mutacao do movie pode mudar botoes visiveis -> invalida
         const mv = this.movie;
         for (const m of ['goto', 'play', 'stop', 'set']) {
+            if (typeof mv[m] !== 'function') continue;
             const orig = mv[m].bind(mv);
             mv[m] = (...a) => { this._invalidateButtons(); return orig(...a); };
         }
