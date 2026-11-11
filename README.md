@@ -13,6 +13,8 @@
 ![Status](https://img.shields.io/badge/status-in%20development-orange?style=flat-square)
 ![License](https://img.shields.io/badge/license-fan%20project-lightgrey?style=flat-square)
 
+[![▶ PLAY NOW — claudepenguin.mooo.com](https://img.shields.io/badge/%E2%96%B6_PLAY_NOW-claudepenguin.mooo.com-2ecc71?style=for-the-badge&logo=googlechrome&logoColor=white)](https://claudepenguin.mooo.com)
+
 </div>
 
 ---
