@@ -109,11 +109,45 @@ export default class NetworkClient {
             return;
         }
         // ?guest=1 ou automacao (navigator.webdriver = Playwright etc.) ->
-        // nao herda o Arenovisk; recebe guest normal com pinguim proprio
+        // entra direto como visitante, sem tela de login
         const forceGuest = params.get('guest') === '1' || !!navigator.webdriver;
         if (forceGuest) localStorage.removeItem('penguin_user');
         const sessionToken = localStorage.getItem('penguin_session');
-        this.send('AUTH_GUEST', { sessionToken, forceGuest });
+        // Sem token e sem pedido de guest: servidor responde NEED_AUTH
+        // e o cliente abre a tela de login/cadastro.
+        this.send('AUTH_GUEST', {
+            sessionToken: sessionToken || undefined,
+            forceGuest: forceGuest || undefined,
+        });
+    }
+
+    playAsGuest() {
+        localStorage.removeItem('penguin_session');
+        this.send('AUTH_GUEST', { guest: true });
+    }
+
+    login(username, password) {
+        this.send('LOGIN', { username, password });
+    }
+
+    register(username, password) {
+        this.send('REGISTER', { username, password });
+    }
+
+    recover(username, code, newPassword) {
+        this.send('RECOVER', { username, code, newPassword });
+    }
+
+    claimAccount(username) {
+        this.send('CLAIM_ACCOUNT', { username });
+    }
+
+    setPassword(password) {
+        this.send('SET_PASSWORD', { password });
+    }
+
+    logout() {
+        this.send('LOGOUT', {});
     }
 
     loginPlayer(username) {
@@ -214,6 +248,18 @@ export default class NetworkClient {
                 break;
             case 'NEED_CREATE':
                 this.scene.events.emit('need-create-player');
+                break;
+            case 'NEED_AUTH':
+                this.scene.events.emit('need-auth');
+                break;
+            case 'ACCOUNT_INFO':
+                this.scene.events.emit('account-info', data);
+                break;
+            case 'RECOVERY_OK':
+                this.scene.events.emit('recovery-ok', data);
+                break;
+            case 'LOGGED_OUT':
+                this.scene.events.emit('logged-out');
                 break;
             case 'ERROR':
                 this.scene.events.emit('net-error', data);

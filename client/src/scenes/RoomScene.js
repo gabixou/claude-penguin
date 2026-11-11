@@ -24,6 +24,8 @@ import LoadingScreen from '../ui/LoadingScreen.js';
 import { musicPlayer } from '../audio/MusicPlayer.js';
 import CreatePlayerModal from '../ui/CreatePlayerModal.js';
 import NameChangeModal from '../ui/NameChangeModal.js';
+import AuthModal from '../ui/AuthModal.js';
+import { RecoveryCodeModal, SetPasswordModal } from '../ui/AccountModals.js';
 import { colorItemToRgb, DEFAULT_COLOR_ITEM_ID } from '../items/colors.js';
 import { WORLD_W, WORLD_H, computeSupersample } from '../display.js';
 import { RoomInteractions } from '../room/RoomInteractions.js';
@@ -134,6 +136,10 @@ export default class RoomScene extends Phaser.Scene {
         this._playerReady = false;
         this.createPlayerModal = new CreatePlayerModal(this);
         this.nameChangeModal = new NameChangeModal(this);
+        this.authModal = new AuthModal(this);
+        this.recoveryCodeModal = new RecoveryCodeModal();
+        this.setPasswordModal = new SetPasswordModal(this);
+        this._pwPromptShown = false;
 
         // Boot: a tela do logo (BootScene) continua — sem loader intermediario
         this.loadingScreen?.showBoot();
@@ -321,6 +327,27 @@ export default class RoomScene extends Phaser.Scene {
             this.createPlayerModal.open();
         });
 
+        // Sem sessão válida — tela de login/cadastro/recuperação
+        this.events.on('need-auth', () => {
+            this.loadingScreen?.hide();
+            this.authModal.open('login');
+        });
+
+        // Código de recuperação gerado (registro / set / recover) — 1x só
+        this.events.on('account-info', (d) => {
+            this.recoveryCodeModal.open(d);
+        });
+        this.events.on('recovery-ok', (d) => {
+            // Após recuperar, o jogador precisa entrar com a nova senha
+            this.recoveryCodeModal.open(d, () => this.authModal.open('login'));
+        });
+
+        this.events.on('logged-out', () => {
+            localStorage.removeItem('penguin_session');
+            // sessão morreu no servidor — reload limpo para a tela de login
+            setTimeout(() => location.reload(), 400);
+        });
+
         // Dados do jogador recebidos - criar pinguim local ou atualizar
         this.events.on('player-data', (data) => {
             // Se o nameChangeModal estiver aberto, é uma resposta de rename
@@ -334,18 +361,39 @@ export default class RoomScene extends Phaser.Scene {
                 return;
             }
             
-            if (this._playerReady) return; // já inicializado
+            if (this._playerReady) {
+                // PLAYER_DATA de refresh (buy/equip/etc.) — fecha modais de auth
+                this.authModal?.onServerResponse?.(true);
+                this.setPasswordModal?.onServerResponse?.(true);
+                return;
+            }
             this._playerReady = true;
             // so esconde o loader se a sala ja terminou de carregar —
             // antes disso o hide() revelava a town parcialmente rasterizada
             if (this._movieReady) this.loadingScreen?.hide();
             this.createPlayerModal?.onServerResponse?.(true);
+            this.authModal?.onServerResponse?.(true);
+            this.setPasswordModal?.onServerResponse?.(true);
+            // Conta sem senha dentro do prazo de migração: oferece definir senha
+            if (data.needsPasswordSetup && data.legacyGraceActive && !this._pwPromptShown) {
+                this._pwPromptShown = true;
+                setTimeout(() => this.setPasswordModal?.open(), 600);
+            }
             this._initLocalPlayer(data);
         });
 
         // Erros de rede
         this.events.on('net-error', (data) => {
             console.warn('[RoomScene] Net error:', data);
+            // Modal de auth/conta aberto: o erro é dele, não do jogo
+            if (this.authModal?.isOpen) {
+                this.authModal.onServerResponse(false, data.message || data.code);
+                return;
+            }
+            if (this.setPasswordModal?.isOpen) {
+                this.setPasswordModal.onServerResponse(false, data.message || data.code);
+                return;
+            }
             if (data.code === 'NEED_CREATE') {
                 this.loadingScreen?.hide();
                 this.createPlayerModal.open();
