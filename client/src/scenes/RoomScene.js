@@ -186,6 +186,11 @@ export default class RoomScene extends Phaser.Scene {
                 .filter((obj) => obj && obj.input && obj.input.enabled);
             if (hits.length > 0) return;
 
+            // clicou na sala para andar com o chat ainda focado: perde o foco
+            // (o input DOM nao recebe o clique — sem isso o texto continuava ativo)
+            if (this.chatInputRef && document.activeElement === this.chatInputRef)
+                this.chatInputRef.blur();
+
             // clique em cima de um pinguim abre o player card (nao anda)
             const clicked = this._penguinAt(wx, wy);
             if (clicked) { this.playerCard.open(clicked); return; }
