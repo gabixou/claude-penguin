@@ -16,6 +16,7 @@ const matMul = (p, q) => ({
     c: p.a * q.c + p.c * q.d, d: p.b * q.c + p.d * q.d,
     x: p.a * q.x + p.c * q.y + p.x, y: p.b * q.x + p.d * q.y + p.y,
 });
+const matVec = (m, x, y) => ({ x: m.a * x + m.c * y + m.x, y: m.b * x + m.d * y + m.y });
 const arrMat = (m) => ({ a: m[0], b: m[1], c: m[2], d: m[3], x: m[4], y: m[5] });
 
 export default class NameChangeModal {
@@ -34,6 +35,8 @@ export default class NameChangeModal {
         this._continueZone = null;
         this._inputRect = null; // bounds mundo do text_input p/ layout do input
         this._texKey = null;
+        this._avatarTexKey = null;
+        this._iconAnchor = null; // posicao mundo do icon_mc (preview do pinguim)
         this._layoutBound = null;
     }
 
@@ -81,7 +84,12 @@ export default class NameChangeModal {
         if (this._texKey && this.scene.textures.exists(this._texKey)) {
             this.scene.textures.remove(this._texKey);
         }
+        if (this._avatarTexKey && this.scene.textures.exists(this._avatarTexKey)) {
+            this.scene.textures.remove(this._avatarTexKey);
+        }
         this._texKey = null;
+        this._avatarTexKey = null;
+        this._iconAnchor = null;
         this._continueZone = null;
         this._inputRect = null;
     }
@@ -99,8 +107,8 @@ export default class NameChangeModal {
         // text_input NAO recebe set({text}): com editTexts presente o draw
         // vira _drawEditText (so o texto, sem o SVG do campo branco).
         // Sem override o char 777.svg (caixa branca) renderiza sozinho e o
-        // input DOM fica por cima.
-        movie.set(`${PROMPT_PATH}.icon_mc`, { visible: false });
+        // input DOM fica por cima. icon_mc fica visivel — e o icone
+        // decorativo do dialog (esconde-lo deixava espaco vazio no topo).
         movie.collectInteractive();
 
         const btns = {};
@@ -125,6 +133,9 @@ export default class NameChangeModal {
             const h = movie._playhead(PROMPT_PATH, String(pEntry.id));
             const pFrame = h ? (h.tl.frames[h.frame - 1] || []) : [];
             await movie._drawEntries(ctx, pFrame, world, PROMPT_PATH, IDENT_COLOR, ss, 1);
+            // icone do dialog em coords de mundo (sem o ss do canvas)
+            const wlog = matMul(arrMat(imEntry.matrix || ID), arrMat(pEntry.matrix || ID));
+            this._iconAnchor = matVec(wlog, 381.4, 150);
         }
         if (gen !== this._gen || !scene.sys.isActive()) return;
 
@@ -135,6 +146,7 @@ export default class NameChangeModal {
         this.cont = cont;
         cont.add(this.scene.add.image(WORLD_W / 2, WORLD_H / 2, texKey)
             .setDisplaySize(WORLD_W, WORLD_H));
+        this._addAvatar();
 
         // zona bloqueante fullscreen (embaixo dos botoes) — prompt e modal
         const swallow = this.scene.add.zone(WORLD_W / 2, WORLD_H / 2, WORLD_W, WORLD_H)
@@ -182,6 +194,25 @@ export default class NameChangeModal {
         this._inputRect = btns.text_input || null;
         this._buildInput();
         this._setInfo('');
+    }
+
+    // icon_mc do prompt e um container vazio no SWF (o original injeta um
+    // icone via loadMovie). Preenchemos a area do topo com o avatar do
+    // pinguim local — reusa o canvas ja renderizado, sem assets novos.
+    _addAvatar() {
+        const scene = this.scene;
+        const lp = scene.localPlayer;
+        const lib = lp?._lib, anchor = this._iconAnchor;
+        if (!lp?._canvas || !lib || !anchor) return;
+        const key = `rename_avatar_${Date.now()}`;
+        scene.textures.addCanvas(key, lp._canvas);
+        this._avatarTexKey = key;
+        const s = Math.min(120 / lib.viewW, 100 / lib.viewH);
+        const w = lib.viewW * s, h = lib.viewH * s;
+        // pe da area do icone ~48px abaixo do centro, centralizado na janela
+        const img = scene.add.image(anchor.x - w / 2, anchor.y + 48 - h, key)
+            .setOrigin(0, 0).setDisplaySize(w, h);
+        this.cont.add(img);
     }
 
     _buildInput() {
