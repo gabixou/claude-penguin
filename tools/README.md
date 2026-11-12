@@ -11,6 +11,7 @@ originais do Club Penguin (timelines.json + SVGs packed + packs
 |---|---|
 | `audit-assets.mjs` | Auditoria de cobertura: quais itens do `items.json` não têm arte em `paper/`, `clothing/` e `outfits/`; salas sem pack em `movies/`; catálogos sem `timelines.json`. `--json` para saída máquina. |
 | `set-edition.mjs` | Grava `validFrom`/`validTo` em itens do `items.json` para rodar edições de catálogo por data. `--clear` remove a vigência. |
+| `make-state-pins.mjs` | Gera os pins das bandeiras dos 26 estados + DF (itens `9500`–`9526`, 20 moedas): ícones em `icons/<id>/`, entradas no `items.json`/`icons/index.json` e a variante `catalogues/clothing-br` (páginas 19–20 do catálogo de roupas com os estados; reaproveita os packs do original). O jogador alterna "Países / Estados do Brasil" no topo dessas páginas. Idempotente; depois de rodar, reinicie o servidor. Conferência visual: `catalogues/clothing-br/preview.html`. |
 
 Exemplos:
 
