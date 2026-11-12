@@ -49,6 +49,23 @@ Most Club Penguin private servers are **emulators of the original Flash client**
 
 In short: instead of resurrecting Flash, this project **rebuilds the game natively for the web**: same soul, modern bones.
 
+## How it differs from Yukon (wizguin/yukon)
+
+[Yukon](https://github.com/wizguin/yukon) is the other well-known HTML5 Club Penguin recreation — and a great project. It takes a different architectural route, and the differences matter:
+
+| | Yukon | Claude Penguin |
+|---|---|---|
+| **How scenes are made** | **Phaser Editor** — every room/minigame is a hand-assembled `.scene` (366 of them) of sprites and game objects, compiled to JS | **Original vector timelines** — our `MovieRoom` engine parses the SWF-derived `timelines.json` + packed SVGs and replays the *actual* display lists of the original game |
+| **Visual fidelity** | Sprite-sheet approximations of the original art | The original Flash vector art itself — rooms, HUD, catalogues, player cards render pixel-faithfully |
+| **Minigames** | Mix of sprite-based ports + Flash emulation (Ruffle) for some | Native ports of the original game logic (e.g. Ice Fishing runs the same 24fps timeline/event model as the original SWL) — no Flash anywhere |
+| **Paperdoll** | Slot-based sprite assembly | Original character packs with Flash `colorTransform` tinting in Web Workers |
+| **Server** | Separate `yukon-server` (Node + Socket.IO + **MySQL**/Sequelize) | Lightweight Node `ws` + **SQLite**, zero extra services |
+| **Scope today** | Broader feature coverage (igloos, buddies, pets, more minigames) | Deeper rendering/authenticity fidelity; feature coverage is growing |
+
+**Why not Phaser Editor?** It's a visual scene builder: you drag sprites into place and it exports JSON + JS. That's a great fit for games designed around hand-placed assets — but our content *is* the original game's display lists. Rebuilding rooms as editor scenes would mean approximating the original art by hand, losing the fidelity that makes this project different. Our renderer is data-driven: the game content comes from the original assets, so every room is authentic by construction, not by manual recreation.
+
+**Honest trade-off:** Yukon covers more features today (personal igloos with a furniture editor, buddy lists, pets, extra minigames). Claude Penguin's edge is that what it renders is the *real* Club Penguin — vector-perfect rooms and UI — on a much lighter stack. We're closing the feature gap using Yukon as a protocol/feature reference, while keeping the renderer that makes us different.
+
 ## Tech stack
 
 **Client** (`client/`)
