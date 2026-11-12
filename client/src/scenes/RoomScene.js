@@ -828,8 +828,8 @@ export default class RoomScene extends Phaser.Scene {
     _adjacentBases() {
         const out = new Set();
         for (const ex of Object.values(this.movie?.exits || {})) {
-            const pack = ex.room && MOVIE_ROOM_MAP[ex.room];
-            if (pack) out.add(`/assets/movies/${pack}`);
+            const base = ex.room && this._movieBaseFor(ex.room);
+            if (base) out.add(base);
         }
         return out;
     }
@@ -960,7 +960,7 @@ export default class RoomScene extends Phaser.Scene {
                 // v3: cache inclui os overlays dinamicos — sem eles a sala
                 // "quente" ainda re-renderizava ~20 dyns via SVG decode
                 // (dance: 9.3s -> 7.9s entre sessoes; agora cobre tudo)
-                const cacheKey = `v3|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
+                const cacheKey = `v3|${base}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
                 const cached = await idbGet(cacheKey);
                 let cacheHit = false;
                 if (this.movie !== movie) { releaseHold(); return; }
@@ -1150,7 +1150,7 @@ export default class RoomScene extends Phaser.Scene {
             .catch((e) => {
                 releaseHold();
                 console.warn('[movie] falha ao carregar pack', base, e);
-                if (this.currentRoom === roomKey) this._showRoomFail(roomKey);
+                if (this.currentRoom === roomKey) this._showRoomFail(roomKey, e);
             });
     }
 
@@ -1192,12 +1192,13 @@ export default class RoomScene extends Phaser.Scene {
         this.time.delayedCall(2500, () => { this._noticeText?.destroy(); this._noticeText = null; });
     }
 
-    _showRoomFail(roomKey) {
+    _showRoomFail(roomKey, err = null) {
         this._booting = false;
         this.loadingScreen?.hide();
         this.cameras.main.setBackgroundColor(0x263238);
+        const detail = err ? `\n${err.message || err}` : '';
         this.roomFailText = this.add.text(WORLD_W / 2, WORLD_H / 2,
-            `Failed to load room "${roomKey}"\n(missing/corrupt SWF pack)`, {
+            `Failed to load room "${roomKey}"\n(missing/corrupt SWF pack)${detail}`, {
             fontFamily: 'Arial, sans-serif',
             fontSize: '16px',
             color: '#eceff1',
