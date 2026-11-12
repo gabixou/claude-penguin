@@ -705,6 +705,45 @@ function handlePacket(ws, req, packet) {
             break;
         }
 
+        case 'DEV_GIVE': {
+            // Debug local: somente loopback. {coins} absoluto ou {amount} delta.
+            // Atualiza o banco e reenvia PLAYER_DATA para todos os sockets
+            // do jogador — o jogo aberto em outra aba atualiza ao vivo.
+            const ip = clientIp(req);
+            if (!isLoopbackIp(ip)) {
+                sendError(ws, 'FORBIDDEN', 'Comando disponível apenas em localhost');
+                break;
+            }
+            const session = clientPlayerData.get(ws);
+            if (!session?.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const cur = playerStore.getPublicPlayerData(session.playerId);
+            if (!cur) { sendError(ws, 'NOT_FOUND', 'Jogador não encontrado'); break; }
+            let next;
+            if (Number.isFinite(Number(data.amount))) {
+                next = cur.coins + Math.trunc(Number(data.amount));
+            } else if (Number.isFinite(Number(data.coins))) {
+                next = Math.max(0, Math.trunc(Number(data.coins)));
+            } else {
+                sendError(ws, 'INVALID_DATA', 'Informe coins (absoluto) ou amount (delta)');
+                break;
+            }
+            playerStore.updatePlayerCoins(session.playerId, next);
+            const fresh = playerStore.getPublicPlayerData(session.playerId);
+            for (const [sws, s] of clientPlayerData) {
+                if (s.playerId !== session.playerId) continue;
+                s.coins = fresh.coins;
+                s.inventory = fresh.inventory;
+                s.equipped = fresh.equipped;
+                if (sws.readyState === WebSocket.OPEN) sendPlayerData(sws, fresh, s.sessionToken);
+            }
+            console.log(`[DEV_GIVE] ${session.username}: ${cur.coins} -> ${fresh.coins} coins`);
+            ws.send(JSON.stringify({ op: 'DEV_OK', data: { coins: fresh.coins } }));
+            break;
+        }
+
         case 'BUY_ITEM': {
             const session = clientPlayerData.get(ws);
             if (!session || !session.playerId) {
