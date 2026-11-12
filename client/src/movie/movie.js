@@ -727,7 +727,7 @@ export class MovieRoom {
             }
             h.frame = next;
             this._entered.set(h.path, next);
-            this._emitSounds(h.tl, next);
+            this._emitSounds(h.tl, next, h);
             for (const c of this._actions(h.tl, next)) {
                 const op = c[0], arg = c[1];
                 if (op === 'stop') h.stopped = true;
@@ -737,7 +737,7 @@ export class MovieRoom {
                     if (f) {
                         h.frame = f;
                         h.stopped = op === 'gotoAndStop';
-                        this._emitSounds(h.tl, f);
+                        this._emitSounds(h.tl, f, h);
                         // NAO registra o destino do salto em _entered: o
                         // frame "avancado" (ex.: puffle 237) e o que o
                         // watch precisa observar; o gotoAndStop(1) e acao
@@ -790,6 +790,35 @@ export class MovieRoom {
         // (botao/texto dentro de sprite animado) tambem precisam re-render
         this._dirtyForcedPaths = new Set(this._forcedPaths);
         this._forcedPaths.clear();
+        this._sweepOrphanSounds();
+    }
+
+    // No Flash, quando o frame do pai troca, a instancia filha e destruida
+    // e seus sons morrem junto. Nossos playheads sobrevivem orfaos em
+    // _playheadAll — ex.: sprite 214 (raio do electro do penguin) manda
+    // _parent.gotoAndStop(1) no frame 19, o penguin volta ao 'sit' sem o
+    // filho, e o playhead ficava ciclando 1->19->1 re-emitindo o som do
+    // frame 1 para sempre. Calcula os paths vivos na display list uma vez
+    // por tick e muta os orfaos: eles seguem avancando (barato, e se o pai
+    // voltar ao frame certo o som volta a funcionar) mas nao emitem mais.
+    _sweepOrphanSounds() {
+        const heads = new Map();
+        for (const h of this._playheadAll.values())
+            heads.set(h.path + '' + String(h.sid), h);
+        const live = new Set();
+        const walkLive = (entries, path) => {
+            for (const e of entries || []) {
+                const sid = String(e.id);
+                if (!this.sprites[sid]) continue;
+                const cp = this._path(path, e);
+                live.add(cp);
+                const hh = heads.get(cp + '' + sid);
+                if (hh) walkLive(hh.tl.frames[hh.frame - 1], cp);
+            }
+        };
+        walkLive(this._mainTl.frames[this._mainFrame - 1] || [], '');
+        for (const h of this._playheadAll.values())
+            h.muted = !live.has(h.path);
     }
 
     _playhead(path, tlId) {
@@ -803,7 +832,7 @@ export class MovieRoom {
         const key = path + '' + tlId;
         let h = this._playheadAll.get(key);
         if (!h) {
-            h = { tl, frame: 1, stopped: false, path };
+            h = { tl, frame: 1, stopped: false, path, sid: tlId };
             // clips de idioma (letreiros): frames segmentados por idioma,
             // o script original faz gotoAndStop(language) — fixamos o frame
             const langs = ['english', 'portuguese', 'french', 'spanish'];
@@ -812,6 +841,7 @@ export class MovieRoom {
                 h.stopped = true;
                 this._playheadAll.set(key, h);
                 this._playheads.set(path, h);
+                this._emitSounds(tl, h.frame, h); // som do frame inicial toca na entrada (Flash)
                 return h;
             }
             // ações do frame inicial executam ao entrar (ex.: stop() no frame 1)
@@ -823,6 +853,7 @@ export class MovieRoom {
                 }
             }
             this._playheadAll.set(key, h);
+            this._emitSounds(tl, h.frame, h); // idem: frame inicial pode ter StartSound
         }
         this._playheads.set(path, h);
         return h;
@@ -860,7 +891,7 @@ export class MovieRoom {
         const f = typeof frame === 'string' ? this._labelFrame(h.tl, frame) : Number(frame);
         if (!f) return false;
         const nf = Math.max(1, Math.min(f, h.tl.frames.length || 1));
-        if (nf !== h.frame) this._emitSounds(h.tl, nf);
+        if (nf !== h.frame) this._emitSounds(h.tl, nf, h);
         h.frame = nf;
         h.stopped = !playing;
         this._markRoot(path);
@@ -981,39 +1012,37 @@ export class MovieRoom {
             p[2] - (p[2] - grid[2]) * w / local.a, p[2]];
         const C = [p[1], p[1] + (grid[1] - p[1]) * S / local.d,
             p[3] - (p[3] - grid[3]) * S / local.d, p[3]];
-        // device rect da fatia (world axis-aligned pois local e os pais sao)
-        const devRect = (rx, ry, rw, rh) => {
+        // Renderiza o frame UMA vez numa canvas offscreen e fatia o bitmap
+        // em 9 drawImages — a versao anterior re-renderizava o vetor por
+        // fatia com clip fracionario e abria gap de ~1px nas emendas
+        // (visivel no prompt_mc e demais paineis 9-slice).
+        const devRectM = (m, rx, ry, rw, rh) => {
             const pts = [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]
                 .map(([px, py]) => [
-                    world.a * px + world.c * py + world.x,
-                    world.b * px + world.d * py + world.y,
+                    m.a * px + m.c * py + m.x,
+                    m.b * px + m.d * py + m.y,
                 ]);
             const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
             return [Math.min(...xs), Math.min(...ys),
                 Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
         };
+        const [fx0, fy0, fx1, fy1] = devRectM(world, p[0], p[1], p[2] - p[0], p[3] - p[1]);
+        const fw = Math.max(1, Math.ceil(fx1 - fx0)), fh = Math.max(1, Math.ceil(fy1 - fy0));
+        const off = document.createElement('canvas');
+        off.width = fw; off.height = fh;
+        const octx = off.getContext('2d');
+        const mOff = { a: world.a, b: world.b, c: world.c, d: world.d,
+            x: world.x - fx0, y: world.y - fy0 };
+        await this._drawEntries(octx, frame, mOff, path, color, scale, depth + 1);
         for (let r = 0; r < 3; r++) {
             for (let cIdx = 0; cIdx < 3; cIdx++) {
                 const P = x[cIdx + 1] - x[cIdx], I = C[r + 1] - C[r];
                 if (P <= 0 || I <= 0 || b[cIdx + 1] === b[cIdx] || v[r + 1] === v[r]) continue;
-                // transform da fatia no espaco do simbolo:
-                // p -> (x[c] + (px - b[c]) * P/(b[c+1]-b[c]), C[r] + (py - v[r]) * I/(v[r+1]-v[r]))
-                const kx = P / (b[cIdx + 1] - b[cIdx]);
-                const ky = I / (v[r + 1] - v[r]);
-                const t = {
-                    a: kx, b: 0, c: 0, d: ky,
-                    x: x[cIdx] - b[cIdx] * kx,
-                    y: C[r] - v[r] * ky,
-                };
-                const mSlice = matMul(world, t);
-                const [dx, dy, dw, dh] = devRect(x[cIdx], C[r], P, I);
-                if (dw <= 0 || dh <= 0) continue;
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(dx, dy, dw, dh);
-                ctx.clip();
-                await this._drawEntries(ctx, frame, mSlice, path, color, scale, depth + 1);
-                ctx.restore();
+                // src: celula no offscreen (mOff); dst: rect de device no ctx (world)
+                const s = devRectM(mOff, x[cIdx], C[r], P, I);
+                const d = devRectM(world, x[cIdx], C[r], P, I);
+                if (s[2] <= 0 || s[3] <= 0 || d[2] <= 0 || d[3] <= 0) continue;
+                ctx.drawImage(off, s[0], s[1], s[2], s[3], d[0], d[1], d[2], d[3]);
             }
         }
     }
@@ -1514,7 +1543,7 @@ export class MovieRoom {
         if (!h) h = this._playhead(r.path, r.id);
         if (!h) return false;
         const nf = Math.max(1, Math.min(ff, h.tl.frames.length || 1));
-        if (nf !== h.frame) this._emitSounds(h.tl, nf);
+        if (nf !== h.frame) this._emitSounds(h.tl, nf, h);
         h.frame = nf;
         h.stopped = !playing;
         this._markRoot(r.path);
@@ -1524,9 +1553,9 @@ export class MovieRoom {
     // Sons de timeline do SWF (StartSound): tl.sounds = [{frame, ids, starts}].
     // Enfileira os ids dos sons do frame "entrado" — quem consome (ex.:
     // IceFishingGame) mapeia id -> arquivo e toca. drainSounds() esvazia.
-    _emitSounds(tl, frame) {
+    _emitSounds(tl, frame, h) {
         const list = tl?.sounds;
-        if (!list?.length || !this._sndQueue) return;
+        if (!list?.length || !this._sndQueue || h?.muted) return;
         for (const s of list)
             if (s.frame === frame)
                 for (const id of s.ids || []) this._sndQueue.push(id);
