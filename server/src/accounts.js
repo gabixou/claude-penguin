@@ -76,13 +76,13 @@ function hashToken(token) {
     return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function createSession(playerId, ip = null, userAgent = null) {
+export function createSession(playerId, ip = null, userAgent = null, worldId = 'world1') {
     const token = crypto.randomBytes(32).toString('hex');
     const now = Date.now();
     db.prepare(`
-        INSERT INTO sessions (token_hash, player_id, created_at, expires_at, last_used_at, ip, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(hashToken(token), playerId, now, now + SESSION_TTL_MS, now, ip, userAgent);
+        INSERT INTO sessions (token_hash, player_id, created_at, expires_at, last_used_at, ip, user_agent, world_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(hashToken(token), playerId, now, now + SESSION_TTL_MS, now, ip, userAgent, worldId);
     return token;
 }
 
