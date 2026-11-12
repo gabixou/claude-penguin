@@ -4,6 +4,8 @@
 // mandamos a jogada escolhida. Abre pelas mesas das salas (Book Room,
 // Lodge, Attic, Dojo) ou pelo painel "Sistemas" > Jogos.
 
+import FindFourView, { FIND_FOUR_CSS } from './FindFourView.js';
+
 const TITLES = { four: 'Find Four', mancala: 'Mancala', treasure: 'Treasure Hunt', card: 'Card-Jitsu' };
 const ELEMENT_ICON = { fire: '🔥', water: '💧', snow: '❄️' };
 const COLOR_HEX = { red: '#e53935', blue: '#1e88e5', green: '#43a047', yellow: '#fdd835', orange: '#fb8c00', purple: '#8e24aa' };
@@ -28,15 +30,6 @@ const CSS = `
 .cp-tg .btn{padding:8px 16px;border-radius:20px;border:2px solid #fff;background:#ffcc33;color:#123f7d;font-weight:900;font-size:13px;cursor:pointer}
 .cp-tg .btn.alt{background:transparent;color:#fff}
 .cp-tg .err{color:#ffb3b3;font-size:12px;text-align:center;min-height:14px;padding:0 14px 6px}
-/* Find Four */
-.cp-tg .ff{display:grid;grid-template-columns:repeat(7,46px);gap:5px;padding:9px;background:#f2c230;border-radius:12px;box-shadow:inset 0 -4px 0 rgba(0,0,0,.2)}
-.cp-tg .ff .c{width:46px;height:46px;border-radius:50%;background:#0f3a70;box-shadow:inset 0 3px 6px rgba(0,0,0,.45)}
-.cp-tg .ff.my .col-hover{background:#21558f}
-.cp-tg .ff .p1{background:radial-gradient(circle at 35% 30%,#ff7b7b,#d32020 60%,#9b1010)}
-.cp-tg .ff .p2{background:radial-gradient(circle at 35% 30%,#7fc4ff,#1e6fd8 60%,#0d4596)}
-.cp-tg .ff .w{outline:3px solid #fff;outline-offset:-3px}
-.cp-tg .ff .last{animation:cp-drop .28s ease-out}
-@keyframes cp-drop{from{transform:translateY(-120px)}to{transform:translateY(0)}}
 /* Mancala */
 .cp-tg .mc{display:grid;grid-template-columns:62px repeat(6,52px) 62px;grid-template-rows:62px 62px;gap:12px 6px;padding:12px 12px 16px;background:linear-gradient(#a8662d,#7c4519);border-radius:40px;box-shadow:inset 0 -5px 0 rgba(0,0,0,.25)}
 .cp-tg .mc .pit,.cp-tg .mc .store{background:#5a2f0e;border-radius:50%;box-shadow:inset 0 4px 8px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;position:relative;font-weight:900;font-size:15px}
@@ -82,7 +75,7 @@ const ensureStyle = () => {
     if (styled || typeof document === 'undefined') return;
     const s = document.createElement('style');
     s.id = 'cp-tablegames-style';
-    s.textContent = CSS;
+    s.textContent = CSS + FIND_FOUR_CSS;
     document.head.appendChild(s);
     styled = true;
 };
@@ -124,13 +117,15 @@ export default class TableGames {
         this.el.remove();
         this.el = null;
         this.st = null;
+        this._ff = null;
         this.scene._tableClosedAt = this.scene.time?.now;
     }
 
     // ---------------------------------------------------------------- UI
     _build() {
         const el = document.createElement('div');
-        el.className = 'cp-tg';
+        // Find Four tem tela propria (kit vetorial + sons/fontes do SWF)
+        el.className = this.req.game === 'four' ? 'cp-tg four' : 'cp-tg';
         el.innerHTML = `<div class="win">
             <div class="top"><h2>${esc(TITLES[this.req.game] || this.req.game)}</h2><button class="x" title="Sair">✕</button></div>
             <div class="players"></div>
@@ -284,37 +279,23 @@ export default class TableGames {
     _renderBoard() {
         const st = this.$('.stage');
         const s = this.st;
+        // Find Four desenha a mesa mesmo esperando ("Waiting for Player")
+        if (s.game === 'four') { this._four(st); return; }
         if (!s.state) { st.innerHTML = ''; return; }
-        if (s.game === 'four') this._four(st);
-        else if (s.game === 'mancala') this._mancala(st);
+        if (s.game === 'mancala') this._mancala(st);
         else if (s.game === 'treasure') this._treasure(st);
         else if (s.game === 'card') this._card(st);
     }
 
     // ---------------------------------------------------------------- Find Four
     _four(stage) {
-        const s = this.st, b = s.state.board;
-        const mine = this._myTurn();
-        const win = new Set((s.state.line || []).map(([r, c]) => r * 7 + c));
-        const last = s.state.last ? s.state.last.row * 7 + s.state.last.col : -1;
-        let html = `<div class="ff${mine ? ' my' : ''}">`;
-        for (let i = 0; i < 42; i++) {
-            const v = b[i];
-            const cls = ['c', v ? `p${v}` : '', win.has(i) ? 'w' : '', i === last && this.prev?.state?.board?.[i] !== v ? 'last' : ''].join(' ');
-            html += `<div class="${cls}" data-col="${i % 7}"></div>`;
+        if (!this._ff || !stage.contains(this._ff.el)) {
+            this._ff = new FindFourView(stage, {
+                onMove: (col) => this._send({ col }),
+                onClose: () => this.close(),
+            });
         }
-        stage.innerHTML = html + '</div>';
-        if (!mine) return;
-        const grid = stage.firstChild;
-        const cells = [...grid.children];
-        const hover = (col) => cells.forEach((c) => c.classList.toggle('col-hover', Number(c.dataset.col) === col && !c.className.match(/p\d/)));
-        grid.onmousemove = (e) => { const c = e.target.dataset?.col; if (c !== undefined) hover(Number(c)); };
-        grid.onmouseleave = () => hover(-1);
-        grid.onclick = (e) => {
-            const c = e.target.dataset?.col;
-            if (c !== undefined) this._send({ col: Number(c) });
-        };
-        grid.style.cursor = 'pointer';
+        this._ff.update(this.st);
     }
 
     // ---------------------------------------------------------------- Mancala
