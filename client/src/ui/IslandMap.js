@@ -100,6 +100,17 @@ export default class IslandMap {
                 this.scene.toggleMap();
                 this.scene.changeRoom(room);
             });
+            // otimista: mouse parado sobre o destino (~120ms) ja baixa e
+            // parseia o pack da sala — o clique encontra tudo em memoria
+            let hoverT = null;
+            zone.on('pointerover', () => {
+                clearTimeout(hoverT);
+                hoverT = setTimeout(() => {
+                    const base = this.scene._movieBaseFor?.(room);
+                    if (base) MovieRoom.load(base).catch(() => {});
+                }, 120);
+            });
+            zone.on('pointerout', () => clearTimeout(hoverT));
             cont.add(zone);
         }
 

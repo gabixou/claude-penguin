@@ -14,13 +14,33 @@ let _packDbPromise = null;
 function packDb() {
     if (!_packDbPromise) {
         _packDbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open('penguin-packs', 1);
-            req.onupgradeneeded = () => req.result.createObjectStore('chunks');
-            req.onsuccess = () => resolve(req.result);
+            // v2: descarta tudo que a v1 gravou. Com os .pack convertidos para
+            // CRLF no checkout (Git/Windows) a v1 cacheava buffers corrompidos
+            // "para sempre" (chave = URL imutavel) — mesmo com os arquivos
+            // corrigidos no disco o browser seguia servindo os ruins.
+            const req = indexedDB.open('penguin-packs', 2);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (db.objectStoreNames.contains('chunks')) db.deleteObjectStore('chunks');
+                db.createObjectStore('chunks');
+            };
+            req.onsuccess = () => {
+                const db = req.result;
+                // outra aba pedindo upgrade: fecha para nao bloquea-la
+                db.onversionchange = () => db.close();
+                resolve(db);
+            };
             req.onerror = () => reject(req.error);
+            // aba antiga com a v1 aberta: segue sem cache nesta sessao
+            req.onblocked = () => reject(new Error('penguin-packs: upgrade bloqueado'));
         });
     }
     return _packDbPromise;
+}
+function packDel(key) {
+    packDb().then((db) => {
+        db.transaction('chunks', 'readwrite').objectStore('chunks').delete(key);
+    }).catch(() => {});
 }
 async function packGet(url) {
     try {
@@ -211,15 +231,25 @@ export class MovieRoom {
         });
         const packs = [];
         const urls = [];
-        const charsUrl = tl.pack?.file ? `${base}/chars/${tl.pack.file}` : null;
-        if (charsUrl) urls.push(charsUrl);
-        for (const f of tl.chunks?.files ?? []) urls.push(`${base}/chars/${f}`);
+        // `file` pode ser um caminho relativo (ex.: '../../clothing/chars/x.pack'):
+        // variantes de um pacote (catalogues/clothing-br) reaproveitam os
+        // packs do original sem duplica-los — o pack e identificado pelo
+        // `file` exato do manifest, nao pelo nome final
+        const fileOfUrl = new Map();
+        const addFile = (f) => {
+            const u = `${base}/chars/${f}`;
+            if (!fileOfUrl.has(u)) { fileOfUrl.set(u, f); urls.push(u); }
+            return u;
+        };
+        const charsUrl = tl.pack?.file ? addFile(tl.pack.file) : null;
+        for (const f of tl.chunks?.files ?? []) addFile(f);
         // chars.pack nao tem hash no nome: cacheia no IDB com chave
         // url@source — source muda quando os assets sao regerados
         const srcKey = tl.source || '';
+        const cacheKeyOf = (u) => (u === charsUrl ? `${u}@${srcKey}` : undefined);
         await Promise.all(urls.map(async (u) => {
-            const buf = await fetchPack(u, u === charsUrl ? `${u}@${srcKey}` : undefined);
-            packs.push({ name: u.split('/').pop(), buf });
+            const buf = await fetchPack(u, cacheKeyOf(u));
+            packs.push({ name: fileOfUrl.get(u), buf });
         }));
 
         // indice arquivo -> {pack, off, len}
@@ -235,6 +265,29 @@ export class MovieRoom {
             // entries: [chunkIndex, offset, length] ou [offset, length]
             if (e.length === 3) files.set(file, { pack: chunkFiles[e[0]], off: e[1], len: e[2] });
             else files.set(file, { pack: chunkFiles[0], off: e[0], len: e[1] });
+        }
+
+        // Integridade: os offsets do manifest sao em BYTES do pack original
+        // (LF). Se o pack foi alterado no caminho (ex.: checkout do Git no
+        // Windows convertendo LF->CRLF) todo SVG sai cortado no meio, nenhum
+        // decodifica e a sala/HUD/pinguim renderizam vazios — tela preta sem
+        // nenhum erro no console. Todo .svg comeca com '<': se algum nao
+        // comecar, falha alto e purga o cache em vez de desenhar nada.
+        const views = new Map();
+        let bad = null;
+        for (const [file, ref] of files) {
+            if (!ref.pack || !ref.len) continue;
+            if (ref.off + ref.len > ref.pack.buf.byteLength) { bad = file; break; }
+            if (!file.endsWith('.svg')) continue;
+            let u8 = views.get(ref.pack);
+            if (!u8) views.set(ref.pack, (u8 = new Uint8Array(ref.pack.buf)));
+            if (u8[ref.off] !== 0x3c) { bad = file; break; }
+        }
+        if (bad) {
+            for (const u of urls) packDel(cacheKeyOf(u) ?? u);
+            throw new Error(
+                `pack corrompido: offset de "${bad}" nao bate com o manifest `
+                + '(.pack com fim de linha convertido para CRLF? veja .gitattributes)');
         }
 
         // parse AS das interacoes uma vez — deterministico a partir do tl

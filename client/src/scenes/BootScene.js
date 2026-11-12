@@ -4,6 +4,8 @@
 
 import Phaser from 'phaser';
 import { PenguinLibrary } from '../entities/PenguinArt.js';
+import { mark } from '../perf.js';
+import { earlyPenguinLibrary, logoImage } from '../preload.js';
 
 export default class BootScene extends Phaser.Scene {
     constructor() {
@@ -11,22 +13,34 @@ export default class BootScene extends Phaser.Scene {
     }
 
     preload() {
-        const { width, height } = this.scale;
+        mark('boot-preload');
 
-        // Pack vetorial do pinguim (timelines.json + chunks SVG) — carrega em
-        // paralelo com os demais assets; Penguin.js faz await da promise.
-        this.game.penguinLibrary = PenguinLibrary.load();
+        // Pack vetorial do pinguim (timelines.json + chunks SVG) — ja
+        // disparado pelo preload.js antes do Phaser subir; Penguin.js faz
+        // await da promise.
+        this.game.penguinLibrary = earlyPenguinLibrary || PenguinLibrary.load();
 
         // Azul profundo do loader original (preenche enquanto o logo baixa)
         this.cameras.main.setBackgroundColor('#1a4f96');
 
-        // Logo do projeto (wordmark CLUB PENGUIN) centralizado
-        this.load.svg('logo', '/assets/ui/logo.svg', { width: 380, height: 380 * 777 / 1822 });
+        // Logo: pedido pelo preload.js como PRIMEIRO request (logoImage) e
+        // rasterizado no create(). Os PNGs do HUD bitmap antigo (WebHud)
+        // nao sao mais carregados: a HUD e a vetorial (VectorHud).
+    }
 
-        // HUD web classico: icones/botoes do gopenguin.lol.
-        for (let i = 2; i <= 10; i++) this.load.image(`hud_btn_${i}`, `/assets/hud/btn-${i}.png`);
-        this.load.image('hud_map', '/assets/hud/map-icon.png');
-        this.load.image('hud_mail', '/assets/hud/mail-icon.png');
+    // SVG do logo (1822x777) -> canvas de 760px: nitido no boot (645px) e no
+    // loader (322px) sem subir uma textura de 1822px para a GPU.
+    _addLogoTexture() {
+        if (this.textures.exists('logo')) return true;
+        if (!logoImage.complete || !logoImage.naturalWidth) return false;
+        const w = 760, h = Math.round(760 * 777 / 1822);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(logoImage, 0, 0, w, h);
+        this.textures.addCanvas('logo', c);
+        return true;
     }
 
     create() {
@@ -51,7 +65,11 @@ export default class BootScene extends Phaser.Scene {
         halo.setDepth(-1);
 
         // Logo do projeto centralizado e em destaque (como no loader original)
-        this.add.image(width / 2, height * 0.44, 'logo').setOrigin(0.5).setDisplaySize(645, 645 * 777 / 1822);
+        const showLogo = () => {
+            if (this._addLogoTexture()) {
+                this.add.image(width / 2, height * 0.44, 'logo').setOrigin(0.5).setDisplaySize(645, 645 * 777 / 1822);
+            }
+        };
 
         // Barra de progresso em capsula: container azul-escuro, icone circular
         // de setas a esquerda e preenchimento amarelo-alaranjado em gradiente.
@@ -112,9 +130,23 @@ export default class BootScene extends Phaser.Scene {
             }
         });
 
-        // mostra o logo brevemente; o LoadingScreen do RoomScene continua o
-        // feedback durante a carga da sala — 400ms ja e suficiente para o
-        // logo ser percebido sem segurar o boot em ~1.1s de tempo morto
-        this.time.delayedCall(400, () => this.scene.start('RoomScene'));
+        // RoomScene assim que o logo existir: o LoadingScreen dela redesenha
+        // esta MESMA tela (modo boot, precisa da textura 'logo') e mantem o
+        // feedback durante a carga da sala — o antigo delayedCall(400) era
+        // tempo morto puro. Se o logo demorar (>1.5s), segue sem ele: o
+        // loader cai no modo azul e a sala nao espera.
+        let started = false;
+        const go = () => {
+            if (started) return;
+            started = true;
+            mark('boot-done');
+            showLogo();
+            this.scene.start('RoomScene');
+        };
+        if (logoImage.complete) go();
+        else {
+            logoImage.decode().then(go, go);
+            setTimeout(go, 1500);
+        }
     }
 }

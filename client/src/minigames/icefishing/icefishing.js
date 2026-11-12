@@ -28,6 +28,12 @@ function replace(source, a, b) {
     return source.replace(/%0/g, String(a)).replace(/%1/g, String(b));
 }
 
+// Otimista: baixa e parseia o pack do movie antes do clique no jogo
+// (MovieRoom.load deduplica — o init() do jogo reaproveita o resultado).
+export function warmIceFishing() {
+    return MovieRoom.load(PACK).catch(() => null);
+}
+
 export class IceFishingGame {
     // onExit(): fechar overlay | onCoins(n): reward | penguinColor: [r,g,b] 0-255
     constructor(scene, frame, { onExit, onCoins, penguinColor } = {}) {
