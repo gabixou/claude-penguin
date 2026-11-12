@@ -8,6 +8,7 @@ import { Clip } from '../movie/clip.js';
 import { veColor } from '../entities/PenguinArt.js';
 import { WORLD_W, WORLD_H } from '../display.js';
 import NameChangeModal from './NameChangeModal.js';
+import { UiTooltip } from './Tooltip.js';
 
 const CARD_SPRITE_ID = '701';
 const CARD_FRAME_SELF = 2; // frame 3 = aba de inventario aberta (painel branco lateral)
@@ -62,14 +63,18 @@ function assetMovieCached(kind, cache, id) {
 const photoMovie = (id) => assetMovieCached('photos', _photoMovies, id);
 const iconMovie = (id) => assetMovieCached('icons', _iconMovies, id);
 
-// lapis minimalista branco — substitui o glifo "?" (char 665.svg) do botao
-// moderatorButtonEditPlayer. Mesma viewBox/pegada do original (10x13.2,
-// grupo centrado em 5,7.2); so esse botao usa o char 665 no pack interface.
+// lapis branco diagonal (silhueta estilo icone edit: cap quadrado no
+// quadrante sup-dir, corpo retangular, ponta triangular no inf-esq) —
+// substitui o glifo "?" (char 665.svg) do botao moderatorButtonEditPlayer.
+// Mesma viewBox/pegada do original (10x13.2, grupo centrado em 5,7.2); so
+// esse botao usa o char 665 no pack interface.
 const PENCIL_SVG = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" height="13.2px" width="10.0px">
   <g transform="matrix(1.0, 0.0, 0.0, 1.0, 5.0, 7.2)">
-    <g transform="rotate(-45)">
-      <path fill="#ffffff" fill-rule="evenodd" d="M-1.2 -7.7 L1.2 -7.7 L1.5 -6.3 L1.5 2.7 L0 6.6 L-1.5 2.7 L-1.5 -6.3 L-1.2 -7.7 Z"/>
+    <g transform="rotate(45)">
+      <path fill="#ffffff" d="M-1.5 -6.4 H1.5 V-4.7 H-1.5 Z"/>
+      <path fill="#ffffff" d="M-1.7 -4.7 H1.7 V4.3 H-1.7 Z"/>
+      <path fill="#ffffff" d="M0 6.3 L1.7 4.3 L-1.7 4.3 Z"/>
     </g>
   </g>
 </svg>`;
@@ -140,6 +145,8 @@ export default class PlayerCard {
         this.scene?.wardrobe?.close();
         if (this.dim) { this.dim.destroy(); this.dim = null; }
         if (this.container) { this.container.destroy(true); this.container = null; }
+        this._tooltip?.hide();
+        this._tooltip = null;
         this._cardBounds = null;
         // textura do card e por-abertura (playercard_<ts>) — sem remover,
         // cada open vazava uma CanvasTexture na GPU
@@ -326,10 +333,18 @@ export default class PlayerCard {
             if (!eb) continue;
             const [bx, by] = px((eb[0] + eb[2]) / 2, (eb[1] + eb[3]) / 2);
             const bw = (eb[2] - eb[0]) * scale, bh = (eb[3] - eb[1]) * scale;
-            const zone = scene.add.zone(bx, by, Math.max(bw, 22 * scale), Math.max(bh, 22 * scale))
+            const zw = Math.max(bw, 22 * scale), zh = Math.max(bh, 22 * scale);
+            const zone = scene.add.zone(bx, by, zw, zh)
                 .setInteractive({ useHandCursor: true });
             zone.name = `pcard_${action}`;
             zone.on('pointerdown', () => this._button(action));
+            // hint amarela original do CP (hint_mc) no hover do rename
+            if (action === 'rename') {
+                this._tooltip = this._tooltip || new UiTooltip(scene, cont);
+                zone.on('pointerover', () =>
+                    this._tooltip.show(bx - zw / 2, by - zh / 2, zw, zh, 'Rename penguin'));
+                zone.on('pointerout', () => this._tooltip.hide());
+            }
             cont.add(zone);
         }
 
