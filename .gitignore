@@ -5,10 +5,8 @@
 /.playwright-mcp
 catalog1.png
 gopenguin.png
-/tools
 NUL
 /docs
-/tools
 tools/probe-card.mjs
 
 # deps e build

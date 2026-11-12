@@ -694,8 +694,9 @@ function handlePacket(ws, req, packet) {
                 return;
             }
 
-            // Preco autoritativo do catalogo — ignora `cost` do cliente
-            const item = catalog.getItem(itemId);
+            // Preco autoritativo do catalogo — ignora `cost` do cliente.
+            // getAvailableItem respeita a vigência (validFrom/validTo).
+            const item = catalog.getAvailableItem(itemId);
             if (!item) {
                 sendError(ws, 'UNKNOWN_ITEM', 'Item não existe no catálogo');
                 return;
@@ -1133,7 +1134,7 @@ function handlePacket(ws, req, packet) {
 
             // Valida posse quando o catalogo esta disponivel (cores pagas)
             if (catalog.isLoaded()) {
-                const item = catalog.getItem(colorItemId);
+                const item = catalog.getAvailableItem(colorItemId);
                 if (!item || item.type !== 1) {
                     sendError(ws, 'INVALID_COLOR', 'Cor inválida');
                     return;
