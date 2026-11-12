@@ -147,6 +147,9 @@ export default class PlayerCard {
             this.scene.textures.remove(this._texKey);
         }
         this._texKey = null;
+        this._modBtnCleanup?.();
+        this._modBtnCleanup = null;
+        this._modBtn = null;
         this.penguin = null;
     }
 
@@ -373,6 +376,45 @@ export default class PlayerCard {
             this.close();
         });
 
+        // Botao de moderacao (escudo) — so para mod/admin vendo OUTRO jogador.
+        // DOM sobre o card; abre o ModMenu com as acoes disponiveis.
+        if (!isSelf && scene.network?.isModerator && scene.modMenu) {
+            const mb = document.createElement('button');
+            mb.textContent = 'MOD';
+            mb.title = 'Ações de moderação';
+            Object.assign(mb.style, {
+                position: 'fixed', zIndex: '90003',
+                padding: '5px 10px', fontSize: '11px', fontWeight: '700',
+                color: '#fff', background: '#7a2e2e',
+                border: '1px solid #a54a4a', borderRadius: '7px',
+                cursor: 'pointer', fontFamily: 'Arial, sans-serif',
+            });
+            const place = () => {
+                const rect = scene.game.canvas.getBoundingClientRect();
+                const sx = rect.width / WORLD_W, sy = rect.height / WORLD_H;
+                const wx = this._cardBounds ? this._cardBounds.right - 30 : WORLD_W / 2;
+                const wy = this._cardBounds ? this._cardBounds.top + 16 : 40;
+                mb.style.left = (rect.left + wx * sx) + 'px';
+                mb.style.top = (rect.top + wy * sy) + 'px';
+            };
+            place();
+            mb.onclick = (e) => {
+                e.stopPropagation();
+                place();
+                const rect = scene.game.canvas.getBoundingClientRect();
+                const sx = rect.width / WORLD_W, sy = rect.height / WORLD_H;
+                const wx = this._cardBounds ? this._cardBounds.right + 10 : WORLD_W / 2;
+                const wy = this._cardBounds ? this._cardBounds.top : 40;
+                scene.modMenu.open(
+                    { playerId: penguin.playerId, username: penguin.username },
+                    rect.left + wx * sx, rect.top + wy * sy
+                );
+            };
+            document.body.appendChild(mb);
+            this._modBtn = mb;
+            this._modBtnCleanup = () => mb.remove();
+        }
+
         // guarda a funcao de repaint para _refresh() (wardrobe equipa itens)
         this._repaint = async () => {
             if (this.container !== cont) return;
@@ -432,7 +474,18 @@ export default class PlayerCard {
                 }
                 break;
             case 'ignore':
+                // lista de ignorados — Fase 6
+                if (this.penguin) {
+                    scene.localPlayer?.showChat?.(`(ignore em ${this.penguin.username} — em breve)`);
+                }
+                break;
             case 'report':
+                // denúncia vai para a fila de reports do servidor
+                if (this.penguin?.playerId && this.penguin !== scene.localPlayer) {
+                    scene.network?.sendReport?.(this.penguin.playerId, null, 'player card');
+                    scene.localPlayer?.showChat?.('Denúncia enviada.');
+                }
+                break;
             case 'buddy':
             case 'home':
             case 'mail':

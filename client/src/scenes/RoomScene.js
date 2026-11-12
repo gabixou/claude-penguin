@@ -26,6 +26,8 @@ import CreatePlayerModal from '../ui/CreatePlayerModal.js';
 import NameChangeModal from '../ui/NameChangeModal.js';
 import AuthModal from '../ui/AuthModal.js';
 import { RecoveryCodeModal, SetPasswordModal } from '../ui/AccountModals.js';
+import ModMenu from '../ui/ModMenu.js';
+import ModPanel from '../ui/ModPanel.js';
 import { colorItemToRgb, DEFAULT_COLOR_ITEM_ID } from '../items/colors.js';
 import { WORLD_W, WORLD_H, computeSupersample } from '../display.js';
 import { RoomInteractions } from '../room/RoomInteractions.js';
@@ -139,7 +141,9 @@ export default class RoomScene extends Phaser.Scene {
         this.authModal = new AuthModal(this);
         this.recoveryCodeModal = new RecoveryCodeModal();
         this.setPasswordModal = new SetPasswordModal(this);
+        this.modMenu = new ModMenu(this);
         this._pwPromptShown = false;
+        this._lastChat = null; // último chat de outro jogador (para denúncia)
 
         // Boot: a tela do logo (BootScene) continua — sem loader intermediario
         this.loadingScreen?.showBoot();
@@ -473,6 +477,10 @@ export default class RoomScene extends Phaser.Scene {
 
         this.events.on('player-chat', (data) => {
             if (!data) return;
+            // guarda o último chat alheio para o botão de denúncia
+            if (data.playerId !== this.network.playerId) {
+                this._lastChat = { playerId: data.playerId, username: data.username, message: data.message };
+            }
             if (data.playerId === this.network.playerId) {
                 if (this.localPlayer) this.localPlayer.showChat(data.message);
             } else {
@@ -627,11 +635,35 @@ export default class RoomScene extends Phaser.Scene {
         });
         document.body.appendChild(chatInput);
         this.chatInputRef = chatInput;
+
+        // Botao de denuncia ao lado do pill de chat — reporta a ultima
+        // mensagem recebida de outro jogador
+        const reportBtn = document.createElement('button');
+        reportBtn.textContent = '⚑';
+        reportBtn.title = 'Denunciar última mensagem';
+        Object.assign(reportBtn.style, {
+            position: 'fixed', zIndex: '9998',
+            width: '26px', height: '26px', padding: '0',
+            fontSize: '13px', lineHeight: '26px', textAlign: 'center',
+            color: '#fff', background: 'rgba(20,30,50,.85)',
+            border: '1px solid rgba(255,255,255,.35)', borderRadius: '50%',
+            cursor: 'pointer', display: 'none',
+        });
+        reportBtn.addEventListener('click', () => {
+            const last = this._lastChat;
+            if (!last) { this.localPlayer?.showChat?.('Nada para denunciar ainda.'); return; }
+            this.network.sendReport(last.playerId, last.message, 'chat');
+            this.localPlayer?.showChat?.('Denúncia enviada.');
+        });
+        document.body.appendChild(reportBtn);
+        this.chatReportBtnRef = reportBtn;
+
         this._layoutChatInput();
         this.scale.on('resize', () => this._layoutChatInput());
         // o rect real do chat_mc so existe depois do build async do VectorHud
         this.events.on('vectorhud:ready', () => this._layoutChatInput());
         this.events.once('shutdown', () => chatInput.remove());
+        this.events.once('shutdown', () => this.chatReportBtnRef?.remove());
         this.events.once('shutdown', () => musicPlayer.stop());
         this.events.once('shutdown', () => this._minigame?.close());
     }
@@ -657,6 +689,13 @@ export default class RoomScene extends Phaser.Scene {
                 width: (r.w * sx - 12) + 'px',
                 height: (r.h * sy - 6) + 'px',
             });
+            if (this.chatReportBtnRef) {
+                Object.assign(this.chatReportBtnRef.style, {
+                    display: 'block',
+                    left: (rect.left + (r.x + r.w) * sx + 4) + 'px',
+                    top: (rect.top + (r.y + r.h / 2) * sy - 13) + 'px',
+                });
+            }
         });
     }
 

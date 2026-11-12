@@ -22,6 +22,8 @@ export default class NetworkClient {
         this.inventory = [];
         this.equipped = {};
         this.canRename = false;
+        this.role = 'player';
+        this.role = 'player';
         
         // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
         // deriva do hostname — https => wss na mesma origem (Caddy faz
@@ -150,6 +152,29 @@ export default class NetworkClient {
         this.send('LOGOUT', {});
     }
 
+    sendReport(targetPlayerId = null, targetMessage = null, reason = null) {
+        this.send('REPORT', { targetPlayerId, targetMessage, reason });
+    }
+
+    sendModAction(action, targetPlayerId, { reason = null, minutes = null, newRole = null } = {}) {
+        this.send('MOD_ACTION', { action, targetPlayerId, reason, minutes, newRole });
+    }
+
+    get isModerator() {
+        return this.role === 'moderator' || this.role === 'admin';
+    }
+    get isAdmin() {
+        return this.role === 'admin';
+    }
+
+    report(targetPlayerId, { targetMessage = null, reason = null } = {}) {
+        this.send('REPORT', { targetPlayerId, targetMessage, reason });
+    }
+
+    sendModAction(action, targetPlayerId, { reason = null, minutes = null, newRole = null } = {}) {
+        this.send('MOD_ACTION', { action, targetPlayerId, reason, minutes, newRole });
+    }
+
     loginPlayer(username) {
         this.send('LOGIN_PLAYER', { username });
     }
@@ -261,6 +286,19 @@ export default class NetworkClient {
             case 'LOGGED_OUT':
                 this.scene.events.emit('logged-out');
                 break;
+            case 'REPORT_OK':
+                this._showDomToast('Denúncia enviada. Obrigado!', '#2e8b57');
+                break;
+            case 'MOD_OK':
+                this._showDomToast(`Moderação: ${data.action}`, '#4a6fa5');
+                break;
+            case 'REPORT_OK':
+                this._showDomToast('Denúncia enviada. Obrigado!', '#2fb344');
+                this.scene.events.emit('report-ok', data);
+                break;
+            case 'MOD_OK':
+                this.scene.events.emit('mod-ok', data);
+                break;
             case 'ERROR':
                 this.scene.events.emit('net-error', data);
                 break;
@@ -307,6 +345,8 @@ export default class NetworkClient {
         this.inventory = data.inventory || [];
         this.equipped = data.equipped || {};
         this.canRename = data.canRename || false;
+        this.role = data.role || 'player';
+        this.role = data.role || 'player';
         this.dailyBonus = data.dailyBonus || 0;
 
         // Salva session token no localStorage para fallback

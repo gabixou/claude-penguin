@@ -175,6 +175,88 @@ const MIGRATIONS = [
                 `INSERT OR IGNORE INTO meta (key, value) VALUES ('legacy_token_deadline', '${deadline}')`
             );
         }
+    },
+    {
+        version: 4,
+        name: 'moderacao: role, ban, warning, report, chat_filter, login_history, audit_log',
+        up: (d) => {
+            const cols = d.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
+            if (!cols.includes('role')) {
+                d.exec("ALTER TABLE players ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
+            }
+            if (!cols.includes('muted_until')) {
+                d.exec('ALTER TABLE players ADD COLUMN muted_until INTEGER');
+            }
+            d.exec(`
+                CREATE TABLE IF NOT EXISTS ban (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id TEXT NOT NULL,
+                    reason TEXT,
+                    moderator_id TEXT,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER,
+                    revoked_at INTEGER,
+                    revoked_by TEXT,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_ban_player ON ban(player_id);
+                CREATE INDEX IF NOT EXISTS idx_ban_active ON ban(player_id, revoked_at, expires_at);
+
+                CREATE TABLE IF NOT EXISTS warning (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id TEXT NOT NULL,
+                    moderator_id TEXT,
+                    reason TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_warning_player ON warning(player_id);
+
+                CREATE TABLE IF NOT EXISTS report (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reporter_id TEXT NOT NULL,
+                    target_player_id TEXT,
+                    target_message TEXT,
+                    reason TEXT,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    created_at INTEGER NOT NULL,
+                    resolved_by TEXT,
+                    resolved_at INTEGER,
+                    resolution TEXT,
+                    FOREIGN KEY (reporter_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_report_status ON report(status);
+
+                CREATE TABLE IF NOT EXISTS chat_filter_rule (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT NOT NULL,
+                    action TEXT NOT NULL DEFAULT 'mask',
+                    created_by TEXT,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS login_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id TEXT,
+                    username TEXT,
+                    ip TEXT,
+                    user_agent TEXT,
+                    success INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_login_history_player ON login_history(player_id);
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id TEXT,
+                    action TEXT NOT NULL,
+                    target_id TEXT,
+                    details TEXT,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+            `);
+        }
     }
 ];
 

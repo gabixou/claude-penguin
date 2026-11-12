@@ -13,6 +13,7 @@ import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
 import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_MINUTE } from './rooms.js';
 import * as accounts from './accounts.js';
+import * as mod from './moderation.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -146,9 +147,9 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Arenovisk: pinguim de teste do dono do PC (IPs loopback). Criado sob
-// demanda; a flag all_items faz hasItem/getInventory cobrir o catalogo
-// inteiro e coins generosas para testar compras/equipamentos.
+// Arenovisk: pinguim de teste do dono do PC. Criado sob demanda via
+// LOGIN_PLAYER (somente loopback); a flag all_items faz hasItem/
+// getInventory cobrir o catalogo inteiro e coins generosas.
 const ARENOVISK_NAME = 'Arenovisk';
 const ARENOVISK_COINS = 100000;
 function ensureArenovisk(ip) {
@@ -165,18 +166,42 @@ function ensureArenovisk(ip) {
     return player;
 }
 
-// IPs que tem direito ao Arenovisk: por padrao so loopback (o PC do
-// tester). Para liberar outro IP (ex.: IP publico do tester em producao),
-// defina ARENOVISK_IPS="ip1,ip2" no ambiente do servidor.
-const ARENOVISK_IPS = new Set(
-    (process.env.ARENOVISK_IPS || '::1,127.0.0.1,::ffff:127.0.0.1')
-        .split(',').map((s) => s.trim()).filter(Boolean)
-);
-function isArenoviskIp(ip) {
-    return ARENOVISK_IPS.has(ip || '');
+// Banimento ativo? Retorna o ban ou null. Usado no login e a cada entrada
+// em sala (cobre bans aplicados com o jogador online).
+function activeBanFor(playerId) {
+    return mod.activeBan(playerId);
 }
 
-// Login por nome (LOGIN_PLAYER) continua restrito a loopback por seguranca.
+function banErrorData(ban) {
+    const until = ban.expires_at ? new Date(ban.expires_at).toISOString() : null;
+    return {
+        code: 'BANNED',
+        message: `Conta banida${ban.reason ? `: ${ban.reason}` : ''}${until ? ` (até ${until})` : ' (permanente)'}`
+    };
+}
+
+// Envia PLAYER_DATA com flags de conta + checa banimento
+function sendPlayerSessionChecked(ws, req, player, sessionToken) {
+    const ban = activeBanFor(player.player_id);
+    if (ban) {
+        sendError(ws, banErrorData(ban).code, banErrorData(ban).message);
+        return null;
+    }
+    return sendPlayerSession(ws, player, sessionToken);
+}
+
+// Acha o socket de um jogador online (para ações de moderação)
+function findSocketByPlayerId(playerId) {
+    for (const [ws, s] of clientPlayerData.entries()) {
+        if (s.playerId === playerId) return ws;
+    }
+    return null;
+}
+
+// Moderador ou admin? (player = linha hidratada com .role)
+function isModerator(player) {
+    return mod.hasRole(player, mod.ROLES.MODERATOR);
+}
 
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.
@@ -252,25 +277,18 @@ function handlePacket(ws, req, packet) {
         case 'AUTH_GUEST': {
             const ip = clientIp(req);
 
-            // IP autorizado (PC do tester): Arenovisk tem PRIORIDADE sobre
-            // token/IP-fallback — senao qualquer guest criado daquele IP
-            // bloquearia o Arenovisk para sempre. forceGuest/automacao
-            // ainda recebem pinguim normal.
-            if (isArenoviskIp(ip) && !data.forceGuest && !data.guest && !data.sessionToken && !isAutomationClient(req)) {
-                const player = ensureArenovisk(ip);
-                const sessionToken = auth.issueSession(player, req);
-                sendPlayerSession(ws, player, sessionToken);
-                console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido a ${ip}`);
-                break;
-            }
-
             // Cliente envia sessionToken do localStorage (se houver)
             const clientToken = data.sessionToken || null;
             const result = auth.identifyPlayer(req, clientToken);
 
             if (result.player) {
-                sendPlayerSession(ws, result.player, result.sessionToken);
-                console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado`);
+                if (activeBanFor(result.player.player_id)) {
+                    const b = banErrorData(activeBanFor(result.player.player_id));
+                    sendError(ws, b.code, b.message);
+                } else {
+                    sendPlayerSession(ws, result.player, result.sessionToken);
+                    console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado`);
+                }
             } else if (data.guest || data.forceGuest) {
                 // Guest flow: cria o pinguim na hora, sem tela de conta
                 const guestName = generateGuestName();
@@ -311,7 +329,12 @@ function handlePacket(ws, req, packet) {
                 player = ensureArenovisk(ip);
             }
             const sessionToken = auth.issueSession(player, req);
-            sendPlayerSession(ws, player, sessionToken);
+            if (activeBanFor(player.player_id)) {
+                const b = banErrorData(activeBanFor(player.player_id));
+                sendError(ws, b.code, b.message);
+            } else {
+                sendPlayerSession(ws, player, sessionToken);
+            }
             console.log(`[LOGIN] '${player.username}' (${player.player_id}) login por nome (allItems=${!!player.all_items})`);
             break;
         }
@@ -400,17 +423,30 @@ function handlePacket(ws, req, packet) {
             const fail = () => sendError(ws, 'INVALID_CREDENTIALS', 'Usuário ou senha incorretos');
 
             const player = playerStore.getPlayerByUsernameKey(key);
-            if (!player) { fail(); return; }
+            if (!player) {
+                mod.recordLogin({ username, ip, userAgent: req?.headers?.['user-agent'], success: false });
+                fail(); return;
+            }
             const stored = playerStore.getPasswordHash(player.player_id);
             if (!stored) {
                 // Conta sem senha (guest/legada): oferece fluxo de claim
                 sendError(ws, 'NO_PASSWORD', 'Esta conta ainda não tem senha. Use "Definir senha".');
                 return;
             }
-            if (!accounts.verifyPassword(password, stored)) { fail(); return; }
+            if (!accounts.verifyPassword(password, stored)) {
+                mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req?.headers?.['user-agent'], success: false });
+                fail(); return;
+            }
+            if (activeBanFor(player.player_id)) {
+                const b = banErrorData(activeBanFor(player.player_id));
+                mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req?.headers?.['user-agent'], success: false });
+                sendError(ws, b.code, b.message);
+                return;
+            }
 
             accounts.authAttemptSucceeded('account', key);
             accounts.authAttemptSucceeded('ip', ip);
+            mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req?.headers?.['user-agent'], success: true });
             sendAccountSession(ws, req, player);
             console.log(`[LOGIN] '${player.username}' (${player.player_id}) login por senha`);
             break;
@@ -439,6 +475,11 @@ function handlePacket(ws, req, packet) {
             }
             if (!accounts.legacyGraceActive()) {
                 sendError(ws, 'MIGRATION_EXPIRED', 'Prazo para definir senha expirou');
+                return;
+            }
+            if (activeBanFor(player.player_id)) {
+                const b = banErrorData(activeBanFor(player.player_id));
+                sendError(ws, b.code, b.message);
                 return;
             }
             accounts.authAttemptSucceeded('account', key);
@@ -501,6 +542,7 @@ function handlePacket(ws, req, packet) {
                 return;
             }
 
+            mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req?.headers?.['user-agent'], success: true });
             playerStore.setPasswordHash(player.player_id, accounts.hashPassword(newPassword));
             const info = rotateRecoveryCode(player.player_id, player.username);
             accounts.revokeAllSessions(player.player_id); // derruba todos os logins
@@ -670,6 +712,13 @@ function handlePacket(ws, req, packet) {
                 sendError(ws, 'ROOM_FULL', 'Sala lotada, tente outra');
                 return;
             }
+            // Banimento checado a cada entrada em sala
+            const ban = activeBanFor(session.playerId);
+            if (ban) {
+                const b = banErrorData(ban);
+                sendError(ws, b.code, b.message);
+                return;
+            }
             const b = roomCfg.bounds;
             const jx = Math.max(b.minX, Math.min(b.maxX, Number(data.x) || 400));
             const jy = Math.max(b.minY, Math.min(b.maxY, Number(data.y) || 300));
@@ -763,10 +812,40 @@ function handlePacket(ws, req, packet) {
             const session = clientSessions.get(ws);
             if (!session) return;
 
+            const playerSession = clientPlayerData.get(ws);
             const { message } = data;
             if (!message || !message.trim()) return;
 
-            const sanitized = message.trim().substring(0, 120);
+            // Silenciamento (muted_until)
+            if (playerSession) {
+                const p = playerStore.getPlayerById(playerSession.playerId);
+                if (p && mod.isMuted(p)) {
+                    const mins = Math.ceil((p.muted_until - Date.now()) / 60000);
+                    sendError(ws, 'MUTED', `Você está silenciado por mais ${mins} min`);
+                    return;
+                }
+            }
+
+            // Limite de mensagens: máx. 4 por 5s por jogador
+            const now = Date.now();
+            const cq = (session.chatLog ||= []).filter((t) => now - t < 5000);
+            session.chatLog = cq;
+            if (cq.length >= 4) {
+                sendError(ws, 'CHAT_RATE_LIMITED', 'Calma! Muitas mensagens seguidas.');
+                return;
+            }
+            cq.push(now);
+
+            let sanitized = message.trim().substring(0, 120);
+
+            // Filtro de palavras (chat_filter_rule)
+            const filtered = mod.filterChatMessage(sanitized);
+            if (filtered?.blocked) {
+                sendError(ws, 'CHAT_BLOCKED', 'Mensagem bloqueada pelo filtro');
+                return;
+            }
+            if (filtered?.masked) sanitized = filtered.masked;
+
             console.log(`[CHAT] [${session.roomId}] ${session.username}: "${sanitized}"`);
 
             // Transmite a mensagem para todos na sala (incluindo o remetente)
@@ -778,6 +857,117 @@ function handlePacket(ws, req, packet) {
                     message: sanitized
                 }
             });
+            break;
+        }
+
+        case 'REPORT': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const { targetPlayerId = null, targetMessage = null, reason = null } = data || {};
+            if (targetPlayerId && !playerStore.getPlayerById(targetPlayerId)) {
+                sendError(ws, 'INVALID_DATA', 'Jogador denunciado não encontrado');
+                return;
+            }
+            mod.createReport({
+                reporterId: session.playerId,
+                targetPlayerId,
+                targetMessage: typeof targetMessage === 'string' ? targetMessage.substring(0, 300) : null,
+                reason: typeof reason === 'string' ? reason.substring(0, 200) : null
+            });
+            mod.audit(session.playerId, 'report.create', targetPlayerId, { reason });
+            ws.send(JSON.stringify({ op: 'REPORT_OK', data: {} }));
+            console.log(`[REPORT] ${session.username} denunciou ${targetPlayerId || '(mensagem)'}`);
+            break;
+        }
+
+        // ---------- Ações de moderação (role >= moderator) ----------
+        case 'MOD_ACTION': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const me = playerStore.getPlayerById(session.playerId);
+            if (!isModerator(me)) {
+                sendError(ws, 'FORBIDDEN', 'Apenas moderadores');
+                return;
+            }
+            const { action, targetPlayerId, reason = null, minutes = null } = data || {};
+            const target = targetPlayerId ? playerStore.getPlayerById(targetPlayerId) : null;
+            if (!target) { sendError(ws, 'INVALID_DATA', 'Jogador alvo não encontrado'); return; }
+            if (target.player_id === me.player_id) { sendError(ws, 'INVALID_DATA', 'Não pode agir em si mesmo'); return; }
+            // Só admin muda papéis (promover/rebaixar)
+            const adminOnly = new Set(['mod.set_role']);
+            if (adminOnly.has(action) && !mod.hasRole(me, mod.ROLES.ADMIN)) {
+                sendError(ws, 'FORBIDDEN', 'Apenas administradores');
+                return;
+            }
+
+            const targetWs = findSocketByPlayerId(target.player_id);
+            switch (action) {
+                case 'mod.kick': {
+                    if (targetWs) {
+                        sendError(targetWs, 'KICKED', `Expulso por ${me.username}${reason ? `: ${reason}` : ''}`);
+                        handleDisconnect(targetWs, false);
+                        targetWs.close();
+                    }
+                    mod.audit(me.player_id, 'mod.kick', target.player_id, { reason });
+                    break;
+                }
+                case 'mod.mute': {
+                    const mins = Math.max(1, Math.min(1440, Number(minutes) || 10));
+                    mod.setMutedUntil(target.player_id, Date.now() + mins * 60000);
+                    mod.addWarning(target.player_id, { moderatorId: me.player_id, reason: reason || `Silenciado por ${mins} min` });
+                    mod.audit(me.player_id, 'mod.mute', target.player_id, { minutes: mins, reason });
+                    break;
+                }
+                case 'mod.warn': {
+                    mod.addWarning(target.player_id, { moderatorId: me.player_id, reason });
+                    mod.audit(me.player_id, 'mod.warn', target.player_id, { reason });
+                    break;
+                }
+                case 'mod.ban': {
+                    const durationMs = minutes ? Math.min(Number(minutes), 60 * 24 * 365) * 60000 : null;
+                    mod.banPlayer(target.player_id, { reason, moderatorId: me.player_id, durationMs });
+                    if (targetWs) {
+                        const b = banErrorData(mod.activeBan(target.player_id));
+                        sendError(targetWs, b.code, b.message);
+                        handleDisconnect(targetWs, false);
+                        targetWs.close();
+                    }
+                    // revoga sessões do banido
+                    accounts.revokeAllSessions(target.player_id);
+                    mod.audit(me.player_id, 'mod.ban', target.player_id, { reason, minutes });
+                    break;
+                }
+                case 'mod.unban': {
+                    mod.unbanPlayerActive(target.player_id, me.player_id);
+                    mod.audit(me.player_id, 'mod.unban', target.player_id, {});
+                    break;
+                }
+                case 'mod.set_role': {
+                    const newRole = String(data.newRole || '');
+                    if (!Object.values(mod.ROLES).includes(newRole)) {
+                        sendError(ws, 'INVALID_DATA', 'Role inválida');
+                        return;
+                    }
+                    // Só admin rebaixa/promove; ninguém se promove
+                    playerStore.setRole(target.player_id, newRole);
+                    mod.audit(me.player_id, 'mod.set_role', target.player_id, { role: newRole });
+                    break;
+                }
+                default:
+                    sendError(ws, 'INVALID_DATA', 'Ação desconhecida');
+                    return;
+            }
+            ws.send(JSON.stringify({
+                op: 'MOD_OK',
+                data: { action, targetPlayerId: target.player_id, username: target.username }
+            }));
+            console.log(`[MOD] ${me.username} executou ${action} em ${target.username}`);
             break;
         }
 
