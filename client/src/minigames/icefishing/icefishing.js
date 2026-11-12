@@ -98,6 +98,7 @@ export class IceFishingGame {
         this.screen = 0;
         this.started = false;
         this.finished = false;
+        this._electroLive = false;
         this.model = this._newModel();
 
         // input — botoes sao os do proprio movie (buttonActions do pack:
@@ -201,6 +202,7 @@ export class IceFishingGame {
     _onPlay() {
         if (this.started) return;
         this.started = true;
+        this._electroLive = false;
         const m = this.model;
         m.running = true; m.lives = 3; m.level = 1; m.speed = 4000;
         m.mouseY = 240; m.hookPrevious = 240; m.lineExtra = 0; m.oneupAlpha = 100;
@@ -476,9 +478,18 @@ export class IceFishingGame {
                 const hook = this._frame('hook');
                 if (hook === 5 || hook === 7) this._flee(hook === 7);
                 m.jellyHits++;
-                this._goto('hook', 6, true);
+                // AS2: hook.gotoAndStop(6) — o frame 6 contem o filho
+                // 'electro' (sprite 173) que toca 16 frames e no ultimo
+                // dispara _parent.gotoAndStop("empty") -> hook frame 50 ->
+                // needWorm -> prompt -> getWorm reseta isHit e perde vida.
+                this._goto('hook', 6, false);
                 this._goto('line', 2, false);
                 this.movie.goto('penguin', 'electro', true);
+                this._electroLive = true;
+                // re-arma o playhead do electro se ele ja existe (parado
+                // apos o disparo anterior); na 1a vez o render o cria
+                // tocando por padrao.
+                this.movie.gotoPath('hook.electro', 1, true);
             }
         }
     }
@@ -718,6 +729,14 @@ export class IceFishingGame {
         this._lineMask();
         this._oneup();
         this._watch();
+        // o playhead 'hook.electro' nao morre quando o hook sai do frame 6
+        // (diferente do Flash, que destroi o clip filho) — sem isto ele
+        // ficaria em loop disparando _parent.gotoAndStop("empty") e
+        // drenaria vidas para sempre. Estanca ao sair do frame 6.
+        if (this._electroLive && this._frame('hook') !== 6) {
+            this.movie.gotoPath('hook.electro', 1, false);
+            this._electroLive = false;
+        }
     }
 
     _finish() {
