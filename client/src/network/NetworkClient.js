@@ -23,7 +23,6 @@ export default class NetworkClient {
         this.equipped = {};
         this.canRename = false;
         this.role = 'player';
-        this.role = 'player';
         
         // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
         // deriva do hostname — https => wss na mesma origem (Caddy faz
@@ -167,12 +166,14 @@ export default class NetworkClient {
         return this.role === 'admin';
     }
 
-    report(targetPlayerId, { targetMessage = null, reason = null } = {}) {
-        this.send('REPORT', { targetPlayerId, targetMessage, reason });
-    }
-
-    sendModAction(action, targetPlayerId, { reason = null, minutes = null, newRole = null } = {}) {
-        this.send('MOD_ACTION', { action, targetPlayerId, reason, minutes, newRole });
+    // URL do painel admin (mesma origem do servidor: http(s)://host[:port]/admin)
+    adminPanelUrl() {
+        try {
+            const u = new URL(this.url.replace(/^ws/, 'http'));
+            return `${u.protocol}//${u.host}/admin`;
+        } catch {
+            return null;
+        }
     }
 
     loginPlayer(username) {
@@ -345,7 +346,6 @@ export default class NetworkClient {
         this.inventory = data.inventory || [];
         this.equipped = data.equipped || {};
         this.canRename = data.canRename || false;
-        this.role = data.role || 'player';
         this.role = data.role || 'player';
         this.dailyBonus = data.dailyBonus || 0;
 
