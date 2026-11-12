@@ -79,9 +79,19 @@ export default class AuthModal {
 
     _build() {
         if (typeof document === 'undefined') return;
-        const style = document.createElement('style');
-        style.textContent = CSS;
-        document.head.appendChild(style);
+        // _build tambem roda em rebuilds (troca de aba, setWorlds): sem
+        // remover o overlay anterior ele ficava orfao por cima do jogo —
+        // close() so remove this.el, entao apos o login sobrava um modal
+        // morto escurecendo a tela e cujo "Jogar como visitante" ainda
+        // criava contas novas
+        this.el?.remove();
+        document.querySelectorAll('.cp-auth').forEach((el) => el.remove());
+        if (!document.getElementById('cp-auth-style')) {
+            const style = document.createElement('style');
+            style.id = 'cp-auth-style';
+            style.textContent = CSS;
+            document.head.appendChild(style);
+        }
 
         this.el = document.createElement('div');
         this.el.className = 'cp-auth';

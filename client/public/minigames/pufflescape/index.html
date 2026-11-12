@@ -7,8 +7,11 @@
 	
 	<title>Pufflescape</title>
 
-	<script src="lib/phaser.js"></script>
+	<!-- phaser.min.js = lib/phaser.js (3.55.1) minificado com esbuild: 6.8MB -> 1.3MB -->
+	<script src="lib/phaser.min.js"></script>
 	<script src="lib/phaser-matter-collision-plugin.js"></script>
+	<!-- logica/fisica fixas em 60Hz, render a 30fps (ver o arquivo) -->
+	<script src="lib/fps-cap.js"></script>
 	<script src="main.js"></script>
 
 	<style>
