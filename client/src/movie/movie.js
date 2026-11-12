@@ -1016,6 +1016,9 @@ export class MovieRoom {
         // em 9 drawImages — a versao anterior re-renderizava o vetor por
         // fatia com clip fracionario e abria gap de ~1px nas emendas
         // (visivel no prompt_mc e demais paineis 9-slice).
+        // Fonte de cada fatia = celula da GRADE (b/v) no render NAO-esticado
+        // (parent = world * inv(local)); destino = celula x/C sob world
+        // (com o stretch). Renderizar com world direto esticava as margens.
         const devRectM = (m, rx, ry, rw, rh) => {
             const pts = [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]
                 .map(([px, py]) => [
@@ -1026,20 +1029,34 @@ export class MovieRoom {
             return [Math.min(...xs), Math.min(...ys),
                 Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
         };
-        const [fx0, fy0, fx1, fy1] = devRectM(world, p[0], p[1], p[2] - p[0], p[3] - p[1]);
-        const fw = Math.max(1, Math.ceil(fx1 - fx0)), fh = Math.max(1, Math.ceil(fy1 - fy0));
+        // parent = world * inv(local): matrix do pai sem o transform da
+        // instancia (local e axis-aligned: b=c=0, garantido pelo caller)
+        const parent = matMul(world, {
+            a: 1 / local.a, b: 0, c: 0, d: 1 / local.d,
+            x: -local.x / local.a, y: -local.y / local.d,
+        });
+        // devRectM retorna [x, y, w, h] — nw/nh sao w/h, nao coords
+        const [nx0, ny0, nw, nh] = devRectM(parent, p[0], p[1], p[2] - p[0], p[3] - p[1]);
+        // L: supersample extra para a celula central, que no destino e
+        // ampliada por local.a/local.d — sem isso o bitmap nativo (parent)
+        // fica menos nitido que o render vetorial por fatia do algoritmo
+        // original. Margens viram downscale (mais nitidas, sem custo
+        // visual). Cap em 3 para nao explodir memoria em zooms extremos.
+        const L = Math.min(3, Math.max(Math.abs(local.a), Math.abs(local.d), 1));
+        const fw = Math.max(1, Math.ceil(nw * L)), fh = Math.max(1, Math.ceil(nh * L));
         const off = document.createElement('canvas');
         off.width = fw; off.height = fh;
         const octx = off.getContext('2d');
-        const mOff = { a: world.a, b: world.b, c: world.c, d: world.d,
-            x: world.x - fx0, y: world.y - fy0 };
+        const mOff = { a: parent.a * L, b: parent.b * L, c: parent.c * L, d: parent.d * L,
+            x: (parent.x - nx0) * L, y: (parent.y - ny0) * L };
         await this._drawEntries(octx, frame, mOff, path, color, scale, depth + 1);
         for (let r = 0; r < 3; r++) {
             for (let cIdx = 0; cIdx < 3; cIdx++) {
                 const P = x[cIdx + 1] - x[cIdx], I = C[r + 1] - C[r];
                 if (P <= 0 || I <= 0 || b[cIdx + 1] === b[cIdx] || v[r + 1] === v[r]) continue;
-                // src: celula no offscreen (mOff); dst: rect de device no ctx (world)
-                const s = devRectM(mOff, x[cIdx], C[r], P, I);
+                // src: celula da grade (b/v) no render nativo (mOff);
+                // dst: celula de destino (x/C) sob world (com stretch)
+                const s = devRectM(mOff, b[cIdx], v[r], b[cIdx + 1] - b[cIdx], v[r + 1] - v[r]);
                 const d = devRectM(world, x[cIdx], C[r], P, I);
                 if (s[2] <= 0 || s[3] <= 0 || d[2] <= 0 || d[3] <= 0) continue;
                 ctx.drawImage(off, s[0], s[1], s[2], s[3], d[0], d[1], d[2], d[3]);
