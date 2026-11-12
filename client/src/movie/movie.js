@@ -308,10 +308,11 @@ export class MovieRoom {
         room._skipDynamic = null;      // paths de sprites animados (overlays)
         room._scale = 1;
         room.language = 'english';    // clips de idioma ficam estaticos no frame do idioma
-        room._mainTl = { frames: tl.main?.frames ?? [[]], labels: tl.main?.labels ?? {}, actions: tl.main?.actions ?? {} };
+        room._mainTl = { frames: tl.main?.frames ?? [[]], labels: tl.main?.labels ?? {}, actions: tl.main?.actions ?? {}, sounds: tl.main?.sounds ?? [] };
         room._mainFrame = 1;          // frame atual da timeline principal (1-based; catalogos = paginas)
         room._state = new Map();      // path -> {visible?, text?, entryId?} (set() do Clip do gp)
         room._nodes = new Map();      // path -> {entry, matrix} do ultimo collectInteractive
+        room._sndQueue = null;         // ids de som de timeline "entrados" — null = sons desligados (sem leak em salas)
         room.editTexts = tl.editTexts || {};
         room.fonts = tl.fonts || {};
         room.scalingGrids = tl.scalingGrids || {};
@@ -726,6 +727,7 @@ export class MovieRoom {
             }
             h.frame = next;
             this._entered.set(h.path, next);
+            this._emitSounds(h.tl, next);
             for (const c of this._actions(h.tl, next)) {
                 const op = c[0], arg = c[1];
                 if (op === 'stop') h.stopped = true;
@@ -735,6 +737,7 @@ export class MovieRoom {
                     if (f) {
                         h.frame = f;
                         h.stopped = op === 'gotoAndStop';
+                        this._emitSounds(h.tl, f);
                         // NAO registra o destino do salto em _entered: o
                         // frame "avancado" (ex.: puffle 237) e o que o
                         // watch precisa observar; o gotoAndStop(1) e acao
@@ -856,7 +859,9 @@ export class MovieRoom {
         if (!h) return false;
         const f = typeof frame === 'string' ? this._labelFrame(h.tl, frame) : Number(frame);
         if (!f) return false;
-        h.frame = Math.max(1, Math.min(f, h.tl.frames.length || 1));
+        const nf = Math.max(1, Math.min(f, h.tl.frames.length || 1));
+        if (nf !== h.frame) this._emitSounds(h.tl, nf);
+        h.frame = nf;
         h.stopped = !playing;
         this._markRoot(path);
         return true;
@@ -1494,7 +1499,9 @@ export class MovieRoom {
         const f = typeof frame === 'string' ? this._labelFrame(this._mainTl, frame) : Number(frame);
         if (p === '') {
             if (!f) return false;
-            this._mainFrame = Math.max(1, Math.min(f, this._mainTl.frames.length || 1));
+            const nf = Math.max(1, Math.min(f, this._mainTl.frames.length || 1));
+            if (nf !== this._mainFrame) this._emitSounds(this._mainTl, nf);
+            this._mainFrame = nf;
             this._dirty = true;
             this._markRoot('');
             return true;
@@ -1506,10 +1513,29 @@ export class MovieRoom {
         let h = this._playheads.get(r.path);
         if (!h) h = this._playhead(r.path, r.id);
         if (!h) return false;
-        h.frame = Math.max(1, Math.min(ff, h.tl.frames.length || 1));
+        const nf = Math.max(1, Math.min(ff, h.tl.frames.length || 1));
+        if (nf !== h.frame) this._emitSounds(h.tl, nf);
+        h.frame = nf;
         h.stopped = !playing;
         this._markRoot(r.path);
         return true;
+    }
+
+    // Sons de timeline do SWF (StartSound): tl.sounds = [{frame, ids, starts}].
+    // Enfileira os ids dos sons do frame "entrado" — quem consome (ex.:
+    // IceFishingGame) mapeia id -> arquivo e toca. drainSounds() esvazia.
+    _emitSounds(tl, frame) {
+        const list = tl?.sounds;
+        if (!list?.length || !this._sndQueue) return;
+        for (const s of list)
+            if (s.frame === frame)
+                for (const id of s.ids || []) this._sndQueue.push(id);
+    }
+
+    drainSounds() {
+        const q = this._sndQueue || [];
+        this._sndQueue = [];
+        return q;
     }
 
     currentFrame(path) {
