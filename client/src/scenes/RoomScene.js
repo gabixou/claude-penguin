@@ -441,11 +441,26 @@ export default class RoomScene extends Phaser.Scene {
 
         window.__penguin = this.localPlayer; // debug
         this._updateCoinsDisplay();
+        this._maybeShowAdminButton();
 
         // Se já estava autenticado, entra na sala
         if (this.network.isConnected) {
             this.network.joinRoom(this.currentRoom, startX, startY);
         }
+    }
+
+    // Moderador/admin: botão flutuante que abre o painel web (/admin)
+    _maybeShowAdminButton() {
+        if (!this.network?.isModerator || this._adminBtn) return;
+        const url = this.network.adminPanelUrl?.();
+        if (!url) return;
+        if (typeof document === 'undefined') return;
+        const b = document.createElement('button');
+        b.textContent = '🛠 Admin';
+        b.style.cssText = 'position:fixed;top:8px;right:8px;z-index:90001;padding:6px 12px;font:700 12px Arial,sans-serif;background:#2c3d50;color:#dfe9f3;border:1px solid #4a6fa5;border-radius:8px;cursor:pointer;';
+        b.onclick = () => window.open(url, '_blank');
+        document.body.appendChild(b);
+        this._adminBtn = b;
     }
 
     // Atualiza display de coins (HUD)

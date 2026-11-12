@@ -5,6 +5,7 @@
  * autenticação guest por IP/cookie e persistência SQLite.
  */
 
+import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import auth from './auth.js';
@@ -14,11 +15,19 @@ import { clientIp, isLoopbackIp } from './net.js';
 import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_MINUTE } from './rooms.js';
 import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
+import { createAdminServer, setHooks as setAdminHooks } from './admin.js';
 
 const PORT = process.env.PORT || 8080;
+// Servidor HTTP único: /api/* e /admin (painel) + upgrade WebSocket.
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
 // generosa e impede flood de memoria via mensagens gigantes.
-const wss = new WebSocketServer({ port: PORT, maxPayload: 16 * 1024 });
+const httpServer = createAdminServer();
+const wss = new WebSocketServer({ server: httpServer, maxPayload: 16 * 1024 });
+httpServer.listen(PORT, () => {
+    console.log(`🐧 Servidor Club Penguin rodando na porta ${PORT}`);
+    console.log(`📡 WebSocket: ws://localhost:${PORT}`);
+    console.log(`🛠️  Painel admin: http://localhost:${PORT}/admin`);
+});
 
 // Rate limit simples por socket (token bucket): ~30 pacotes/s em media,
 // burst de 60 — suficiente para jogo normal, bloqueia spam/flood.
@@ -95,11 +104,6 @@ function sendError(ws, code, message) {
         data: { code, message }
     }));
 }
-
-console.log(`===================================================`);
-console.log(`🐧 Servidor Club Penguin WebSocket rodando na porta ${PORT}`);
-console.log(`📡 URL de conexão: ws://localhost:${PORT}`);
-console.log(`===================================================`);
 
 function getRoom(roomId) {
     if (!rooms.has(roomId)) {
@@ -202,6 +206,17 @@ function findSocketByPlayerId(playerId) {
 function isModerator(player) {
     return mod.hasRole(player, mod.ROLES.MODERATOR);
 }
+
+// API admin -> derruba jogador online (kick/ban pelo painel HTTP)
+setAdminHooks({
+    kickOnline(playerId, code, message) {
+        const targetWs = findSocketByPlayerId(playerId);
+        if (!targetWs) return;
+        try { sendError(targetWs, code, message); } catch { /* socket já morto */ }
+        handleDisconnect(targetWs, false);
+        targetWs.close();
+    },
+});
 
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.

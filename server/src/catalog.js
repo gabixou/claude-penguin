@@ -56,4 +56,17 @@ export function listAllIds() {
     return [...byId.keys()];
 }
 
-export default { isLoaded, getItem, getItemCost, listAllIds };
+// Busca por id ou nome (painel admin).
+export function searchItems(query, limit = 50) {
+    const q = String(query || '').trim().toLowerCase();
+    const out = [];
+    for (const item of byId.values()) {
+        if (!q || String(item.id).includes(q) || String(item.name || '').toLowerCase().includes(q)) {
+            out.push(item);
+            if (out.length >= limit) break;
+        }
+    }
+    return out;
+}
+
+export default { isLoaded, getItem, getItemCost, listAllIds, searchItems };
