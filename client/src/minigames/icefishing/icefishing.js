@@ -63,6 +63,16 @@ export class IceFishingGame {
         // continuo = tela piscando + FPS baixo (mesmo fix do catalogo)
         this.movie.artFlatScale = true;
 
+        // 148/149/150.svg = linha da vara + isca: no SWF sao paths com
+        // stroke-width 0.05 (hairline). O Flash aplicava stroke-hinting e
+        // renderizava ~1px; nosso renderer SVG nao — a linha ficava
+        // invisivel. Override local: traco de 1 unidade (~1-2px na tela).
+        for (const f of ['148.svg', '149.svg', '150.svg']) {
+            const svg = this.movie._svgText(f);
+            if (svg) this.movie.setSvgOverride(f,
+                svg.replace(/stroke-width="0\.05"/g, 'stroke-width="1"'));
+        }
+
         // hotspots (sprite 55 = quadrado preto 22x22) sao so hit-test no
         // SWF original — o pack os contem como shapes visiveis; escondemos
         // todos os paths *hotspot/*disthotspot para nao renderizar retangulos.
@@ -94,6 +104,7 @@ export class IceFishingGame {
         this.screen = 0;
         this.started = false;
         this.finished = false;
+        this._electroLive = false;
         this.model = this._newModel();
 
         // input — botoes sao os do proprio movie (buttonActions do pack:
@@ -197,6 +208,7 @@ export class IceFishingGame {
     _onPlay() {
         if (this.started) return;
         this.started = true;
+        this._electroLive = false;
         const m = this.model;
         m.running = true; m.lives = 3; m.level = 1; m.speed = 4000;
         m.mouseY = 240; m.hookPrevious = 240; m.lineExtra = 0; m.oneupAlpha = 100;
@@ -472,9 +484,18 @@ export class IceFishingGame {
                 const hook = this._frame('hook');
                 if (hook === 5 || hook === 7) this._flee(hook === 7);
                 m.jellyHits++;
-                this._goto('hook', 6, true);
+                // AS2: hook.gotoAndStop(6) — o frame 6 contem o filho
+                // 'electro' (sprite 173) que toca 16 frames e no ultimo
+                // dispara _parent.gotoAndStop("empty") -> hook frame 50 ->
+                // needWorm -> prompt -> getWorm reseta isHit e perde vida.
+                this._goto('hook', 6, false);
                 this._goto('line', 2, false);
                 this.movie.goto('penguin', 'electro', true);
+                this._electroLive = true;
+                // re-arma o playhead do electro se ele ja existe (parado
+                // apos o disparo anterior); na 1a vez o render o cria
+                // tocando por padrao.
+                this.movie.gotoPath('hook.electro', 1, true);
             }
         }
     }
@@ -654,7 +675,11 @@ export class IceFishingGame {
     _watch() {
         for (const r of FISH_ROOTS) {
             const name = r.name;
-            const n = this._frame(name);
+            // frame "entrado" neste tick tem prioridade: a acao do frame
+            // (ex.: puffle 237 -> gotoAndStop(1)) roda no mesmo tick e o
+            // currentFrame ja mostra o destino — sem isso o watch nunca ve
+            // o 237 e o levelUp nunca dispara (loop infinito do puffle).
+            const n = this.movie._entered?.get(name) ?? this._frame(name);
             const last = this.watched.get(name);
             if (n === last) continue;
             this.watched.set(name, n);
@@ -710,6 +735,14 @@ export class IceFishingGame {
         this._lineMask();
         this._oneup();
         this._watch();
+        // o playhead 'hook.electro' nao morre quando o hook sai do frame 6
+        // (diferente do Flash, que destroi o clip filho) — sem isto ele
+        // ficaria em loop disparando _parent.gotoAndStop("empty") e
+        // drenaria vidas para sempre. Estanca ao sair do frame 6.
+        if (this._electroLive && this._frame('hook') !== 6) {
+            this.movie.gotoPath('hook.electro', 1, false);
+            this._electroLive = false;
+        }
     }
 
     _finish() {

@@ -666,8 +666,11 @@ export class MovieRoom {
         p = (async () => {
             const img = await this._svgImage(file);
             if (!img) return null;
-            const w = char?.size?.[0] ?? img.naturalWidth;
-            const h = char?.size?.[1] ?? img.naturalHeight;
+            // size[0]=0 existe em shapes degenerados do Flash (ex.: a linha
+            // de pesca do Ice Fishing, retangulo 0x100) — ?? manteria 0 e o
+            // bitmap sairia 1px. || cai no tamanho natural do SVG.
+            const w = char?.size?.[0] || img.naturalWidth;
+            const h = char?.size?.[1] || img.naturalHeight;
             const cw = Math.max(1, Math.ceil(w * scale));
             const ch = Math.max(1, Math.ceil(h * scale));
             let c;
@@ -756,6 +759,10 @@ export class MovieRoom {
         this._dirty = false;
         this._dirtyRoots = new Set();
         this._dirtyPaths = new Set();   // paths completos que avancaram (overlays)
+        // frames "entrados" neste tick (path -> frame), capturados ANTES das
+        // acoes do frame — um gotoAndStop no mesmo tick (ex.: puffle 237 -> 1)
+        // faria o frame intermediario nunca ser observado via currentFrame.
+        this._entered = new Map();
         for (const h of this._playheadAll.values()) {
             const root = (h.path || '').split('.')[0];
             const cmds = this._actions(h.tl, h.frame);
@@ -776,6 +783,7 @@ export class MovieRoom {
                 this._dirtyPaths.add(h.path);
             }
             h.frame = next;
+            this._entered.set(h.path, next);
             for (const c of this._actions(h.tl, next)) {
                 const op = c[0], arg = c[1];
                 if (op === 'stop') h.stopped = true;
@@ -785,12 +793,46 @@ export class MovieRoom {
                     if (f) {
                         h.frame = f;
                         h.stopped = op === 'gotoAndStop';
+                        // NAO registra o destino do salto em _entered: o
+                        // frame "avancado" (ex.: puffle 237) e o que o
+                        // watch precisa observar; o gotoAndStop(1) e acao
+                        // do frame, nao um frame navegado.
                         this._dirty = true;
                         this._dirtyRoots.add(root);
                         this._dirtyPaths.add(h.path);
                     }
                 } else if (op === 'nextFrame' || op === 'prevFrame') {
                     // aproximacao: segue o fluxo normal
+                }
+            }
+            // targets = acoes cross-clip ([path, metodo, arg]) — ficam fora
+            // de commands[] e sem isto nunca executam. Caso real: sprite
+            // 151 da linha do Ice Fishing tem "_parent.gotoAndStop(1)" no
+            // frame 19; ignorado, a linha ficava presa no frame de choque.
+            const raw = h.tl.actions?.[next] ?? h.tl.actions?.[String(next)];
+            const tgts = raw && !Array.isArray(raw) ? (raw.targets ?? []) : [];
+            for (const tg of tgts) {
+                const [tp, meth, arg] = tg;
+                if (tp !== '_parent') continue;
+                // path do filho: 'a.b.nome' ou 'a.b#depth' (entries sem
+                // nome usam '#' como separador, nao '.') — o pai e o path
+                // sem o ultimo segmento, seja qual for o separador.
+                const pp = h.path.replace(/[.#][^.#]*$/, '');
+                const ph = pp && this._playheads.get(pp);
+                if (!ph || !ph.tl) continue;
+                if (meth === 'gotoAndStop' || meth === 'gotoAndPlay') {
+                    const f = typeof arg === 'string' ? this._labelFrame(ph.tl, arg) : Number(arg);
+                    if (f) {
+                        ph.frame = Math.max(1, Math.min(f, ph.tl.frames.length || 1));
+                        ph.stopped = meth === 'gotoAndStop';
+                        this._dirty = true;
+                        this._dirtyRoots.add(root);
+                        this._dirtyPaths.add(pp);
+                    }
+                } else if (meth === 'stop' || meth === 'play') {
+                    ph.stopped = meth === 'stop';
+                    this._dirty = true;
+                    this._dirtyRoots.add(root);
                 }
             }
         }
@@ -1140,8 +1182,12 @@ export class MovieRoom {
                 if (rb) bb = bb ? [Math.min(bb[0], rb[0]), Math.min(bb[1], rb[1]), Math.max(bb[2], rb[2]), Math.max(bb[3], rb[3])] : rb;
             }
             if (bb) return bb;
+            // records.up/over podem ser [] (botoes so com hittest, ex.:
+            // collectCoins do Ice Fishing) — [] e truthy, entao o fallback
+            // precisa testar .length ou o hittest nunca e alcancado.
             const rec = ch.records?.up?.length ? ch.records.up
-                : ch.records?.over || ch.records?.hittest || [];
+                : ch.records?.over?.length ? ch.records.over
+                : ch.records?.hittest || [];
             return this._boundsOfEntries(rec, world, childPath);
         }
         if (!local) return null;
@@ -1167,8 +1213,10 @@ export class MovieRoom {
             ? await this.tintedCanvas(file, ch, color, eff)
             : await this.artCanvas(file, ch, eff);
         if (!canvas) return;
-        const w = ch.size?.[0] ?? canvas.width / eff;
-        const h = ch.size?.[1] ?? canvas.height / eff;
+        // mesmo fallback do artCanvas: size 0 (shape degenerado) usa o
+        // tamanho real do bitmap — drawImage com w=0 nao renderiza nada.
+        const w = ch.size?.[0] || canvas.width / eff;
+        const h = ch.size?.[1] || canvas.height / eff;
         const ox = ch.origin?.[0] ?? 0;
         const oy = ch.origin?.[1] ?? 0;
         ctx.save();
