@@ -28,8 +28,12 @@ export default class NetworkClient {
         // deriva do hostname — https => wss na mesma origem (Caddy faz
         // proxy /ws), http local => ws://host:8080.
         const envUrl = import.meta.env?.VITE_WS_URL;
+        // Mundo escolhido pelo jogador na tela de login (multi-mundo)
+        const savedWorld = typeof localStorage !== 'undefined' ? localStorage.getItem('penguin_world_url') : null;
         if (envUrl) {
             this.url = envUrl;
+        } else if (savedWorld) {
+            this.url = savedWorld;
         } else if (window.location.protocol === 'https:') {
             this.url = `wss://${window.location.host}/ws`;
         } else {
@@ -116,6 +120,7 @@ export default class NetworkClient {
         const sessionToken = localStorage.getItem('penguin_session');
         // Sem token e sem pedido de guest: servidor responde NEED_AUTH
         // e o cliente abre a tela de login/cadastro.
+        this.send('SERVER_LIST', {});
         this.send('AUTH_GUEST', {
             sessionToken: sessionToken || undefined,
             forceGuest: forceGuest || undefined,
@@ -288,17 +293,14 @@ export default class NetworkClient {
                 this.scene.events.emit('logged-out');
                 break;
             case 'REPORT_OK':
-                this._showDomToast('Denúncia enviada. Obrigado!', '#2e8b57');
-                break;
-            case 'MOD_OK':
-                this._showDomToast(`Moderação: ${data.action}`, '#4a6fa5');
-                break;
-            case 'REPORT_OK':
                 this._showDomToast('Denúncia enviada. Obrigado!', '#2fb344');
                 this.scene.events.emit('report-ok', data);
                 break;
             case 'MOD_OK':
                 this.scene.events.emit('mod-ok', data);
+                break;
+            case 'SERVER_LIST':
+                this.scene.events.emit('server-list', data);
                 break;
             case 'ERROR':
                 this.scene.events.emit('net-error', data);

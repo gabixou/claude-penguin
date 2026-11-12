@@ -14,6 +14,7 @@ import db from './db.js';
 import playerStore from './playerStore.js';
 import * as accounts from './accounts.js';
 import { clientIp } from './net.js';
+import { WORLD_ID } from './worlds.js';
 
 const { legacyDeadline, legacyGraceActive } = accounts;
 
@@ -59,7 +60,7 @@ export function resolveToken(clientToken, req = null) {
 export function issueSession(player, req = null) {
     const ip = req ? clientIp(req) : null;
     const ua = req?.headers?.['user-agent'] || null;
-    return accounts.createSession(player.player_id, ip, ua);
+    return accounts.createSession(player.player_id, ip, ua, WORLD_ID);
 }
 
 /**

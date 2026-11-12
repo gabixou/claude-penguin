@@ -257,6 +257,28 @@ const MIGRATIONS = [
                 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
             `);
         }
+    },
+    {
+        version: 5,
+        name: 'operacao: worlds (multi-mundo), world_id em sessions',
+        up: (d) => {
+            d.exec(`
+                CREATE TABLE IF NOT EXISTS worlds (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    region TEXT,
+                    ws_url TEXT,
+                    capacity INTEGER NOT NULL DEFAULT 500,
+                    online INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+            `);
+            const cols = d.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name);
+            if (!cols.includes('world_id')) {
+                d.exec("ALTER TABLE sessions ADD COLUMN world_id TEXT NOT NULL DEFAULT 'world1'");
+            }
+        }
     }
 ];
 

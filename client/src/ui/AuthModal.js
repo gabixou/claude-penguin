@@ -19,6 +19,7 @@ const CSS = `
 .cp-auth .primary:disabled{background:#9db8d2;cursor:default;}
 .cp-auth .guest{display:block;width:100%;margin-top:10px;padding:9px;font-size:12px;color:#0072ce;background:none;border:1px dashed #0072ce;border-radius:9px;cursor:pointer;text-align:center;}
 .cp-auth .guest:hover{background:#e8f2fb;}
+.cp-auth select{width:100%;box-sizing:border-box;padding:8px 10px;font-size:12px;border:2px solid #9db8d2;border-radius:8px;background:#fff;color:#333;margin-bottom:4px;}
 `;
 
 const TABS = [
@@ -51,6 +52,15 @@ export default class AuthModal {
         this.tab = 'login';
         this.inputs = {};
         this._pending = false;
+        this.worlds = null;
+        this.worldCurrent = null;
+    }
+
+    // Multi-mundo: lista recebida via SERVER_LIST
+    setWorlds(worlds, current = null) {
+        this.worlds = worlds || null;
+        this.worldCurrent = current;
+        if (this.isOpen) this._build();
     }
 
     get isOpen() { return !!this.el; }
@@ -87,6 +97,25 @@ export default class AuthModal {
         sub.className = 'sub';
         sub.textContent = 'Entre na sua conta de pinguim';
         box.appendChild(sub);
+
+        // Seletor de mundo (só aparece com 2+ servidores)
+        const worlds = this.worlds || this.scene?._worlds || null;
+        if (worlds && worlds.length > 1) {
+            const sel = document.createElement('select');
+            sel.dataset.field = '__world';
+            for (const w of worlds) {
+                const o = document.createElement('option');
+                o.value = w.ws_url || w.id;
+                o.textContent = `${w.name}${w.region ? ` (${w.region})` : ''} — ${w.online ?? '?'}/${w.capacity ?? '?'}`;
+                if (w.id === (this.worldCurrent || this.scene?._worldCurrent)) o.selected = true;
+                sel.appendChild(o);
+            }
+            sel.onchange = () => {
+                try { localStorage.setItem('penguin_world_url', sel.value); } catch { /* noop */ }
+                location.reload();
+            };
+            box.appendChild(sel);
+        }
 
         const tabs = document.createElement('div');
         tabs.className = 'tabs';

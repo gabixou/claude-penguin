@@ -352,6 +352,13 @@ export default class RoomScene extends Phaser.Scene {
             setTimeout(() => location.reload(), 400);
         });
 
+        // Lista de mundos (multi-mundo) — alimenta o seletor do AuthModal
+        this.events.on('server-list', (d) => {
+            this._worlds = d?.worlds || [];
+            this._worldCurrent = d?.current || null;
+            this.authModal?.setWorlds?.(this._worlds, this._worldCurrent);
+        });
+
         // Dados do jogador recebidos - criar pinguim local ou atualizar
         this.events.on('player-data', (data) => {
             // Se o nameChangeModal estiver aberto, é uma resposta de rename
@@ -405,6 +412,10 @@ export default class RoomScene extends Phaser.Scene {
                 this.createPlayerModal?.onServerResponse?.(false, data.message);
             } else if (data.code === 'RENAME_FAILED') {
                 this.nameChangeModal?.onServerResponse?.(false, data.message);
+            } else if (data.code === 'WORLD_FULL') {
+                // Mundo lotado: abre a tela de login com o seletor de mundos
+                this.authModal?.open?.('login');
+                this.authModal?.setError?.(data.message || 'Mundo lotado');
             } else {
                 // Erro genérico - mostra no chat ou alert
                 this.localPlayer?.showChat?.(`Erro: ${data.message || 'Erro de conexão'}`);

@@ -6,6 +6,7 @@
  */
 
 import http from 'node:http';
+import fs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import auth from './auth.js';
@@ -15,18 +16,42 @@ import { clientIp, isLoopbackIp } from './net.js';
 import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_MINUTE } from './rooms.js';
 import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
+import * as worlds from './worlds.js';
+import log from './log.js';
 import { createAdminServer, setHooks as setAdminHooks } from './admin.js';
 
 const PORT = process.env.PORT || 8080;
+
+// HTTPS/WSS opcional: SSL_CERT_PATH + SSL_KEY_PATH (arquivos PEM).
+// Sem eles sobe HTTP/WS puro (dev local).
+function loadTls() {
+    const certPath = process.env.SSL_CERT_PATH;
+    const keyPath = process.env.SSL_KEY_PATH;
+    if (!certPath || !keyPath) return null;
+    try {
+        return { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
+    } catch (err) {
+        log.error('tls.load_failed', { certPath, keyPath, error: err.message });
+        return null;
+    }
+}
+const tls = loadTls();
+
 // Servidor HTTP único: /api/* e /admin (painel) + upgrade WebSocket.
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
 // generosa e impede flood de memoria via mensagens gigantes.
-const httpServer = createAdminServer();
+const httpServer = createAdminServer(tls);
 const wss = new WebSocketServer({ server: httpServer, maxPayload: 16 * 1024 });
+httpServer.on('error', (err) => {
+    log.error('server.error', { error: err.message, code: err.code });
+    process.exit(1);
+});
 httpServer.listen(PORT, () => {
-    console.log(`🐧 Servidor Club Penguin rodando na porta ${PORT}`);
-    console.log(`📡 WebSocket: ws://localhost:${PORT}`);
-    console.log(`🛠️  Painel admin: http://localhost:${PORT}/admin`);
+    const proto = tls ? 'https/wss' : 'http/ws';
+    console.log(`🐧 Servidor Club Penguin rodando na porta ${PORT} (${proto})`);
+    console.log(`📡 WebSocket: ${tls ? 'wss' : 'ws'}://localhost:${PORT}`);
+    console.log(`🛠️  Painel admin: http://${tls ? 's' : ''}localhost:${PORT}/admin`);
+    log.info('server.started', { port: PORT, tls: !!tls, world: worlds.WORLD_ID });
 });
 
 // Rate limit simples por socket (token bucket): ~30 pacotes/s em media,
@@ -49,6 +74,26 @@ const rooms = new Map();
 const clientSessions = new Map();
 // Mapeamento de socket para dados persistentes do jogador (playerData)
 const clientPlayerData = new Map();
+
+// Jogadores autenticados com socket aberto — base da lotação do mundo
+// e do heartbeat em worlds.online.
+function onlineCount() {
+    let n = 0;
+    for (const ws of clientPlayerData.keys()) {
+        if (ws.readyState === WebSocket.OPEN) n++;
+    }
+    return n;
+}
+
+function worldFull() {
+    return onlineCount() >= worlds.WORLD_CAPACITY;
+}
+
+// Ops que consomem vaga no mundo — bloqueadas quando o mundo está cheio
+const AUTH_OPS = new Set([
+    'AUTH_GUEST', 'LOGIN', 'REGISTER', 'CLAIM_ACCOUNT',
+    'LOGIN_PLAYER', 'SET_PASSWORD', 'RECOVER',
+]);
 
 const PAPERDOLL_SLOTS = ['feet', 'body', 'neck', 'hand', 'face', 'head'];
 // flag/photo = cosméticos do player card (pin/bandeira e fundo) — persistem
@@ -127,6 +172,7 @@ function broadcastToRoom(roomId, message, excludeSocket = null) {
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
     console.log(`[+] Nova conexão estabelecida de ${ip}`);
+    log.info('ws.connect', { ip, world: worlds.WORLD_ID });
 
     ws.on('message', (raw) => {
         try {
@@ -208,6 +254,7 @@ function isModerator(player) {
 }
 
 // API admin -> derruba jogador online (kick/ban pelo painel HTTP)
+// e expõe estatísticas ao vivo para /api/health e /api/metrics.
 setAdminHooks({
     kickOnline(playerId, code, message) {
         const targetWs = findSocketByPlayerId(playerId);
@@ -216,7 +263,19 @@ setAdminHooks({
         handleDisconnect(targetWs, false);
         targetWs.close();
     },
+    liveStats() {
+        return {
+            online: onlineCount(),
+            connections: clientPlayerData.size,
+            rooms: rooms.size,
+            capacity: worlds.WORLD_CAPACITY,
+            world: worlds.WORLD_ID,
+        };
+    },
 });
+
+// Heartbeat: mantém worlds.online atualizado no banco compartilhado
+worlds.startHeartbeat(onlineCount);
 
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.
@@ -287,6 +346,19 @@ function rotateRecoveryCode(playerId, username) {
 function handlePacket(ws, req, packet) {
     const { op, data } = packet;
     if (!op || !data) return;
+
+    // Lista de mundos — público, funciona mesmo com o mundo cheio
+    if (op === 'SERVER_LIST') {
+        ws.send(JSON.stringify({ op: 'SERVER_LIST', data: { worlds: worlds.listWorlds(), current: worlds.WORLD_ID } }));
+        return;
+    }
+
+    // Lotação do mundo: novas autenticações são recusadas quando cheio
+    if (AUTH_OPS.has(op) && worldFull()) {
+        sendError(ws, 'WORLD_FULL', 'Este mundo está lotado. Tente outro servidor.');
+        log.warn('world.full', { world: worlds.WORLD_ID, online: onlineCount() });
+        return;
+    }
 
     switch (op) {
         case 'AUTH_GUEST': {
@@ -418,6 +490,7 @@ function handlePacket(ws, req, packet) {
                 accounts.authAttemptSucceeded('ip', ip);
                 sendAccountSession(ws, req, player, info);
                 console.log(`[REGISTER] Conta '${player.username}' (${player.player_id}) criada`);
+                log.info('auth.register', { playerId: player.player_id, username: player.username, ip });
             } catch (err) {
                 sendError(ws, 'REGISTER_FAILED', err.message);
             }
@@ -464,6 +537,7 @@ function handlePacket(ws, req, packet) {
             mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req?.headers?.['user-agent'], success: true });
             sendAccountSession(ws, req, player);
             console.log(`[LOGIN] '${player.username}' (${player.player_id}) login por senha`);
+            log.info('auth.login', { playerId: player.player_id, username: player.username, ip, world: worlds.WORLD_ID });
             break;
         }
 
@@ -758,6 +832,7 @@ function handlePacket(ws, req, packet) {
             clientSessions.set(ws, player);
 
             console.log(`[JOIN] Jogador '${player.username}' (${player.playerId}) entrou na sala '${roomId}' em (${jx}, ${jy})`);
+            log.info('room.join', { playerId: player.playerId, username: player.username, room: roomId, world: worlds.WORLD_ID });
 
             // 1. Envia lista de todos os jogadores já presentes para o novo jogador
             const playerList = [];
@@ -983,6 +1058,7 @@ function handlePacket(ws, req, packet) {
                 data: { action, targetPlayerId: target.player_id, username: target.username }
             }));
             console.log(`[MOD] ${me.username} executou ${action} em ${target.username}`);
+            log.info('mod.action', { actor: me.username, actorId: me.player_id, action, target: target.username, targetId: target.player_id, reason });
             break;
         }
 

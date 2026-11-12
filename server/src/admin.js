@@ -12,6 +12,7 @@
  */
 
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,7 @@ import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
+import { WORLD_ID } from './worlds.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PANEL_PATH = path.join(__dirname, '..', 'admin-panel.html');
@@ -27,7 +29,7 @@ const PANEL_PATH = path.join(__dirname, '..', 'admin-panel.html');
 // Hooks injetados pelo index.js (estado em memória do WS)
 const hooks = {
     kickOnline: null,   // (playerId, code, message) => void
-    auditExtra: null,
+    liveStats: null,    // () => { online, rooms, connections }
 };
 
 export function setHooks(h) {
@@ -106,6 +108,29 @@ async function handleApi(req, res, url) {
     const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
     const route = parts.slice(1);
 
+    // ---------- endpoints públicos (monitoramento) ----------
+    if (req.method === 'GET' && route[0] === 'health') {
+        const live = hooks.liveStats ? hooks.liveStats() : {};
+        sendJson(res, 200, {
+            ok: true,
+            uptimeSec: Math.round(process.uptime()),
+            worlds: db.prepare('SELECT id, name, online, capacity FROM worlds').all(),
+            ...live,
+        });
+        return;
+    }
+    if (req.method === 'GET' && route[0] === 'metrics') {
+        const live = hooks.liveStats ? hooks.liveStats() : {};
+        sendJson(res, 200, {
+            players: db.prepare('SELECT COUNT(*) n FROM players').get().n,
+            sessions: db.prepare('SELECT COUNT(*) n FROM sessions WHERE expires_at > ?').get(Date.now()).n,
+            openReports: db.prepare("SELECT COUNT(*) n FROM report WHERE status = 'open'").get().n,
+            activeBans: db.prepare('SELECT COUNT(*) n FROM ban WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)').get(Date.now()).n,
+            ...live,
+        });
+        return;
+    }
+
     // Login próprio do painel (moderator+)
     if (req.method === 'POST' && route[0] === 'login' && route.length === 1) {
         const body = await readBody(req);
@@ -133,7 +158,7 @@ async function handleApi(req, res, url) {
         }
         accounts.authAttemptSucceeded('account', `admin:${key}`);
         accounts.authAttemptSucceeded('ip', `admin:${ip}`);
-        const token = accounts.createSession(player.player_id, ip, req.headers['user-agent']);
+        const token = accounts.createSession(player.player_id, ip, req.headers['user-agent'], WORLD_ID);
         mod.recordLogin({ playerId: player.player_id, username, ip, userAgent: req.headers['user-agent'], success: true });
         sendJson(res, 200, {
             token,
@@ -452,8 +477,9 @@ function servePanel(req, res) {
     });
 }
 
-export function createAdminServer() {
-    return http.createServer(async (req, res) => {
+// tls = { cert, key } opcional — com certs, sobe HTTPS/WSS na mesma porta.
+export function createAdminServer(tls = null) {
+    const handler = async (req, res) => {
         const url = new URL(req.url, 'http://localhost');
         try {
             if (req.method === 'OPTIONS') { sendJson(res, 204, {}); return; }
@@ -464,5 +490,9 @@ export function createAdminServer() {
             console.error('[admin] erro:', err.message);
             if (!res.headersSent) sendJson(res, 500, { error: 'INTERNAL', message: err.message });
         }
-    });
+    };
+    const server = tls?.cert && tls?.key
+        ? https.createServer({ cert: tls.cert, key: tls.key }, handler)
+        : http.createServer(handler);
+    return server;
 }
