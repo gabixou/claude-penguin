@@ -101,6 +101,7 @@
     <section style="margin-top:14px">
       <div class="tabs">
         <button data-tab="filters" class="on" onclick="tab('filters')">Filtro de chat</button>
+        <button data-tab="parties" onclick="tab('parties')">Festas</button>
         <button data-tab="bans" onclick="tab('bans')">Banimentos</button>
         <button data-tab="audit" onclick="tab('audit')">Auditoria</button>
       </div>
@@ -253,8 +254,81 @@ async function tab(t) {
   TAB = t;
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   if (t === 'filters') return loadFilters();
+  if (t === 'parties') return loadParties();
   if (t === 'bans') return loadBans();
   if (t === 'audit') return loadAudit();
+}
+
+// ---------- Festas ----------
+async function loadParties() {
+  const r = await api('/parties');
+  const act = r.active;
+  const toLocal = (ms) => ms ? new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+  $('tabBody').innerHTML = `
+    ${act ? `<div class="kv"><span>Festa ativa</span><b>${esc(act.name)} (até ${fmt(act.endAt)})</b></div>` : '<div class="kv"><span>Festa ativa</span><b>nenhuma</b></div>'}
+    <div class="actions" style="margin:10px 0">
+      <input id="pt-name" placeholder="nome da festa" style="flex:2;margin:0">
+      <input id="pt-start" type="datetime-local" style="flex:1;margin:0">
+      <input id="pt-end" type="datetime-local" style="flex:1;margin:0">
+      <input id="pt-tz" placeholder="fuso (ex.: America/Sao_Paulo)" style="flex:1;margin:0">
+      <button onclick="createParty()">Agendar</button>
+    </div>
+    <div class="scroll"><table><thead><tr><th>#</th><th>Nome</th><th>Início</th><th>Fim</th><th>Fuso</th><th>Status</th><th></th></tr></thead><tbody>` +
+    r.parties.map(p => {
+      const now = Date.now();
+      const st = p.status === 'cancelled' ? 'cancelada' : (p.start_at <= now && p.end_at > now ? 'ATIVA' : (p.start_at > now ? 'agendada' : 'encerrada'));
+      return `<tr><td>${p.id}</td><td>${esc(p.name)}</td><td>${fmt(p.start_at)}</td><td>${fmt(p.end_at)}</td>
+        <td>${esc(p.timezone || '')}</td><td><span class="badge ${st === 'ATIVA' ? 'b-open' : 'b-player'}">${st}</span></td>
+        <td style="white-space:nowrap">
+          <button class="ok" onclick="activateParty(${p.id})">ativar</button>
+          <button class="sec" onclick="partySubs(${p.id})">trocas</button>
+          <button class="danger" onclick="deleteParty(${p.id})">✕</button></td></tr>` +
+        `<tr id="subs-${p.id}" style="display:none"><td colspan=7><div id="subs-body-${p.id}"></div></td></tr>`;
+    }).join('') + '</tbody></table></div>';
+}
+async function createParty() {
+  const start = new Date($('pt-start').value).getTime();
+  const end = new Date($('pt-end').value).getTime();
+  try {
+    await api('/parties', { body: { name: $('pt-name').value, startAt: start, endAt: end, timezone: $('pt-tz').value || null } });
+    loadParties(); loadStats();
+  } catch (e) { alert(e.message); }
+}
+async function activateParty(id) {
+  const mins = prompt('Duração em minutos:', '1440'); if (!mins) return;
+  await api(`/parties/${id}/activate`, { body: { durationMin: Number(mins) } });
+  loadParties();
+}
+async function deleteParty(id) {
+  if (!confirm('Remover esta festa e suas trocas?')) return;
+  await api(`/parties/${id}`, { method: 'DELETE' });
+  loadParties();
+}
+async function partySubs(id) {
+  const row = document.getElementById('subs-' + id);
+  const body = document.getElementById('subs-body-' + id);
+  if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const d = await api('/parties/' + id);
+  const kinds = ['package','music','catalogue','free_items','extra_rooms','map'];
+  body.innerHTML = `<div class="actions">
+      <input id="sb-room" placeholder="roomId (vazio = global)" style="width:130px;margin:0">
+      <select id="sb-kind" style="width:130px;margin:0">${kinds.map(k=>`<option>${k}</option>`).join('')}</select>
+      <input id="sb-val" placeholder="valor" style="flex:1;margin:0">
+      <button onclick="addSub(${id})">Adicionar</button></div>
+    <table><tbody>` +
+    (d.substitutions || []).map(s => `<tr><td>${esc(s.room_id || '*')}</td><td>${esc(s.kind)}</td><td><code>${esc(s.value)}</code></td>
+      <td><button class="danger" onclick="delSub(${id},'${esc(s.room_id||'')}','${s.kind}')">✕</button></td></tr>`).join('') +
+    `</tbody></table>`;
+}
+async function addSub(id) {
+  await api(`/parties/${id}/substitutions`, { body: {
+    roomId: $('sb-room').value || null, kind: $('sb-kind').value, value: $('sb-val').value } });
+  partySubs(id); partySubs(id); // re-render aberto
+}
+async function delSub(id, roomId, kind) {
+  await api(`/parties/${id}/substitutions?roomId=${encodeURIComponent(roomId)}&kind=${kind}`, { method: 'DELETE' });
+  partySubs(id); partySubs(id);
 }
 async function loadFilters() {
   const r = await api('/filters');

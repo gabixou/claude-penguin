@@ -35,7 +35,7 @@ const CSS = `
 const TABS = [
     ['friends', 'Amigos'], ['ignore', 'Ignorados'], ['mail', 'Correio'],
     ['stamps', 'Selos'], ['igloo', 'Iglu'], ['puffles', 'Puffles'],
-    ['games', 'Jogos'], ['epf', 'EPF'], ['redeem', 'Resgatar'],
+    ['games', 'Jogos'], ['epf', 'EPF'], ['party', 'Festa'], ['redeem', 'Resgatar'],
     ['settings', 'Ajustes'], ['news', 'Jornal'],
 ];
 
@@ -414,6 +414,18 @@ export default class GamePanel {
             try { const d = await this.call('EPF_CLAIM', { missionId: b.dataset.claim }); this._msg(`+${d.reward} coins!`, true); this._load(); }
             catch (e) { this._msg(e.message); }
         });
+    }
+
+    async _tab_party() {
+        const r = await this.call('PARTY_INFO');
+        const p = r.party;
+        if (!p) { this._html('<p>Nenhuma festa ativa no momento.</p>'); return; }
+        const prog = r.progress || {};
+        const tasks = Object.entries(prog.tasks || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(JSON.stringify(v))}</td></tr>`).join('');
+        this._html(`<div class="card"><b>🎉 ${esc(p.name)}</b>
+            <div style="color:#888;font-size:11px">${fmt(p.startAt)} → ${fmt(p.endAt)} ${p.timezone ? `(${esc(p.timezone)})` : ''}</div></div>
+            ${Object.keys(prog.tasks || {}).length ? `<h4>Tarefas</h4><table><tbody>${tasks}</tbody></table>` : ''}
+            <p style="font-size:11px;color:#888">Mensagens vistas: ${(prog.messagesSeen || []).length}</p>`);
     }
 
     async _tab_redeem() {

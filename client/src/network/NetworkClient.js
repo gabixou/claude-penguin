@@ -23,6 +23,7 @@ export default class NetworkClient {
         this.equipped = {};
         this.canRename = false;
         this.role = 'player';
+        this.party = null; // festa ativa (Fase 8) — vem no PLAYER_DATA
         
         // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
         // deriva do hostname — https => wss na mesma origem (Caddy faz
@@ -302,6 +303,10 @@ export default class NetworkClient {
             case 'SERVER_LIST':
                 this.scene.events.emit('server-list', data);
                 break;
+            case 'PARTY_UPDATE':
+                this.party = data?.party || null;
+                this.scene.events.emit('party-update', data);
+                break;
             case 'ERROR':
                 this.scene.events.emit('net-error', data);
                 break;
@@ -349,6 +354,7 @@ export default class NetworkClient {
         this.equipped = data.equipped || {};
         this.canRename = data.canRename || false;
         this.role = data.role || 'player';
+        this.party = data.party || null;
         this.dailyBonus = data.dailyBonus || 0;
 
         // Salva session token no localStorage para fallback

@@ -22,6 +22,7 @@ import * as mod from './moderation.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
 import { WORLD_ID } from './worlds.js';
+import * as parties from './parties.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PANEL_PATH = path.join(__dirname, '..', 'admin-panel.html');
@@ -502,6 +503,101 @@ async function handleApi(req, res, url) {
             sendJson(res, 200, { ok: true });
             return;
         }
+    }
+
+    // ---------- festas (Fase 8) ----------
+    if (route[0] === 'parties') {
+        // GET /api/parties?at=<ms> — lista + ativa agora + preview no instante
+        if (req.method === 'GET' && route.length === 1) {
+            const at = Number(url.searchParams.get('at')) || null;
+            const active = parties.activeParty();
+            sendJson(res, 200, {
+                parties: parties.listParties(),
+                active: parties.partyClientData(active),
+                preview: at ? parties.partyClientData(parties.previewParty(at)) : null,
+            });
+            return;
+        }
+        // POST /api/parties — agendar { name, startAt, endAt, timezone }
+        if (req.method === 'POST' && route.length === 1) {
+            const body = await readBody(req);
+            const name = String(body.name || '').trim();
+            const startAt = Number(body.startAt), endAt = Number(body.endAt);
+            if (!name || !Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+                sendJson(res, 400, { error: 'INVALID_DATA', message: 'name, startAt e endAt (end>start) obrigatórios' });
+                return;
+            }
+            const id = parties.createParty({ name, startAt, endAt, timezone: body.timezone || null, createdBy: me.player_id });
+            audit(me.player_id, 'party.create', id, { name, startAt, endAt });
+            sendJson(res, 200, { ok: true, id });
+            return;
+        }
+        if (route[1]) {
+            const id = Number(route[1]);
+            const party = parties.getParty(id);
+            if (!party) { sendJson(res, 404, { error: 'NOT_FOUND' }); return; }
+            const sub = route[2];
+
+            // GET /api/parties/:id — detalhe + substituições
+            if (req.method === 'GET' && !sub) {
+                sendJson(res, 200, {
+                    party,
+                    substitutions: parties.listSubstitutions(id),
+                    clientData: parties.partyClientData(party),
+                });
+                return;
+            }
+            // POST /api/parties/:id — atualizar campos { name?, startAt?, endAt?, timezone?, status? }
+            if (req.method === 'POST' && !sub) {
+                const body = await readBody(req);
+                parties.updateParty(id, body);
+                audit(me.player_id, 'party.update', id, body);
+                sendJson(res, 200, { ok: true, party: parties.getParty(id) });
+                return;
+            }
+            // POST /api/parties/:id/activate { durationMin? } — ativa agora
+            if (req.method === 'POST' && sub === 'activate') {
+                const body = await readBody(req).catch(() => ({}));
+                const dur = Math.min(30 * 24 * 60, Math.max(5, Number(body.durationMin) || 60)) * 60000;
+                const nowTs = Date.now();
+                // desativa outras festas que cubram este intervalo
+                db.prepare(`UPDATE parties SET end_at = MIN(end_at, ?) WHERE id != ? AND start_at < ? AND end_at > ? AND status != 'cancelled'`)
+                    .run(nowTs, id, nowTs + dur, nowTs);
+                parties.updateParty(id, { startAt: nowTs - 1000, endAt: nowTs + dur, status: 'active' });
+                audit(me.player_id, 'party.activate', id, { durationMin: dur / 60000 });
+                sendJson(res, 200, { ok: true, party: parties.getParty(id) });
+                return;
+            }
+            // POST /api/parties/:id/substitutions { roomId?, kind, value }
+            if (req.method === 'POST' && sub === 'substitutions') {
+                const body = await readBody(req);
+                const kind = String(body.kind || '');
+                const allowed = new Set(['package', 'music', 'catalogue', 'free_items', 'extra_rooms', 'map']);
+                if (!allowed.has(kind)) { sendJson(res, 400, { error: 'INVALID_DATA', message: `kind deve ser um de: ${[...allowed].join(', ')}` }); return; }
+                parties.setSubstitution(id, { roomId: body.roomId || null, kind, value: body.value });
+                audit(me.player_id, 'party.substitution.set', id, { roomId: body.roomId, kind });
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+            // DELETE /api/parties/:id/substitutions?roomId=&kind=
+            if (req.method === 'DELETE' && sub === 'substitutions') {
+                const roomId = url.searchParams.get('roomId');
+                const kind = url.searchParams.get('kind');
+                parties.deleteSubstitution(id, roomId || null, kind);
+                audit(me.player_id, 'party.substitution.delete', id, { roomId, kind });
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+            // DELETE /api/parties/:id — desfazer (remove festa + subs)
+            if (req.method === 'DELETE' && !sub) {
+                parties.deleteParty(id);
+                audit(me.player_id, 'party.delete', id, { name: party.name });
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+        }
+        sendJson(res, 404, { error: 'NOT_FOUND' });
+        return;
     }
 
     // ---------- jornal (Fase 6) ----------

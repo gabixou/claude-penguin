@@ -18,6 +18,7 @@ import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
 import * as worlds from './worlds.js';
 import * as game from './game.js';
+import * as parties from './parties.js';
 import log from './log.js';
 import { createAdminServer, setHooks as setAdminHooks } from './admin.js';
 
@@ -138,6 +139,8 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     if (sessionToken) {
         data.sessionToken = sessionToken; // para localStorage fallback
     }
+    // Festa ativa (relógio do servidor) — pacote de sala, música etc.
+    data.party = parties.partyClientData(parties.activeParty());
     ws.send(JSON.stringify({
         op: 'PLAYER_DATA',
         data
@@ -282,6 +285,21 @@ worlds.startHeartbeat(onlineCount);
 game.setGameHooks({
     getSocket: (playerId) => findSocketByPlayerId(playerId),
 });
+
+// Virada de festa: quando a festa ativa muda (relógio do servidor),
+// avisa todos os jogadores autenticados com PARTY_UPDATE.
+let lastPartyId = parties.activeParty()?.id ?? null;
+setInterval(() => {
+    const cur = parties.activeParty();
+    const curId = cur?.id ?? null;
+    if (curId === lastPartyId) return;
+    lastPartyId = curId;
+    const payload = JSON.stringify({ op: 'PARTY_UPDATE', data: { party: parties.partyClientData(cur) } });
+    for (const ws of clientPlayerData.keys()) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+    log.info('party.changed', { party: cur?.name || null, id: curId });
+}, 60 * 1000).unref?.();
 
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.

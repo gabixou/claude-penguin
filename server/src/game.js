@@ -12,6 +12,7 @@ import db from './db.js';
 import playerStore from './playerStore.js';
 import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
+import * as parties from './parties.js';
 import catalog from './catalog.js';
 
 // Hooks do index.js (estado WS em memória)
@@ -528,6 +529,26 @@ export function handleGameOp(ws, session, packet) {
     if (op === 'NEWSPAPER_GET') {
         const news = db.prepare('SELECT id, title, body, published_at AS publishedAt FROM newspaper ORDER BY id DESC LIMIT 20').all();
         reply(ws, true, { newspaper: news });
+        return true;
+    }
+
+    // ---- Festas (Fase 8) ----
+    if (op === 'PARTY_INFO') {
+        const party = parties.activeParty();
+        reply(ws, true, {
+            party: parties.partyClientData(party),
+            progress: party ? parties.getProgress(pid, party.id) : null,
+        });
+        return true;
+    }
+    if (op === 'PARTY_PROGRESS') {
+        const party = parties.activeParty();
+        if (!party) { fail(ws, 'Nenhuma festa ativa'); return true; }
+        const progress = parties.mergeProgress(pid, party.id, {
+            tasks: data.tasks && typeof data.tasks === 'object' ? data.tasks : null,
+            messagesSeen: Array.isArray(data.messagesSeen) ? data.messagesSeen.slice(0, 100) : null,
+        });
+        reply(ws, true, { progress });
         return true;
     }
 
