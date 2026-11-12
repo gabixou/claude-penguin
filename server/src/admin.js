@@ -464,6 +464,72 @@ async function handleApi(req, res, url) {
         return;
     }
 
+    // ---------- códigos de resgate (Fase 6) ----------
+    if (route[0] === 'redeem-codes') {
+        if (req.method === 'GET' && route.length === 1) {
+            const codes = db.prepare(`
+                SELECT c.*, p.username AS created_by_name FROM redeem_codes c
+                LEFT JOIN players p ON p.player_id = c.created_by ORDER BY c.created_at DESC LIMIT 200
+            `).all();
+            sendJson(res, 200, { codes });
+            return;
+        }
+        if (req.method === 'POST' && route.length === 1) {
+            const body = await readBody(req);
+            const code = String(body.code || '').trim().toUpperCase().replace(/\s+/g, '');
+            if (code.length < 4 || code.length > 40) {
+                sendJson(res, 400, { error: 'INVALID_DATA', message: 'Código deve ter 4-40 caracteres' });
+                return;
+            }
+            const rewardType = ['coins', 'item'].includes(body.rewardType) ? body.rewardType : null;
+            if (!rewardType) { sendJson(res, 400, { error: 'INVALID_DATA', message: 'rewardType: coins|item' }); return; }
+            db.prepare(`
+                INSERT INTO redeem_codes (code, reward_type, reward_id, quantity, max_uses, expires_at, created_at, created_by)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(code) DO UPDATE SET reward_type=excluded.reward_type, reward_id=excluded.reward_id,
+                    quantity=excluded.quantity, max_uses=excluded.max_uses, expires_at=excluded.expires_at
+            `).run(code, rewardType, Number(body.rewardId) || (rewardType === 'coins' ? 1 : null),
+                Math.max(1, Math.min(999, Math.trunc(Number(body.quantity) || 1))),
+                body.maxUses ? Math.trunc(Number(body.maxUses)) : null,
+                body.expiresAt ? Number(body.expiresAt) : null, Date.now(), me.player_id);
+            audit(me.player_id, 'redeem.create', code, body);
+            sendJson(res, 200, { ok: true });
+            return;
+        }
+        if (req.method === 'DELETE' && route[1]) {
+            db.prepare('DELETE FROM redeem_codes WHERE code = ?').run(decodeURIComponent(route[1]));
+            audit(me.player_id, 'redeem.delete', decodeURIComponent(route[1]), {});
+            sendJson(res, 200, { ok: true });
+            return;
+        }
+    }
+
+    // ---------- jornal (Fase 6) ----------
+    if (route[0] === 'newspaper') {
+        if (req.method === 'GET') {
+            const news = db.prepare('SELECT * FROM newspaper ORDER BY id DESC LIMIT 100').all();
+            sendJson(res, 200, { newspaper: news });
+            return;
+        }
+        if (req.method === 'POST') {
+            const body = await readBody(req);
+            const title = String(body.title || '').substring(0, 120);
+            const text = String(body.body || '').substring(0, 5000);
+            if (!title || !text) { sendJson(res, 400, { error: 'INVALID_DATA', message: 'title e body obrigatórios' }); return; }
+            const info = db.prepare('INSERT INTO newspaper (title, body, published_at) VALUES (?,?,?)')
+                .run(title, text, Date.now());
+            audit(me.player_id, 'newspaper.publish', info.lastInsertRowid, { title });
+            sendJson(res, 200, { ok: true, id: info.lastInsertRowid });
+            return;
+        }
+        if (req.method === 'DELETE' && route[1]) {
+            db.prepare('DELETE FROM newspaper WHERE id = ?').run(Number(route[1]));
+            audit(me.player_id, 'newspaper.delete', Number(route[1]), {});
+            sendJson(res, 200, { ok: true });
+            return;
+        }
+    }
+
     sendJson(res, 404, { error: 'NOT_FOUND', message: 'Rota desconhecida' });
 }
 

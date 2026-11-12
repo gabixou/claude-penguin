@@ -279,6 +279,177 @@ const MIGRATIONS = [
                 d.exec("ALTER TABLE sessions ADD COLUMN world_id TEXT NOT NULL DEFAULT 'world1'");
             }
         }
+    },
+    {
+        version: 6,
+        name: 'sistemas de jogo: amigos, iglu, puffles, correio, selos, jogos, epf, codigos, config',
+        up: (d) => {
+            d.exec(`
+                -- Amigos / ignorados
+                CREATE TABLE IF NOT EXISTS friends (
+                    player_id TEXT NOT NULL,
+                    friend_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, friend_id),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
+                    FOREIGN KEY (friend_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS ignores (
+                    player_id TEXT NOT NULL,
+                    ignored_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, ignored_id),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
+                    FOREIGN KEY (ignored_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+
+                -- Iglu
+                CREATE TABLE IF NOT EXISTS igloos (
+                    player_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL DEFAULT 'Meu Iglu',
+                    theme TEXT,
+                    floor_item_id INTEGER,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS igloo_furniture (
+                    player_id TEXT NOT NULL,
+                    slot INTEGER NOT NULL,
+                    item_id INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, slot),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+
+                -- Puffles
+                CREATE TABLE IF NOT EXISTS puffles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id TEXT NOT NULL,
+                    species TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    hunger INTEGER NOT NULL DEFAULT 50,
+                    happiness INTEGER NOT NULL DEFAULT 50,
+                    energy INTEGER NOT NULL DEFAULT 50,
+                    sleep INTEGER NOT NULL DEFAULT 50,
+                    clean INTEGER NOT NULL DEFAULT 50,
+                    last_tick INTEGER NOT NULL,
+                    adopted_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_puffles_player ON puffles(player_id);
+                CREATE TABLE IF NOT EXISTS puffle_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    puffle_id INTEGER NOT NULL,
+                    item_id INTEGER NOT NULL,
+                    slot TEXT,
+                    FOREIGN KEY (puffle_id) REFERENCES puffles(id) ON DELETE CASCADE
+                );
+
+                -- Correio / cartões-postais
+                CREATE TABLE IF NOT EXISTS mail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender_id TEXT NOT NULL,
+                    recipient_id TEXT NOT NULL,
+                    subject TEXT,
+                    body TEXT NOT NULL,
+                    item_id INTEGER,
+                    coins INTEGER,
+                    created_at INTEGER NOT NULL,
+                    read_at INTEGER,
+                    deleted_at INTEGER,
+                    FOREIGN KEY (sender_id) REFERENCES players(player_id) ON DELETE CASCADE,
+                    FOREIGN KEY (recipient_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_mail_recipient ON mail(recipient_id, deleted_at);
+
+                -- Selos
+                CREATE TABLE IF NOT EXISTS stamps (
+                    player_id TEXT NOT NULL,
+                    stamp_id INTEGER NOT NULL,
+                    obtained_at INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, stamp_id),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+
+                -- Jogos de mesa (sessões/filas)
+                CREATE TABLE IF NOT EXISTS game_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game TEXT NOT NULL,
+                    player_a TEXT NOT NULL,
+                    player_b TEXT,
+                    state TEXT,
+                    status TEXT NOT NULL DEFAULT 'waiting',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_game_status ON game_sessions(game, status);
+
+                -- Card-Jitsu / progressão ninja
+                CREATE TABLE IF NOT EXISTS cardjitsu (
+                    player_id TEXT PRIMARY KEY,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    level INTEGER NOT NULL DEFAULT 1,
+                    wins INTEGER NOT NULL DEFAULT 0,
+                    losses INTEGER NOT NULL DEFAULT 0,
+                    deck TEXT,
+                    progress TEXT,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+
+                -- EPF / missões
+                CREATE TABLE IF NOT EXISTS player_missions (
+                    player_id TEXT NOT NULL,
+                    mission_id TEXT NOT NULL,
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    target INTEGER NOT NULL,
+                    claimed INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, mission_id),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS player_epf (
+                    player_id TEXT PRIMARY KEY,
+                    level INTEGER NOT NULL DEFAULT 1,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    badges TEXT,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+
+                -- Códigos de resgate
+                CREATE TABLE IF NOT EXISTS redeem_codes (
+                    code TEXT PRIMARY KEY,
+                    reward_type TEXT NOT NULL,
+                    reward_id INTEGER,
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    max_uses INTEGER,
+                    uses INTEGER NOT NULL DEFAULT 0,
+                    expires_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    created_by TEXT
+                );
+                CREATE TABLE IF NOT EXISTS redeem_uses (
+                    code TEXT NOT NULL,
+                    player_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (code, player_id)
+                );
+
+                -- Configurações do jogador / jornal
+                CREATE TABLE IF NOT EXISTS player_settings (
+                    player_id TEXT PRIMARY KEY,
+                    settings TEXT NOT NULL DEFAULT '{}',
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS newspaper (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    published_at INTEGER NOT NULL
+                );
+            `);
+        }
     }
 ];
 
