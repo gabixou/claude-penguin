@@ -16,6 +16,17 @@ const RENDER_SCALE = 3;     // supersampling do canvas da janela
 const IDENT = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
 const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
 
+// Posicao do card escolhida pelo jogador (deslocamento do centro da tela),
+// lembrada entre aberturas e sessoes
+const CARD_POS_KEY = 'penguin_card_offset';
+let _cardOffset = (() => {
+    try {
+        const o = JSON.parse(localStorage.getItem(CARD_POS_KEY) || 'null');
+        if (o && Number.isFinite(o.x) && Number.isFinite(o.y)) return o;
+    } catch { /* sem storage */ }
+    return { x: 0, y: 0 };
+})();
+
 // botoes da fileira inferior do card (nome -> acao); coords relativas ao sprite
 const CARD_BUTTONS = {
     close_btn: 'close',
@@ -141,6 +152,9 @@ export default class PlayerCard {
         if (this.dim) { this.dim.destroy(); this.dim = null; }
         if (this.container) { this.container.destroy(true); this.container = null; }
         this._cardBounds = null;
+        this._drag = null;
+        this._placeModBtn = null;
+        this.scene?.input?.setDefaultCursor('default');
         // textura do card e por-abertura (playercard_<ts>) — sem remover,
         // cada open vazava uma CanvasTexture na GPU
         if (this._texKey && this.scene?.textures.exists(this._texKey)) {
@@ -283,20 +297,28 @@ export default class PlayerCard {
         await paint(false);
 
         // ---- container ----
-        const cx = WORLD_W / 2, cy = WORLD_H / 2;
         const scale = Math.min(1, 480 / h); // cabe em ~480px de altura
         const dw = w * scale, dh = h * scale;
-        const cont = scene.add.container(cx - dw / 2, cy - dh / 2).setDepth(20000000);
+        this._cardSize = { dw, dh };
+        // posicao: centro da tela + deslocamento escolhido pelo jogador
+        // (arrastando), sempre dentro da area visivel
+        const pos = this._clampTopLeft(WORLD_W / 2 + _cardOffset.x - dw / 2, WORLD_H / 2 + _cardOffset.y - dh / 2);
+        const cont = scene.add.container(pos.x, pos.y).setDepth(20000000);
         this.container = cont;
         // métricas do card em coords de mundo — wardrobe se posiciona
         // à direita usando a borda real (getBounds é frágil: filhos com
         // coords absolutas dentro do container inflam o bounds)
-        this._cardBounds = { left: cx - dw / 2, right: cx + dw / 2, top: cy - dh / 2, bottom: cy + dh / 2 };
+        this._syncBounds();
 
         const texKey = `playercard_${Date.now()}`;
         this._texKey = texKey;
         scene.textures.addCanvas(texKey, canvas);
-        cont.add(scene.add.image(0, 0, texKey).setOrigin(0, 0).setDisplaySize(dw, dh));
+        // fundo do card = alca de arraste (botoes/boneco ficam por cima e
+        // continuam recebendo o clique); tambem impede que clicar no fundo
+        // do card caia no dim e feche tudo
+        const bgImg = scene.add.image(0, 0, texKey).setOrigin(0, 0).setDisplaySize(dw, dh);
+        cont.add(bgImg);
+        this.makeDragHandle(bgImg);
 
         // helper: coords do sprite -> coords do container
         const px = (sx, sy) => [(sx - b[0]) * scale, (sy - b[1]) * scale];
@@ -368,7 +390,7 @@ export default class PlayerCard {
         // fundo escurecido (fecha ao clicar fora)
         // clique fora fecha — EXCETO em cima de um pinguim: trocar de alvo
         // (ou manter o mesmo) sem fechar, como no CP original
-        this.dim = scene.add.rectangle(cx, cy, WORLD_W, WORLD_H, 0x000000, 0.45)
+        this.dim = scene.add.rectangle(WORLD_W / 2, WORLD_H / 2, WORLD_W, WORLD_H, 0x000000, 0.45)
             .setOrigin(0.5).setDepth(19999999).setInteractive();
         this.dim.on('pointerdown', (p) => {
             const hit = this.scene._penguinAt?.(p.worldX, p.worldY);
@@ -389,7 +411,7 @@ export default class PlayerCard {
                 border: '1px solid #a54a4a', borderRadius: '7px',
                 cursor: 'pointer', fontFamily: 'Arial, sans-serif',
             });
-            const place = () => {
+            const place = this._placeModBtn = () => {
                 const rect = scene.game.canvas.getBoundingClientRect();
                 const sx = rect.width / WORLD_W, sy = rect.height / WORLD_H;
                 const wx = this._cardBounds ? this._cardBounds.right - 30 : WORLD_W / 2;
@@ -442,6 +464,59 @@ export default class PlayerCard {
                 })
                 .catch((e) => console.warn('[playercard] papers', e));
         }
+    }
+
+    // ---------- arrastar (card + inventario se movem juntos) ----------
+
+    _clampTopLeft(x, y) {
+        const { dw, dh } = this._cardSize || { dw: 0, dh: 0 };
+        const m = 4; // margem ate a borda da tela
+        return {
+            x: Math.round(Math.max(m, Math.min(WORLD_W - dw - m, x))),
+            y: Math.round(Math.max(m, Math.min(WORLD_H - dh - m, y))),
+        };
+    }
+
+    _syncBounds() {
+        const c = this.container;
+        if (!c || !this._cardSize) return;
+        const { dw, dh } = this._cardSize;
+        this._cardBounds = { left: c.x, right: c.x + dw, top: c.y, bottom: c.y + dh };
+    }
+
+    // Torna `obj` (ja dentro do card ou do inventario) uma alca de arraste
+    // do grupo. Usa a posicao do ponteiro em coords de mundo (o camera zoom
+    // do supersampling ja esta descontado em pointer.worldX/Y).
+    makeDragHandle(obj) {
+        const scene = this.scene;
+        if (!obj.input) obj.setInteractive();
+        obj.input.cursor = 'grab';
+        scene.input.setDraggable(obj);
+        obj.on('dragstart', (p) => {
+            if (!this.container) return;
+            this._drag = { px: p.worldX, py: p.worldY, x: this.container.x, y: this.container.y };
+            scene.input.setDefaultCursor('grabbing');
+        });
+        obj.on('drag', (p) => {
+            const d = this._drag;
+            if (!d || !this.container) return;
+            const pos = this._clampTopLeft(d.x + p.worldX - d.px, d.y + p.worldY - d.py);
+            this.container.setPosition(pos.x, pos.y);
+            this._syncBounds();
+            scene.wardrobe?.followCard?.();
+            this._placeModBtn?.();
+        });
+        obj.on('dragend', () => {
+            scene.input.setDefaultCursor('default');
+            if (!this._drag || !this.container) { this._drag = null; return; }
+            this._drag = null;
+            const { dw, dh } = this._cardSize;
+            _cardOffset = {
+                x: Math.round(this.container.x + dw / 2 - WORLD_W / 2),
+                y: Math.round(this.container.y + dh / 2 - WORLD_H / 2),
+            };
+            try { localStorage.setItem(CARD_POS_KEY, JSON.stringify(_cardOffset)); } catch { /* sem storage */ }
+        });
     }
 
     // repinta o doll quando o wardrobe equipa/desequipa itens

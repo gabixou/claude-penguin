@@ -69,18 +69,31 @@ export default class Wardrobe {
         this._iconTex.clear();
     }
 
+    // Onde o painel deve ficar: colado a direita do player card (ou a
+    // esquerda, se nao couber), centrado na altura do card, dentro da tela.
+    // A pilula "All Items" projeta ~14px abaixo do painel.
+    _anchor() {
+        const cb = this.scene.playerCard?._cardBounds;
+        if (!cb) return { px: Math.min(WORLD_W / 2 + 128, WORLD_W - PANEL_W - 5), py: WORLD_H / 2 - PANEL_H / 2 };
+        let px = cb.right + 8;
+        if (px + PANEL_W > WORLD_W - 4) px = cb.left - 8 - PANEL_W;
+        px = Math.max(4, Math.min(WORLD_W - PANEL_W - 4, px));
+        const py = Math.max(4, Math.min(WORLD_H - PANEL_H - 16, (cb.top + cb.bottom) / 2 - PANEL_H / 2));
+        return { px, py };
+    }
+
+    // O card foi arrastado: o painel acompanha (todo o conteudo e relativo
+    // ao container, entao basta desloca-lo)
+    followCard() {
+        if (!this.container || this._basePx === undefined) return;
+        const { px, py } = this._anchor();
+        this.container.setPosition(px - this._basePx, py - this._basePy);
+    }
+
     _build() {
         const scene = this.scene;
-        // posiciona à direita do player card (que está centralizado)
-        let cardRight = WORLD_W / 2 + 120;
-        const cb = scene.playerCard?._cardBounds;
-        if (cb) cardRight = cb.right + 8;
-        else if (scene.playerCard?.container) {
-            const gb = scene.playerCard.container.getBounds();
-            cardRight = gb.right + 8;
-        }
-        const px = Math.min(cardRight, WORLD_W - PANEL_W - 5);
-        const py = WORLD_H / 2 - PANEL_H / 2;
+        const { px, py } = this._anchor();
+        this._basePx = px; this._basePy = py;
 
         const cont = scene.add.container(0, 0).setDepth(DEPTH);
         this.container = cont;
@@ -101,6 +114,8 @@ export default class Wardrobe {
         const block = scene.add.zone(px + PANEL_W / 2, py + PANEL_H / 2, PANEL_W, PANEL_H)
             .setInteractive({ useHandCursor: false });
         cont.add(block);
+        // fundo do painel tambem arrasta o grupo card + inventario
+        scene.playerCard?.makeDragHandle?.(block);
 
         // (topo do painel limpo, como no original — sem contador)
 
