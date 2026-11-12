@@ -230,6 +230,7 @@ export class IceFishingGame {
         m.group = 0; m.iceboxBlock = 0; m.currentFish = 0; m.won = false; m.over = false;
 
         this.movie.goto('', FRAME_GAME);
+        this._musicStart();
         this.movie.set('puffle', { visible: false });
         this.movie.set('gameOver_mc', { visible: false });
         this._label('lives_mc.lives', '3');
@@ -275,6 +276,21 @@ export class IceFishingGame {
             a.currentTime = 0;
             a.play().catch(() => {});
         } catch { /* autoplay policy */ }
+    }
+
+    // BGM de teste: faixa longa do SWF em loop durante o gameplay.
+    _musicStart() {
+        if (this._music) return;
+        const a = new Audio('/assets/sfx/fish/sound_2.mp3');
+        a.loop = true;
+        a.volume = 0.45;
+        a.play().catch(() => {});
+        this._music = a;
+    }
+
+    _musicStop() {
+        try { this._music?.pause(); } catch {}
+        this._music = null;
     }
 
     // Sons de timeline emitidos pelo MovieRoom (frames "entrados" via
@@ -797,6 +813,7 @@ export class IceFishingGame {
     _finish() {
         if (this.finished) return;
         this.finished = true;
+        this._musicStop();
         const coins = this.started ? this._coins() : 0;
         this.onCoins(coins);
         this.destroy();
@@ -839,6 +856,7 @@ export class IceFishingGame {
 
     destroy() {
         this._destroyed = true;
+        this._musicStop();
         cancelAnimationFrame(this._raf);
         this.canvas?.removeEventListener('mousemove', this._onMove);
         this.canvas?.removeEventListener('mousedown', this._onDown);
