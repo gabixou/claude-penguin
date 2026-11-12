@@ -278,7 +278,7 @@ export class IceFishingGame {
         } catch { /* autoplay policy */ }
     }
 
-    // BGM de teste: faixa longa do SWF em loop durante o gameplay.
+    // BGM do jogo: faixa longa dos DefineSound do SWF em loop no gameplay.
     _musicStart() {
         if (this._music) return;
         const a = new Audio('/assets/sfx/fish/sound_2.mp3');
