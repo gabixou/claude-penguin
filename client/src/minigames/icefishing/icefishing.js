@@ -57,6 +57,16 @@ export class IceFishingGame {
         // continuo = tela piscando + FPS baixo (mesmo fix do catalogo)
         this.movie.artFlatScale = true;
 
+        // 148/149/150.svg = linha da vara + isca: no SWF sao paths com
+        // stroke-width 0.05 (hairline). O Flash aplicava stroke-hinting e
+        // renderizava ~1px; nosso renderer SVG nao — a linha ficava
+        // invisivel. Override local: traco de 1 unidade (~1-2px na tela).
+        for (const f of ['148.svg', '149.svg', '150.svg']) {
+            const svg = this.movie._svgText(f);
+            if (svg) this.movie.setSvgOverride(f,
+                svg.replace(/stroke-width="0\.05"/g, 'stroke-width="1"'));
+        }
+
         // hotspots (sprite 55 = quadrado preto 22x22) sao so hit-test no
         // SWF original — o pack os contem como shapes visiveis; escondemos
         // todos os paths *hotspot/*disthotspot para nao renderizar retangulos.
@@ -648,7 +658,11 @@ export class IceFishingGame {
     _watch() {
         for (const r of FISH_ROOTS) {
             const name = r.name;
-            const n = this._frame(name);
+            // frame "entrado" neste tick tem prioridade: a acao do frame
+            // (ex.: puffle 237 -> gotoAndStop(1)) roda no mesmo tick e o
+            // currentFrame ja mostra o destino — sem isso o watch nunca ve
+            // o 237 e o levelUp nunca dispara (loop infinito do puffle).
+            const n = this.movie._entered?.get(name) ?? this._frame(name);
             const last = this.watched.get(name);
             if (n === last) continue;
             this.watched.set(name, n);

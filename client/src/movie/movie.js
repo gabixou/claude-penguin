@@ -698,6 +698,10 @@ export class MovieRoom {
         this._dirty = false;
         this._dirtyRoots = new Set();
         this._dirtyPaths = new Set();   // paths completos que avancaram (overlays)
+        // frames "entrados" neste tick (path -> frame), capturados ANTES das
+        // acoes do frame — um gotoAndStop no mesmo tick (ex.: puffle 237 -> 1)
+        // faria o frame intermediario nunca ser observado via currentFrame.
+        this._entered = new Map();
         for (const h of this._playheadAll.values()) {
             const root = (h.path || '').split('.')[0];
             const cmds = this._actions(h.tl, h.frame);
@@ -718,6 +722,7 @@ export class MovieRoom {
                 this._dirtyPaths.add(h.path);
             }
             h.frame = next;
+            this._entered.set(h.path, next);
             for (const c of this._actions(h.tl, next)) {
                 const op = c[0], arg = c[1];
                 if (op === 'stop') h.stopped = true;
@@ -727,6 +732,10 @@ export class MovieRoom {
                     if (f) {
                         h.frame = f;
                         h.stopped = op === 'gotoAndStop';
+                        // NAO registra o destino do salto em _entered: o
+                        // frame "avancado" (ex.: puffle 237) e o que o
+                        // watch precisa observar; o gotoAndStop(1) e acao
+                        // do frame, nao um frame navegado.
                         this._dirty = true;
                         this._dirtyRoots.add(root);
                         this._dirtyPaths.add(h.path);
