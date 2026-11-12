@@ -132,7 +132,7 @@ export default class RoomScene extends Phaser.Scene {
         // o loader azul "Joining..." so aparece em trocas de sala
         this._booting = true;
         this._initMovie(this.currentRoom);
-        musicPlayer.play(this.currentRoom);
+        this._playMusic(this.currentRoom);
 
         // 2. Conexão WebSocket (autenticação acontece antes do pinguim)
         this.network = new NetworkClient(this);
@@ -352,6 +352,15 @@ export default class RoomScene extends Phaser.Scene {
             localStorage.removeItem('penguin_session');
             // sessão morreu no servidor — reload limpo para a tela de login
             setTimeout(() => location.reload(), 400);
+        });
+
+        // Virada de festa: o servidor avisa quando a festa ativa muda —
+        // recarrega o pacote da sala atual e a música com as novas
+        // substituições (pacotes alternativos vivem em movies-party/).
+        this.events.on('party-update', () => {
+            if (!this.currentRoom || !this._playerReady) return;
+            this._initMovie(this.currentRoom);
+            this._playMusic(this.currentRoom);
         });
 
         // Lista de mundos (multi-mundo) — alimenta o seletor do AuthModal
@@ -865,13 +874,44 @@ export default class RoomScene extends Phaser.Scene {
         sched(step);
     }
 
-    // Carrega o pacote vetorial /assets/movies/<pack>/ (timelines.json + SVGs).
+    // Base do pacote vetorial da sala — durante uma festa, o servidor
+    // pode mandar package alternativo (assets/movies-party/<id>/<pack>).
+    // A URL diferente já versiona o cache IndexedDB por festa.
+    _movieBaseFor(roomKey) {
+        const pack = MOVIE_ROOM_MAP[roomKey];
+        if (!pack) return null;
+        const party = this.network?.party;
+        const sub = party?.substitutions?.byRoom?.[roomKey];
+        if (sub?.package) {
+            return `/assets/movies-party/${party.id}/${sub.package}`;
+        }
+        return `/assets/movies/${pack}`;
+    }
+
+    // Música da sala — substituição de festa (global ou por sala) aponta
+    // um programId alternativo; aceita JSON {"<room>":"<id>","*":"<id>"}.
+    _playMusic(roomKey) {
+        const subs = this.network?.party?.substitutions;
+        const raw = subs?.byRoom?.[roomKey]?.music || subs?.global?.music;
+        if (raw) {
+            let id = raw;
+            try {
+                const m = JSON.parse(raw);
+                if (m && typeof m === 'object') id = m[roomKey] || m['*'] || raw;
+            } catch { /* raw já é o programId */ }
+            musicPlayer.playProgram(id);
+            return;
+        }
+        musicPlayer.play(roomKey);
+    }
+
+    // Carrega o pacote vetorial da sala (ver _movieBaseFor).
     // Sem fallback: se o pack nao carregar, mostra retangulo de erro.
     _initMovie(roomKey) {
         this._clearMovie();
-        const pack = MOVIE_ROOM_MAP[roomKey];
+        const base = this._movieBaseFor(roomKey);
         if (this.roomFailText) { this.roomFailText.destroy(); this.roomFailText = null; }
-        if (!pack) { this._showRoomFail(roomKey); return; }
+        if (!base) { this._showRoomFail(roomKey); return; }
         this._movieReady = false;
         // pausa o decode agendado de fundo (prefetch idle de outras salas)
         // ate esta sala estar pronta — sem isso o cold load competia com
@@ -880,7 +920,7 @@ export default class RoomScene extends Phaser.Scene {
         const releaseHold = () => { MovieRoom._decodeHold = Math.max(0, MovieRoom._decodeHold - 1); };
         if (this._booting) this.loadingScreen?.showBoot();
         else this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
-        MovieRoom.load(`/assets/movies/${pack}`)
+        MovieRoom.load(base)
             .then(async (movie) => {
                 if (this.currentRoom !== roomKey) { releaseHold(); return; } // sala trocou durante o load
                 this.movie = movie;
@@ -1382,7 +1422,7 @@ export default class RoomScene extends Phaser.Scene {
         this.currentRoom = newRoomKey;
         this._clearMovie();
         this._initMovie(newRoomKey);
-        musicPlayer.play(newRoomKey);
+        this._playMusic(newRoomKey);
 
         // guarda a posição desejada; o safe spawn é aplicado quando o movie carregar
         this._pendingSpawn = { x: spawnX, y: spawnY };
