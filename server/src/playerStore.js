@@ -319,6 +319,46 @@ export function getRecoveryHash(playerId) {
     return row?.recovery_hash || null;
 }
 
+export function setRole(playerId, role) {
+    db.prepare('UPDATE players SET role = ? WHERE player_id = ?').run(role, playerId);
+}
+
+export function getPlayerSummary(playerId) {
+    return db.prepare(`
+        SELECT player_id, username, username_key, role, coins, color_item_id,
+               created_at, last_seen, muted_until, all_items,
+               (password_hash IS NOT NULL) AS has_password
+        FROM players WHERE player_id = ?
+    `).get(playerId);
+}
+
+export function searchPlayers(query, limit = 20) {
+    const like = `%${String(query || '').replace(/[%_]/g, '')}%`;
+    return db.prepare(`
+        SELECT player_id, username, role, coins, created_at, last_seen
+        FROM players
+        WHERE username LIKE ? OR username_key LIKE ?
+        ORDER BY last_seen DESC LIMIT ?
+    `).all(like, like.toLowerCase(), limit);
+}
+
+export function updatePlayerCoins(playerId, coins) {
+    db.prepare('UPDATE players SET coins = ? WHERE player_id = ?').run(Math.max(0, Math.round(coins)), playerId);
+}
+
+export function grantItem(playerId, itemId, quantity = 1) {
+    addItem(playerId, itemId, quantity);
+}
+
+export function setPlayerUsername(playerId, username) {
+    db.prepare('UPDATE players SET username = ?, username_key = ?, last_seen = ? WHERE player_id = ?')
+        .run(normalizeUsername(username), usernameKey(username), Date.now(), playerId);
+}
+
+export function resetPassword(playerId, passwordHash) {
+    db.prepare('UPDATE players SET password_hash = ? WHERE player_id = ?').run(passwordHash, playerId);
+}
+
 // ---------- Hydration ----------
 
 function hydratePlayer(row) {
@@ -331,6 +371,8 @@ function hydratePlayer(row) {
         coins: row.coins,
         all_items: !!row.all_items,
         has_password: !!row.password_hash,
+        role: row.role || 'player',
+        muted_until: row.muted_until || null,
         last_daily_bonus: row.last_daily_bonus,
         name_changed_at: row.name_changed_at,
         created_at: row.created_at,
@@ -357,7 +399,8 @@ export function getPublicPlayerData(playerId) {
         allItems: !!player.all_items,
         hasPassword: !!player.has_password,
         needsPasswordSetup: !player.has_password,
-        legacyGraceActive: accounts.legacyGraceActive()
+        legacyGraceActive: accounts.legacyGraceActive(),
+        role: player.role || 'player'
     };
 }
 
@@ -373,6 +416,13 @@ export default {
     getPasswordHash,
     hasPassword,
     getRecoveryHash,
+    setRole,
+    getPlayerSummary,
+    searchPlayers,
+    updatePlayerCoins,
+    grantItem,
+    setPlayerUsername,
+    resetPassword,
     getPlayerByUsernameKey,
     updatePlayerColor,
     renamePlayer,
