@@ -94,9 +94,20 @@ export default class GamePanel {
                 reject(new Error('Timeout'));
             }, 8000);
             this._pending = { resolve, reject, timer };
-            const offOk = this.scene.events.on('packet-GAME_OK', (d) => this._resolvePending(d));
-            const offErr = this.scene.events.on('packet-GAME_ERROR', (d) => this._rejectPending(d));
-            this._unsubs.push(() => { this.scene.events.off?.('packet-GAME_OK', offOk); this.scene.events.off?.('packet-GAME_ERROR', offErr); });
+            // um par de listeners por painel (events.on devolve o emissor,
+            // nao a funcao: o off antigo nunca removia nada e eles vazavam)
+            if (!this._netHooked) {
+                const ok = (d) => this._resolvePending(d);
+                const err = (d) => this._rejectPending(d);
+                this.scene.events.on('packet-GAME_OK', ok);
+                this.scene.events.on('packet-GAME_ERROR', err);
+                this._netHooked = true;
+                this._unsubs.push(() => {
+                    this.scene.events.off('packet-GAME_OK', ok);
+                    this.scene.events.off('packet-GAME_ERROR', err);
+                    this._netHooked = false;
+                });
+            }
             net.send(op, data);
         });
     }
@@ -373,34 +384,31 @@ export default class GamePanel {
         });
     }
 
+    // Jogos de mesa: as regras rodam no servidor (tables.js). "Procurar
+    // oponente" senta no lobby (o proximo que entrar joga com voce);
+    // "Contra o computador" comeca na hora. Nas salas, as mesas da Book Room
+    // (Mancala), Lodge/Attic (Find Four) e Dojo (Card-Jitsu) tambem abrem.
     async _tab_games() {
-        this._html(`<p>Filas de jogos de mesa — entre e o servidor pareia com o próximo da fila.</p>
-            <table><thead><tr><th>Jogo</th><th>Status</th><th></th></tr></thead><tbody>
-            ${['findfour','mancala','treasurehunt','sledrace'].map((g) => `<tr>
-                <td>${g}</td><td id="gp-g-${g}-st">—</td>
-                <td><button class="act" data-join="${g}">Entrar</button>
-                    <button class="act danger" data-leave="${g}">Sair</button></td></tr>`).join('')}
-            </tbody></table>
-            <div id="gp-game-log" style="margin-top:8px;font-size:12px"></div>`);
-        this.bodyEl.querySelectorAll('[data-join]').forEach((b) => b.onclick = async () => {
-            try {
-                const r = await this.call('GAME_QUEUE', { game: b.dataset.join });
-                const st = this.bodyEl.querySelector(`#gp-g-${b.dataset.join}-st`);
-                if (st) st.textContent = r.matched ? 'EM PARTIDA' : (r.queue?.mine ? 'NA FILA' : '—');
-                if (r.matched) this._msg('Partida encontrada!', true);
-            } catch (e) { this._msg(e.message); }
-        });
-        this.bodyEl.querySelectorAll('[data-leave]').forEach((b) => b.onclick = async () => {
-            await this.call('GAME_QUEUE', { game: b.dataset.leave, leave: true }); this._load();
-        });
-        // escuta matches/states
-        this._unsubs.push(this.scene.events.on('packet-GAME_MATCH', (d) => {
-            this._msg(`Partida de ${d.game} contra ${d.opponent}!`, true);
-        }));
-        this._unsubs.push(this.scene.events.on('packet-GAME_STATE', (d) => {
-            const log = this.bodyEl.querySelector('#gp-game-log');
-            if (log) log.innerHTML += `<div>${esc(d.from)}: ${esc(JSON.stringify(d.state).substring(0, 120))}</div>`;
-        }));
+        let ninja = null;
+        try { ninja = await this.call('CARDJITSU_STATE'); } catch { /* opcional */ }
+        const games = [
+            ['four', 'Find Four', 'Ligue 4 fichas em linha antes do oponente.', 'Ski Lodge e Lodge Attic'],
+            ['mancala', 'Mancala', 'Semeie as pedras e termine com mais na sua loja.', 'Book Room'],
+            ['treasure', 'Treasure Hunt', 'Cooperativo: cavem juntos e dividam o tesouro.', '—'],
+            ['card', 'Card-Jitsu', 'Fogo, água e neve — o caminho do ninja.', 'Dojo'],
+        ];
+        this._html(`<p>Vitória: 25 moedas · empate: 10 · derrota: 5 (metade contra o computador).
+            Treasure Hunt paga o que a dupla encontrar.</p>
+            ${ninja ? `<div class="card">Card-Jitsu — faixa ${ninja.level} · ${ninja.xp} XP · ${ninja.wins} vitórias / ${ninja.losses} derrotas</div>` : ''}
+            ${games.map(([id, name, desc, where]) => `<div class="card">
+                <b>${name}</b> <span style="color:#667;font-size:11px">· mesas: ${where}</span>
+                <div style="font-size:12px;margin:3px 0 6px">${desc}</div>
+                <button class="act" data-play="${id}">Procurar oponente</button>
+                <button class="act" data-cpu="${id}">Contra o computador</button></div>`).join('')}
+            <p style="font-size:11px;color:#667">Corrida de trenó (Ski Hill): em breve.</p>`);
+        const go = (game, cpu) => { this.close(); this.scene.openTableGame?.(game, { cpu }); };
+        this.bodyEl.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => go(b.dataset.play, false); });
+        this.bodyEl.querySelectorAll('[data-cpu]').forEach((b) => { b.onclick = () => go(b.dataset.cpu, true); });
     }
 
     async _tab_epf() {

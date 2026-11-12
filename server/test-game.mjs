@@ -39,6 +39,14 @@ function makeClient(ws) {
             const t = setTimeout(() => rej(new Error(`timeout op=${op}`)), ms);
             waiters.push({ pred: (p) => p.op === op, resolve: (p) => { clearTimeout(t); res(p); } });
         }),
+        // espera um pacote que satisfaca pred (inclusive os ja recebidos
+        // desde o ultimo send)
+        waitWhere: (pred, ms = 6000) => new Promise((res, rej) => {
+            const hit = inbox.slice(mark).find(pred);
+            if (hit) return res(hit);
+            const t = setTimeout(() => rej(new Error('timeout waitWhere')), ms);
+            waiters.push({ pred, resolve: (p) => { clearTimeout(t); res(p); } });
+        }),
         inbox, ws,
     };
 }
@@ -147,15 +155,52 @@ await B.c.waitOp('GAME_OK');
 const st = await A.c.waitOp('GAME_STATE');
 check('GAME_STATE broadcast', st.data?.state?.move === 1);
 
-console.log('== card-jitsu / EPF ==');
+console.log('== mesas autoritativas (Find Four) ==');
+// sai das sessoes do protocolo antigo e senta no lobby do Find Four
+A.c.send('TABLE_JOIN', { game: 'four' });
+let ts = await A.c.waitWhere((p) => p.op === 'TABLE_STATE');
+check('A sentou e espera oponente', ts.data.status === 'waiting' && ts.data.you === 0);
+B.c.send('TABLE_JOIN', { game: 'findfour' });
+ts = await B.c.waitWhere((p) => p.op === 'TABLE_STATE' && p.data.status === 'playing');
+check('B sentou e a partida começou', ts.data.you === 1 && ts.data.turn === 0);
+const key = ts.data.key;
+B.c.send('TABLE_MOVE', { key, move: { col: 0 } });
+r = await B.c.waitOp('TABLE_ERROR');
+check('jogada fora da vez é recusada', /vez/.test(r.data.error));
+// A vence na vertical (coluna 0); B joga na coluna 1
+for (let i = 0; i < 4; i++) {
+    A.c.send('TABLE_MOVE', { key, move: { col: 0 } });
+    const a = await A.c.waitWhere((p) => p.op === 'TABLE_STATE' && (p.data.turn === 1 || p.data.status === 'over'));
+    if (a.data.status === 'over') break;
+    B.c.send('TABLE_MOVE', { key, move: { col: 1 } });
+    await B.c.waitWhere((p) => p.op === 'TABLE_STATE' && p.data.turn === 0);
+}
+const endA = await A.c.waitWhere((p) => p.op === 'TABLE_STATE' && p.data.status === 'over');
+check('servidor decide o vencedor', endA.data.result?.winner === 0);
+check('vencedor recebe 25 moedas', endA.data.result?.coins === 25);
+const pdA = await A.c.waitWhere((p) => p.op === 'PLAYER_DATA');
+check('PLAYER_DATA com as moedas atualizadas', pdA.data.coins >= 25, JSON.stringify(pdA.data.coins));
+
+console.log('== card-jitsu (arbitrado no servidor) / EPF ==');
 A.c.send('CARDJITSU_STATE', {});
 r = await A.c.waitOp('GAME_OK');
 check('CARDJITSU_STATE', r.data.level === 1 && r.data.xp === 0);
 A.c.send('CARDJITSU_RESULT', { won: true });
-await A.c.waitOp('GAME_OK');
+r = await A.c.waitOp('GAME_ERROR');
+check('CARDJITSU_RESULT do cliente é recusado', !!r.data.error);
+// partida contra o computador ate o fim (jogada aleatoria valida)
+A.c.send('TABLE_JOIN', { game: 'card', cpu: true });
+let cj = await A.c.waitWhere((p) => p.op === 'TABLE_STATE' && p.data.game === 'card');
+for (let guard = 0; guard < 40 && cj.data.status !== 'over'; guard++) {
+    const round = cj.data.state.round;
+    A.c.send('TABLE_MOVE', { key: cj.data.key, move: { card: Math.floor(Math.random() * 5) } });
+    cj = await A.c.waitWhere((p) => p.op === 'TABLE_STATE' && p.data.game === 'card'
+        && (p.data.status === 'over' || p.data.state.round > round), 8000);
+}
+check('Card-Jitsu vs computador termina', cj.data.status === 'over');
 A.c.send('CARDJITSU_STATE', {});
 r = await A.c.waitOp('GAME_OK');
-check('CARDJITSU_RESULT xp', r.data.xp === 100 && r.data.wins === 1);
+check('progresso ninja gravado pelo servidor', r.data.wins + r.data.losses === 1 && r.data.xp >= 25, JSON.stringify(r.data));
 A.c.send('EPF_STATE', {});
 r = await A.c.waitOp('GAME_OK');
 check('EPF_STATE missões', r.data.missions?.length === 7);

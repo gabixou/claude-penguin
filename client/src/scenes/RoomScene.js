@@ -33,6 +33,7 @@ import { WORLD_W, WORLD_H, computeSupersample } from '../display.js';
 import { RoomInteractions } from '../room/RoomInteractions.js';
 import { CatalogueOverlay } from '../ui/Catalogue.js';
 import { MinigameOverlay } from '../minigames/MinigameOverlay.js';
+import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
 import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
 import {
@@ -184,6 +185,8 @@ export default class RoomScene extends Phaser.Scene {
                 const exit = this.movie && this.movie.triggerAt(this.localPlayer.x, this.localPlayer.y);
                 if (exit?.content) { this.openContent(exit.content); return; }
                 if (exit?.game) { this._showGameUnavailable(exit.game); return; }
+                // mesas (Find Four, Mancala) e waddles (Card-Jitsu) das salas
+                if (exit?.table) { this.openTable(exit.table); return; }
                 if (exit && exit.room && MOVIE_ROOM_MAP[exit.room] && exit.room !== this.currentRoom) {
                     this.changeRoom(exit.room, exit.x, exit.y);
                 }
@@ -1201,6 +1204,22 @@ export default class RoomScene extends Phaser.Scene {
         }
     }
 
+    // Senta numa mesa/waddle da sala (ENGINE.sendJoinTable/sendJoinWaddle
+    // dos packs originais). As regras rodam no servidor (tables.js).
+    openTable(table) {
+        if (!table) return;
+        if (table.game === 'sled') { this._contentNotice('Corrida de trenó (em breve)'); return; }
+        if (!this.tableGames) this.tableGames = new TableGames(this);
+        if (this.tableGames.isOpen) return;
+        this.tableGames.open({ game: table.game, room: this.currentRoom, tableId: table.id });
+    }
+
+    // Partida pelo painel (lobby ou contra o computador), sem mesa fisica
+    openTableGame(game, { cpu = false } = {}) {
+        if (!this.tableGames) this.tableGames = new TableGames(this);
+        this.tableGames.open(cpu ? { game, cpu: true } : { game });
+    }
+
     _showGameUnavailable(game) {
         if (!this._minigame) this._minigame = new MinigameOverlay(this);
         if (this._minigame.open(game)) {
@@ -1365,6 +1384,8 @@ export default class RoomScene extends Phaser.Scene {
         if (!this._playerReady || !this.localPlayer) return;
         this.playerCard?.close();
         this._closeMinigame();
+        // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
+        if (this.tableGames?.isOpen && this.tableGames.st?.room) this.tableGames.close();
         this.currentRoom = newRoomKey;
         this._clearMovie();
         this._initMovie(newRoomKey);

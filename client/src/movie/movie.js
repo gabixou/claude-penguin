@@ -381,7 +381,7 @@ export class MovieRoom {
     //   disabled    = Set<path> (useHandCursor=false)
     // Port simplificado do parser 'ti/as' do bundle gopenguin.
     _parseInteractions() {
-        const ci = { click: {}, trigContent: {}, trigGame: {}, disabled: new Set() };
+        const ci = { click: {}, trigContent: {}, trigGame: {}, trigTable: {}, disabled: new Set() };
         const sources = [];
         const collect = (acts) => {
             for (const a of Object.values(acts || {})) {
@@ -401,6 +401,10 @@ export class MovieRoom {
             if (gm) return { game: gm[1] };
             const jr = /sendJoinRoom\(\s*["']([\w-]+)["']\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(body);
             if (jr) return { room: jr[1], x: Number(jr[2]), y: Number(jr[3]) };
+            // mesas (Find Four, Mancala) e waddles (Card-Jitsu, trenó):
+            // ENGINE.sendJoinTable("mancala",100,true)
+            const jt = /sendJoin(Table|Waddle)\(\s*["']([\w-]+)["']\s*,\s*(\d+)/.exec(body);
+            if (jt) return { table: { kind: jt[1].toLowerCase(), game: jt[2], id: Number(jt[3]) } };
             return null;
         };
 
@@ -418,6 +422,7 @@ export class MovieRoom {
                 const act = classify(m[2]);
                 if (act?.content) ci.trigContent[m[1]] = act.content;
                 else if (act?.game) ci.trigGame[m[1]] = act.game;
+                else if (act?.table) ci.trigTable[m[1]] = act.table;
             }
             // path.useHandCursor = false -> nao interativo
             const reDis = /([\w.]+)\.useHandCursor\s*=\s*false/g;
@@ -1753,7 +1758,8 @@ export class MovieRoom {
                 const ex = e.name && this.exits[e.name];
                 const tc = e.name && this.interactions?.trigContent?.[e.name];
                 const tg = e.name && this.interactions?.trigGame?.[e.name];
-                if (!ex && !tc && !tg) continue;
+                const tt = e.name && this.interactions?.trigTable?.[e.name];
+                if (!ex && !tc && !tg && !tt) continue;
                 const canvas = document.createElement('canvas');
                 canvas.width = cw; canvas.height = ch;
                 await this.renderLayer(e, canvas, scale, trigEntry.matrix);
@@ -1762,6 +1768,7 @@ export class MovieRoom {
                     ...(ex || { room: null, x: 0, y: 0 }),
                     ...(tc ? { content: tc } : {}),
                     ...(tg ? { game: tg } : {}),
+                    ...(tt ? { table: tt } : {}),
                     grid: this._alphaGrid(canvas),
                 });
             }
@@ -1793,7 +1800,7 @@ export class MovieRoom {
     triggerAt(x, y) {
         for (const t of this._triggers || []) {
             if (this._gridHit(t.grid, x, y, this._colScale))
-                return { room: t.room, x: t.x, y: t.y, content: t.content, game: t.game };
+                return { room: t.room, x: t.x, y: t.y, content: t.content, game: t.game, table: t.table };
         }
         return null;
     }

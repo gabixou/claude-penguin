@@ -451,19 +451,12 @@ export function handleGameOp(ws, session, packet) {
         return true;
     }
     if (op === 'CARDJITSU_RESULT') {
-        const won = !!data.won;
-        db.prepare(`INSERT INTO cardjitsu (player_id, xp, level, wins, losses, updated_at) VALUES (?,?,?,?,?,?)
-                    ON CONFLICT(player_id) DO UPDATE SET
-                      xp = cardjitsu.xp + excluded.xp,
-                      wins = cardjitsu.wins + excluded.wins,
-                      losses = cardjitsu.losses + excluded.losses,
-                      level = MIN(10, 1 + (cardjitsu.xp + excluded.xp) / 500),
-                      updated_at = excluded.updated_at`)
-            .run(pid, won ? 100 : 25, 1, won ? 1 : 0, won ? 0 : 1, now());
-        reply(ws, true, {});
+        // Resultado vindo do cliente nao vale mais ("ganhei" era farm de
+        // XP): partidas de Card-Jitsu sao arbitradas no servidor
+        // (tables.js) e gravam o progresso sozinhas.
+        fail(ws, 'Jogue uma partida de Card-Jitsu (TABLE_JOIN game=card)');
         return true;
     }
-
     // ---- EPF / missões ----
     if (op === 'EPF_STATE') { reply(ws, true, epfState(pid)); return true; }
     if (op === 'EPF_CLAIM') {

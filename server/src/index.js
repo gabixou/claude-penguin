@@ -18,6 +18,7 @@ import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
 import * as worlds from './worlds.js';
 import * as game from './game.js';
+import * as tables from './tables.js';
 import * as parties from './parties.js';
 import log from './log.js';
 import { createAdminServer, setHooks as setAdminHooks } from './admin.js';
@@ -286,6 +287,20 @@ game.setGameHooks({
     getSocket: (playerId) => findSocketByPlayerId(playerId),
 });
 
+// Jogos de mesa autoritativos: moedas pagas pelo servidor -> atualiza o
+// PLAYER_DATA do jogador (coins no HUD/card) e as missoes EPF
+tables.setTableHooks({
+    getSocket: (playerId) => findSocketByPlayerId(playerId),
+    onCoins: (playerId, amount) => {
+        const ws = findSocketByPlayerId(playerId);
+        const session = ws && clientPlayerData.get(ws);
+        const playerData = playerStore.getPublicPlayerData(playerId);
+        if (session) session.coins = playerData.coins;
+        if (ws && ws.readyState === WebSocket.OPEN) sendPlayerData(ws, playerData, session?.sessionToken);
+        game.noteMission(playerId, 'earn_coins', amount);
+    },
+});
+
 // Virada de festa: quando a festa ativa muda (relógio do servidor),
 // avisa todos os jogadores autenticados com PARTY_UPDATE.
 let lastPartyId = parties.activeParty()?.id ?? null;
@@ -382,6 +397,9 @@ function handlePacket(ws, req, packet) {
 
     // Ops de sistemas de jogo exigem jogador autenticado
     const gameSession = clientPlayerData.get(ws);
+    if (gameSession?.playerId && tables.handleTableOp(ws, gameSession, packet)) {
+        return;
+    }
     if (gameSession?.playerId && game.handleGameOp(ws, gameSession, packet)) {
         return;
     }
@@ -873,6 +891,8 @@ function handlePacket(ws, req, packet) {
                 sendError(ws, 'INVALID_ROOM', 'Sala inválida');
                 return;
             }
+            // mesa de jogo de outra sala: levantar ao sair dela
+            tables.leaveRoomTables(session.playerId, roomId);
             // Lotação máxima por sala
             const room = getRoom(roomId);
             if (room.size >= roomCfg.maxPlayers) {
@@ -1234,6 +1254,8 @@ function handleDisconnect(ws, log = true) {
     if (!session) return;
 
     const { roomId, playerId, username } = session;
+    // desconectar no meio de uma partida = desistencia
+    if (playerId) tables.leaveAll(playerId);
     const room = rooms.get(roomId);
     if (room) {
         room.delete(playerId);
