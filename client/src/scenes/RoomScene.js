@@ -396,8 +396,9 @@ export default class RoomScene extends Phaser.Scene {
             this.createPlayerModal?.onServerResponse?.(true);
             this.authModal?.onServerResponse?.(true);
             this.setPasswordModal?.onServerResponse?.(true);
-            // Conta sem senha dentro do prazo de migração: oferece definir senha
-            if (data.needsPasswordSetup && data.legacyGraceActive && !this._pwPromptShown) {
+            // Conta legada sem senha (token antigo ou CLAIM_ACCOUNT):
+            // oferece definir senha. Guests novos entram direto.
+            if (data.passwordSetupOffered && !this._pwPromptShown) {
                 this._pwPromptShown = true;
                 setTimeout(() => this.setPasswordModal?.open(), 600);
             }
@@ -1148,7 +1149,7 @@ export default class RoomScene extends Phaser.Scene {
             })
             .catch((e) => {
                 releaseHold();
-                console.warn('[movie] falha ao carregar pack', pack, e);
+                console.warn('[movie] falha ao carregar pack', base, e);
                 if (this.currentRoom === roomKey) this._showRoomFail(roomKey);
             });
     }
