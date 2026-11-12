@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="52px" height="52px" viewBox="0 0 52 52">
+  <defs>
+    <clipPath id="disc"><circle cx="0" cy="0" r="24.7"/></clipPath>
+    <radialGradient id="shade" cx="-4.8" cy="-6.3" r="31" gradientUnits="userSpaceOnUse">
+      <stop offset="0.655" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(26.25 26.25)">
+    <g clip-path="url(#disc)"><rect x="-25" y="-25" width="50" height="16.72" fill="#2f6fc0"/><rect x="-25" y="-8.33" width="50" height="16.72" fill="#ffffff"/><rect x="-25" y="8.33" width="50" height="16.72" fill="#f2a0b4"/><text x="0" y="1.4" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="4.1" text-anchor="middle" fill="#2f6fc0">TRABALHA E CONFIA</text></g>
+    <circle r="24.7" fill="url(#shade)"/>
+    <circle r="24.6" fill="none" stroke="#141414" stroke-width="2"/>
+  </g>
+</svg>

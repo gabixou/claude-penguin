@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="52px" height="52px" viewBox="0 0 52 52">
+  <defs>
+    <clipPath id="disc"><circle cx="0" cy="0" r="24.7"/></clipPath>
+    <radialGradient id="shade" cx="-4.8" cy="-6.3" r="31" gradientUnits="userSpaceOnUse">
+      <stop offset="0.655" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(26.25 26.25)">
+    <g clip-path="url(#disc)"><rect x="-26" y="-26" width="52" height="52" fill="#ffffff"/><polygon points="26,-12 26,26 -12,26" fill="#0b7d3a"/><polygon points="-26,-26 12,-26 -26,12" fill="#1d3f91"/><polygon points="-12,-17.8 -10.64,-13.88 -6.48,-13.79 -9.79,-11.28 -8.59,-7.31 -12,-9.68 -15.41,-7.31 -14.21,-11.28 -17.52,-13.79 -13.36,-13.88" fill="#ffd500"/></g>
+    <circle r="24.7" fill="url(#shade)"/>
+    <circle r="24.6" fill="none" stroke="#141414" stroke-width="2"/>
+  </g>
+</svg>
