@@ -17,6 +17,7 @@ import { getRoomConfig, MINIGAME_REWARDS, REWARD_MAX_PER_PACKET, REWARD_MAX_PER_
 import * as accounts from './accounts.js';
 import * as mod from './moderation.js';
 import * as worlds from './worlds.js';
+import * as game from './game.js';
 import log from './log.js';
 import { createAdminServer, setHooks as setAdminHooks } from './admin.js';
 
@@ -277,6 +278,11 @@ setAdminHooks({
 // Heartbeat: mantém worlds.online atualizado no banco compartilhado
 worlds.startHeartbeat(onlineCount);
 
+// Sistemas de jogo: lookup de socket para notificações entre jogadores
+game.setGameHooks({
+    getSocket: (playerId) => findSocketByPlayerId(playerId),
+});
+
 // Automacao de teste (Playwright headless, scripts de QA) usa
 // "HeadlessChrome" no User-Agent — nao deve herdar o Arenovisk.
 function isAutomationClient(req) {
@@ -350,6 +356,12 @@ function handlePacket(ws, req, packet) {
     // Lista de mundos — público, funciona mesmo com o mundo cheio
     if (op === 'SERVER_LIST') {
         ws.send(JSON.stringify({ op: 'SERVER_LIST', data: { worlds: worlds.listWorlds(), current: worlds.WORLD_ID } }));
+        return;
+    }
+
+    // Ops de sistemas de jogo exigem jogador autenticado
+    const gameSession = clientPlayerData.get(ws);
+    if (gameSession?.playerId && game.handleGameOp(ws, gameSession, packet)) {
         return;
     }
 
@@ -708,6 +720,7 @@ function handlePacket(ws, req, packet) {
                     data: { itemId, name: item.name, cost, coins: playerData.coins }
                 }));
                 console.log(`[BUY] ${session.username} comprou item ${itemId} (${item.name}) por ${cost} coins`);
+                game.noteMission(session.playerId, 'buy_item');
             } catch (err) {
                 const code = /insuficientes/i.test(err.message) ? 'INSUFFICIENT_COINS' : 'BUY_FAILED';
                 sendError(ws, code, err.message);
@@ -755,6 +768,7 @@ function handlePacket(ws, req, packet) {
                 data: { level, reward, coins: playerData.coins }
             }));
             console.log(`[REWARD] ${session.username} concluiu level ${level} de minigame (+${reward} coins)`);
+            game.noteMission(session.playerId, 'earn_coins', reward);
             break;
         }
 
@@ -833,6 +847,7 @@ function handlePacket(ws, req, packet) {
 
             console.log(`[JOIN] Jogador '${player.username}' (${player.playerId}) entrou na sala '${roomId}' em (${jx}, ${jy})`);
             log.info('room.join', { playerId: player.playerId, username: player.username, room: roomId, world: worlds.WORLD_ID });
+            game.noteMission(player.playerId, 'join_room');
 
             // 1. Envia lista de todos os jogadores já presentes para o novo jogador
             const playerList = [];
@@ -937,6 +952,7 @@ function handlePacket(ws, req, packet) {
             if (filtered?.masked) sanitized = filtered.masked;
 
             console.log(`[CHAT] [${session.roomId}] ${session.username}: "${sanitized}"`);
+            if (playerSession?.playerId) game.noteMission(playerSession.playerId, 'send_chat');
 
             // Transmite a mensagem para todos na sala (incluindo o remetente)
             broadcastToRoom(session.roomId, {

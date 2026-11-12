@@ -28,6 +28,7 @@ import AuthModal from '../ui/AuthModal.js';
 import { RecoveryCodeModal, SetPasswordModal } from '../ui/AccountModals.js';
 import ModMenu from '../ui/ModMenu.js';
 import ModPanel from '../ui/ModPanel.js';
+import GamePanel from '../ui/GamePanel.js';
 import { colorItemToRgb, DEFAULT_COLOR_ITEM_ID } from '../items/colors.js';
 import { WORLD_W, WORLD_H, computeSupersample } from '../display.js';
 import { RoomInteractions } from '../room/RoomInteractions.js';
@@ -142,6 +143,7 @@ export default class RoomScene extends Phaser.Scene {
         this.recoveryCodeModal = new RecoveryCodeModal();
         this.setPasswordModal = new SetPasswordModal(this);
         this.modMenu = new ModMenu(this);
+        this.gamePanel = new GamePanel(this);
         this._pwPromptShown = false;
         this._lastChat = null; // último chat de outro jogador (para denúncia)
 
@@ -453,6 +455,7 @@ export default class RoomScene extends Phaser.Scene {
         window.__penguin = this.localPlayer; // debug
         this._updateCoinsDisplay();
         this._maybeShowAdminButton();
+        this._maybeShowSystemsButton();
 
         // Se já estava autenticado, entra na sala
         if (this.network.isConnected) {
@@ -472,6 +475,17 @@ export default class RoomScene extends Phaser.Scene {
         b.onclick = () => window.open(url, '_blank');
         document.body.appendChild(b);
         this._adminBtn = b;
+    }
+
+    // Botão "Sistemas" para todos — abre o GamePanel (amigos, correio, etc.)
+    _maybeShowSystemsButton() {
+        if (this._systemsBtn || typeof document === 'undefined') return;
+        const b = document.createElement('button');
+        b.textContent = '☰ Sistemas';
+        b.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:90001;padding:6px 12px;font:700 12px Arial,sans-serif;background:#2c6e49;color:#fff;border:1px solid #4a8a6a;border-radius:8px;cursor:pointer;';
+        b.onclick = () => this.gamePanel?.open?.('friends');
+        document.body.appendChild(b);
+        this._systemsBtn = b;
     }
 
     // Atualiza display de coins (HUD)

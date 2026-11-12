@@ -474,9 +474,10 @@ export default class PlayerCard {
                 }
                 break;
             case 'ignore':
-                // lista de ignorados — Fase 6
-                if (this.penguin) {
-                    scene.localPlayer?.showChat?.(`(ignore em ${this.penguin.username} — em breve)`);
+                // lista de ignorados (sistemas de jogo)
+                if (this.penguin?.playerId && this.penguin !== scene.localPlayer) {
+                    scene.network?.send('IGNORE_ADD', { playerId: this.penguin.playerId });
+                    scene.localPlayer?.showChat?.(`Você agora ignora ${this.penguin.username}.`);
                 }
                 break;
             case 'report':
@@ -487,13 +488,20 @@ export default class PlayerCard {
                 }
                 break;
             case 'buddy':
-            case 'home':
-            case 'mail':
-            case 'stamps':
-                // acoes sociais ainda nao tem suporte no backend — so feedback
-                if (this.penguin) {
-                    scene.localPlayer?.showChat?.(`(${action} em ${this.penguin.username} — em breve)`);
+                // amizade mútua (sistemas de jogo)
+                if (this.penguin?.playerId && this.penguin !== scene.localPlayer) {
+                    scene.network?.send('FRIEND_ADD', { playerId: this.penguin.playerId });
+                    scene.localPlayer?.showChat?.(`${this.penguin.username} adicionado aos amigos.`);
                 }
+                break;
+            case 'home':
+                scene.gamePanel?.open?.('igloo');
+                break;
+            case 'mail':
+                scene.gamePanel?.open?.('mail', { mailTo: this.penguin?.username });
+                break;
+            case 'stamps':
+                scene.gamePanel?.open?.('stamps');
                 break;
         }
     }
