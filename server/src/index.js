@@ -321,13 +321,16 @@ function generateGuestName() {
 
 // Aplica daily bonus, monta a sessao e envia PLAYER_DATA — fluxo comum
 // tanto para jogador existente quanto para guest recem-criado.
-function sendPlayerSession(ws, player, sessionToken) {
+// offerPasswordSetup: só contas legadas (sem senha, pré-fase-2) veem o
+// prompt "defina sua senha" — guests novos entram direto no jogo.
+function sendPlayerSession(ws, player, sessionToken, offerPasswordSetup = false) {
     const playerData = playerStore.getPublicPlayerData(player.player_id);
     const coinsBefore = playerData.coins;
     const withBonus = auth.applyDailyBonusIfNeeded(player.player_id);
     const finalData = playerStore.getPublicPlayerData(withBonus.player_id);
     const bonus = finalData.coins - coinsBefore;
     if (bonus > 0) finalData.dailyBonus = bonus;
+    if (offerPasswordSetup) finalData.passwordSetupOffered = true;
 
     clientPlayerData.set(ws, {
         playerId: player.player_id,
@@ -345,9 +348,9 @@ function sendPlayerSession(ws, player, sessionToken) {
 
 // Emite sessão nova e envia PLAYER_DATA (+ ACCOUNT_INFO opcional com
 // código de recuperação — mostrado uma única vez ao jogador).
-function sendAccountSession(ws, req, player, accountInfo = null) {
+function sendAccountSession(ws, req, player, accountInfo = null, offerPasswordSetup = false) {
     const sessionToken = auth.issueSession(player, req);
-    const data = sendPlayerSession(ws, player, sessionToken);
+    const data = sendPlayerSession(ws, player, sessionToken, offerPasswordSetup);
     if (accountInfo) {
         ws.send(JSON.stringify({ op: 'ACCOUNT_INFO', data: accountInfo }));
     }
@@ -403,7 +406,10 @@ function handlePacket(ws, req, packet) {
                     const b = banErrorData(activeBanFor(result.player.player_id));
                     sendError(ws, b.code, b.message);
                 } else {
-                    sendPlayerSession(ws, result.player, result.sessionToken);
+                    // Token legado (players.session_token) = conta pré-fase-2
+                    // sem senha: oferece o fluxo "defina sua senha".
+                    sendPlayerSession(ws, result.player, result.sessionToken,
+                        result.via === 'legacy' && !result.player.has_password);
                     console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado`);
                 }
             } else if (data.guest || data.forceGuest) {
@@ -602,7 +608,7 @@ function handlePacket(ws, req, packet) {
                 return;
             }
             accounts.authAttemptSucceeded('account', key);
-            sendAccountSession(ws, req, player);
+            sendAccountSession(ws, req, player, null, true);
             console.log(`[CLAIM] '${player.username}' (${player.player_id}) reivindicada para definir senha`);
             break;
         }
