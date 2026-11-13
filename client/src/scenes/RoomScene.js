@@ -1063,6 +1063,9 @@ export default class RoomScene extends Phaser.Scene {
         if (this._booting) this.loadingScreen?.showBoot();
         else this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
         mark(`room-load:${roomKey}`);
+        // iglu: a location e o fundo da sala — carrega o pack dela em
+        // paralelo ao pack do iglu para o loader cobrir os dois
+        if (roomKey === 'igloo') MovieRoom.load('/assets/movies/igloo-loc1').catch(() => {});
         // Otimista: se esta sala ja esta sendo pre-renderizada em segundo
         // plano (vizinha da anterior / jogador clicou na porta), promove o
         // job para urgente e espera ele gravar o cache — terminar o que ja
@@ -1143,26 +1146,32 @@ export default class RoomScene extends Phaser.Scene {
                     mark(`room-ready:${roomKey}${cacheHit ? ':cache' : ''}`);
                     this._movieReady = true;
                     this._booting = false;
-                    this.loadingScreen?.hide();
-                    // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
-                    // (ficou na fila durante o load para nao competir)
-                    PenguinLibrary.startWarm?.();
-                    // cache hit: decodifica os SVGs da sala aos poucos, em
-                    // idle — prontos quando os overlays animarem
-                    if (cacheHit) movie.prefetchSvgs(4);
-                    // otimista: salas vizinhas ja rasterizadas no cache e
-                    // minigames da sala ja baixados antes do clique
-                    this._prerenderAdjacent();
-                    this._prefetchMinigames(movie);
-                    // prefetch idle dos packs das salas nao visitadas (IDB)
-                    this._prefetchRoomsIdle();
-                    // garante que o pinguim está em posição acessível
-                    this._applySafeSpawn();
-                    // iglu: location de fundo + puffles vagando
+                    const finish = () => {
+                        this.loadingScreen?.hide();
+                        // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
+                        // (ficou na fila durante o load para nao competir)
+                        PenguinLibrary.startWarm?.();
+                        // cache hit: decodifica os SVGs da sala aos poucos, em
+                        // idle — prontos quando os overlays animarem
+                        if (cacheHit) movie.prefetchSvgs(4);
+                        // otimista: salas vizinhas ja rasterizadas no cache e
+                        // minigames da sala ja baixados antes do clique
+                        this._prerenderAdjacent();
+                        this._prefetchMinigames(movie);
+                        // prefetch idle dos packs das salas nao visitadas (IDB)
+                        this._prefetchRoomsIdle();
+                        // garante que o pinguim está em posição acessível
+                        this._applySafeSpawn();
+                        // iglu: puffles vagando (a location ja foi aguardada)
+                        if (roomKey === 'igloo') this._syncIglooPets();
+                    };
+                    // iglu: segura o loader ate a location (fundo) estar
+                    // desenhada — sem isso aparecia fundo preto por segundos
                     if (roomKey === 'igloo') {
-                        this._setupIglooLocation();
-                        this._syncIglooPets();
-                    }
+                        this._setupIglooLocation()
+                            .catch((e) => console.warn('[igloo] location', e))
+                            .finally(finish);
+                    } else finish();
                 };
                 // Rasteriza as layers em LANES paralelas: o grosso do tempo
                 // de _renderSegment e espera de decode/raster (artCanvas /
