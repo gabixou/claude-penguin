@@ -106,19 +106,37 @@ const OWNER_EMOTE_FRAMES = { 25: 27, 26: 35 };
 // duracao em ticks a 24fps (~4s) — o gp usa nl[type] por especie (100-260)
 const CARE_TICKS = { play: 96, rest: 72, eat: 60, cookie: 60, gum: 60, bath: 72 };
 
+// serial p/ depth dos pets do iglu (mesma formula do Penguin:
+// 901 + serial*0.01 + 1000*floor(y))
+let iglooPetSerial = 0;
+
 export default class PuffleView {
-    // pet: {petRowId, species, name}; owner: Penguin (local ou remoto)
-    constructor(scene, pet, owner) {
+    // pet: {petRowId, species, name}; owner: Penguin (local ou remoto).
+    // owner=null + opts.igloo -> pet "morrando" no iglu: vaga pelo
+    // pet_area sem seguir ninguem (Fase 3).
+    constructor(scene, pet, owner, opts = {}) {
         this.scene = scene;
         this.pet = pet;
-        this.owner = owner;
+        this.owner = owner || null;
+        this._igloo = !owner;
         this.color = SPECIES_SPRITE[pet.species] || null;
-        // puffle fica a DIREITA do pinguim: [penguin] [puffle] — como no
-        // original (print do Papirolo) e no gopenguin (Rockhopper)
-        // spawn junto ao offset de follow (medido contra o sprite real:
-        // ty=owner.y alinha a base do puffle com a dos pes do pinguim)
-        this.x = owner.x + 30;
-        this.y = owner.y;
+        if (this._igloo) {
+            const h = opts.home || { x: 390, y: 345 };
+            this._home = h;
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 60;
+            this.x = h.x + Math.cos(a) * r;
+            this.y = h.y + Math.sin(a) * r * 0.55;
+            this._iglooSerial = ++iglooPetSerial;
+            this._idle = 0;
+        } else {
+            // puffle fica a DIREITA do pinguim: [penguin] [puffle] — como no
+            // original (print do Papirolo) e no gopenguin (Rockhopper)
+            // spawn junto ao offset de follow (medido contra o sprite real:
+            // ty=owner.y alinha a base do puffle com a dos pes do pinguim)
+            this.x = owner.x + 30;
+            this.y = owner.y;
+        }
         this.tx = this.x; this.ty = this.y;
         this.dir = 5;          // 1-8, mesma convencao do Penguin.directionToward
         this.walking = true;   // sprite entra andando até alcançar o dono
@@ -179,6 +197,12 @@ export default class PuffleView {
     }
 
     _syncDepth() {
+        if (this._igloo) {
+            // sem dono: depth por Y como os pinguins (intercala com as
+            // layers do cenario na mesma escala)
+            this.container.setDepth(901 + this._iglooSerial * 0.01 + 1000 * Math.floor(this.y));
+            return;
+        }
         // sempre 1 camada atras do dono — o offset +8 em y fazia o pet
         // pular de faixa de depth e renderizar NA FRENTE do pinguim
         // (parecia um borrão colado nos pes)
@@ -195,11 +219,9 @@ export default class PuffleView {
         this._care = { frame, ticks: 0, max: CARE_TICKS[kind] || 60 };
     }
 
-    // desenho estatico de um frame (emote/cuidado): para no lugar, sem follow
-    _still(dt) {
-        this.container.setPosition(this.x, this.y);
-        this._syncDepth();
-        this._draw();
+    // playheads dos sub-clips a ~24fps como o frameRate do SWF —
+    // chamar advance() todo frame (60fps) acelerava o ciclo de passos
+    _advanceAnims(dt) {
         this._animAcc += dt;
         if (this._animAcc >= 1 / 24) {
             this._animAcc %= 1 / 24;
@@ -207,11 +229,82 @@ export default class PuffleView {
         }
     }
 
-    // chamado pelo RoomScene.update — segue o dono como no original
+    // desenho estatico de um frame (emote/cuidado): para no lugar, sem follow
+    _still(dt) {
+        this.container.setPosition(this.x, this.y);
+        this._syncDepth();
+        this._draw();
+        this._advanceAnims(dt);
+    }
+
+    // pet do iglu: vago pelo pet_area — anda ate um ponto, fica idle um
+    // tempo, escolhe outro. Mesma convencao de frames do follow.
+    _pickIglooTarget() {
+        const h = this._home || { x: 390, y: 345 };
+        const mv = this.scene.movie;
+        for (let i = 0; i < 10; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = 30 + Math.random() * 90;
+            const x = Math.round(h.x + Math.cos(a) * r);
+            const y = Math.round(h.y + Math.sin(a) * r * 0.55);
+            // isValidSpawn cobre bounds + block_mc + zonas de trigger
+            // (map_mc); antes do buildCollision (~1.5s) aceita tudo
+            if (mv?.isValidSpawn && !mv.isValidSpawn(x, y)) continue;
+            this._wtx = x; this._wty = y;
+            return;
+        }
+        this._wtx = null; this._wty = null;
+    }
+
+    _tickIgloo(dt) {
+        const arrived = !this._wtx
+            || Math.hypot(this._wtx - this.x, this._wty - this.y) < 5;
+        if (arrived) {
+            this._idle += dt;
+            if (this._idle < 1.5 + Math.random() * 3) {
+                this.walking = false;
+                this.frame = standFrame(this.dir);
+                this.container.setPosition(this.x, this.y);
+                this._syncDepth();
+                this._draw();
+                this._advanceAnims(dt);
+                return;
+            }
+            this._idle = 0;
+            this._pickIglooTarget();
+            if (!this._wtx) {
+                this.walking = false;
+                this.container.setPosition(this.x, this.y);
+                this._syncDepth();
+                this._draw();
+                this._advanceAnims(dt);
+                return;
+            }
+        }
+        const dx = this._wtx - this.x, dy = this._wty - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 2) {
+            const sp = 80 * dt; // vagar mais devagar que o follow (144)
+            const step = Math.min(dist, sp);
+            this.x += dx / dist * step;
+            this.y += dy / dist * step;
+            this.walking = true;
+            this.dir = ((Math.round((Math.atan2(dy, dx) * 180 / Math.PI - 90) / 45) % 8) + 8) % 8 + 1;
+        } else {
+            this.walking = false;
+        }
+        this.frame = this.walking ? walkFrame(this.dir) : standFrame(this.dir);
+        this.container.setPosition(this.x, this.y);
+        this._syncDepth();
+        this._draw();
+        this._advanceAnims(dt);
+    }
+
+    // chamado pelo RoomScene.update — segue o dono ou vaga no iglu
     tick(dt) {
-        if (!this._ready || !this.owner || this._dead) return;
-        const o = this.owner;
-        // reacao de cuidado tem prioridade: congela o follow ate acabar
+        if (!this._ready || this._dead) return;
+        // reacao de cuidado tem prioridade: congela o follow/vagabundo
+        // ate acabar (vale pros dois modos — owner ou iglu)
         if (this._care) {
             if (++this._care.ticks > this._care.max) { this._care = null; this._emoteActive = false; }
             else {
@@ -221,6 +314,8 @@ export default class PuffleView {
                 return;
             }
         }
+        if (!this.owner) { this._tickIgloo(dt); return; }
+        const o = this.owner;
         // Emotes do dono (frames do penguin.swf): wave=25 -> puffle "play"
         // (27), dance=26 -> puffle misc 35 (balanceio = danca); sit (17-24)
         // -> puffle "rest" (25). Cada misc frame e uma sub-animacao que os
@@ -270,13 +365,7 @@ export default class PuffleView {
         this.container.setPosition(this.x, this.y);
         this._syncDepth();
         this._draw();
-        // playheads dos sub-clips a ~24fps como o frameRate do SWF —
-        // chamar advance() todo frame (60fps) acelerava o ciclo de passos
-        this._animAcc += dt;
-        if (this._animAcc >= 1 / 24) {
-            this._animAcc %= 1 / 24;
-            this.clip?.advance?.();
-        }
+        this._advanceAnims(dt);
     }
 
     async _draw() {
