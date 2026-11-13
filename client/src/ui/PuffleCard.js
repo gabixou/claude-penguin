@@ -15,9 +15,10 @@ const SCALE = 2;
 const IDENT = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
 const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
 
-// botoes de cuidado (frame 2) -> acao PET_CARE do server
+// botoes de cuidado (frame 2) -> acao PET_CARE do server; cada um mapeia
+// pra um frame de reacao do puffle (gum=29, cookie=30, eat=31, bath=34)
 const CARE_ACTIONS = {
-    gum_btn: 'feed', cookie_btn: 'feed', food_btn: 'feed', bath_btn: 'rest',
+    gum_btn: 'gum', cookie_btn: 'cookie', food_btn: 'eat', bath_btn: 'bath',
 };
 
 export default class PuffleCard {
