@@ -11,6 +11,8 @@ import auth from './auth.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
+import { checkText, allowChat, hashTerm } from './chatFilter.js';
+import * as social from './socialStore.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -116,6 +118,90 @@ function broadcastToRoom(roomId, message, excludeSocket = null) {
         }
     }
 }
+
+// ---------- Social / moderacao (fase 1) ----------
+
+// ids de jogadores com socket autenticado e em alguma sala
+function onlinePlayerIds() {
+    const set = new Set();
+    for (const p of clientSessions.values()) set.add(p.playerId);
+    return set;
+}
+
+// cache de ignore-sets por playerId (invalidado nas operacoes IGNORE_*)
+const ignoreCache = new Map();
+function ignoreSetOf(playerId) {
+    let s = ignoreCache.get(playerId);
+    if (!s) { s = social.getIgnoreSet(playerId); ignoreCache.set(playerId, s); }
+    return s;
+}
+function invalidateIgnore(playerId) { ignoreCache.delete(playerId); }
+
+// envia snapshot social completo: buddies+requests, ignores, pets
+function sendSocial(ws) {
+    const session = clientPlayerData.get(ws);
+    if (!session || !session.playerId) return;
+    const online = onlinePlayerIds();
+    const { buddies, requests } = social.getBuddyData(session.playerId, online);
+    ws.send(JSON.stringify({
+        op: 'SOCIAL_UPDATE',
+        data: {
+            buddies,
+            requests,
+            ignores: social.getIgnores(session.playerId),
+            pets: social.getPets(session.playerId),
+            petSpecies: social.listPetSpecies()
+        }
+    }));
+}
+
+// notifica um playerId online (se houver socket) com um op arbitrario
+function notifyPlayer(playerId, message) {
+    for (const p of clientSessions.values()) {
+        if (p.playerId === playerId && p.socket.readyState === WebSocket.OPEN) {
+            p.socket.send(JSON.stringify(message));
+            return true;
+        }
+    }
+    return false;
+}
+
+// chat filtrado por ignore: destinatarios que ignoram o remetente nao recebem
+function broadcastChat(roomId, message) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    const senderId = message.data.playerId;
+    const payloads = new Map(); // socket -> payload (sender sempre recebe)
+    for (const [pid, p] of room.entries()) {
+        if (p.socket.readyState !== WebSocket.OPEN) continue;
+        if (pid !== senderId && ignoreSetOf(pid).has(senderId)) continue;
+        payloads.set(p.socket, JSON.stringify(message));
+    }
+    for (const [sock, payload] of payloads) sock.send(payload);
+}
+
+function findSessionSocket(playerId) {
+    for (const p of clientSessions.values()) {
+        if (p.playerId === playerId && p.socket.readyState === WebSocket.OPEN) return p.socket;
+    }
+    return null;
+}
+
+// envia SOCIAL_UPDATE para o ws dono de um playerId (se online)
+function sendSocialToPlayer(playerId) {
+    const ws = findSessionSocket(playerId);
+    if (ws) sendSocial(ws);
+}
+
+function refreshCoins(ws, session) {
+    const pd = playerStore.getPublicPlayerData(session.playerId);
+    session.coins = pd.coins;
+    sendPlayerData(ws, pd, session.sessionToken);
+    return pd;
+}
+
+// cooldown de cuidado de pet: "playerId:petRowId" -> timestamp
+const petCareCooldown = new Map();
 
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
@@ -291,6 +377,11 @@ function handlePacket(ws, req, packet) {
             }
 
             const { username, colorItemId = 1 } = data;
+            // moderacao: username passa pelo mesmo filtro de chat
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
             try {
                 const result = auth.createNewPlayer(session.ip, username, colorItemId);
                 const playerData = playerStore.getPublicPlayerData(result.player.player_id);
@@ -412,6 +503,10 @@ function handlePacket(ws, req, packet) {
             }
 
             const { username } = data;
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
             try {
                 const updated = playerStore.renamePlayer(session.playerId, username);
                 const playerData = playerStore.getPublicPlayerData(session.playerId);
@@ -535,10 +630,22 @@ function handlePacket(ws, req, packet) {
             if (!message || !message.trim()) return;
 
             const sanitized = message.trim().substring(0, 120);
+
+            // moderacao: rate limit (~5 msg/10s) + blacklist server-side
+            if (!allowChat(session.playerId)) {
+                sendError(ws, 'CHAT_RATE_LIMITED', 'Você está enviando mensagens rápido demais');
+                return;
+            }
+            if (checkText(sanitized).blocked) {
+                console.warn(`[MOD] chat bloqueado player=${session.playerId} hash=${hashTerm(sanitized)}`);
+                sendError(ws, 'CHAT_FILTERED', 'Sua mensagem contém palavras não permitidas');
+                return;
+            }
+
             console.log(`[CHAT] [${session.roomId}] ${session.username}: "${sanitized}"`);
 
-            // Transmite a mensagem para todos na sala (incluindo o remetente)
-            broadcastToRoom(session.roomId, {
+            // Transmite a mensagem para todos na sala — exceto quem ignora o remetente
+            broadcastChat(session.roomId, {
                 op: 'SEND_CHAT',
                 data: {
                     playerId: session.playerId,
@@ -631,6 +738,201 @@ function handlePacket(ws, req, packet) {
                     color: colorItemId // compatibilidade
                 }
             }, ws);
+            break;
+        }
+
+        // ===================== SOCIAL (fase 1) =====================
+
+        case 'GET_SOCIAL': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'BUDDY_ADD': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const username = String(data.username || '').trim();
+            if (!username) { sendError(ws, 'INVALID_DATA', 'username obrigatório'); return; }
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            const res = social.addBuddy(session.playerId, username, onlinePlayerIds());
+            if (res.error) {
+                sendError(ws, res.error === 'NO_SUCH_PLAYER' ? 'NO_SUCH_PLAYER' : res.error, res.error);
+                break;
+            }
+            sendSocial(ws);
+            if (res.pending) {
+                // notifica o alvo se estiver online + refresh da lista dele
+                notifyPlayer(res.targetId, {
+                    op: 'BUDDY_REQUEST',
+                    data: { fromPlayerId: session.playerId, fromUsername: session.username }
+                });
+                sendSocialToPlayer(res.targetId);
+            } else if (res.autoAccepted) {
+                // aceite mutuo: notifica os dois lados
+                notifyPlayer(res.targetId, {
+                    op: 'BUDDY_ACCEPTED',
+                    data: { buddyPlayerId: session.playerId, buddyUsername: session.username }
+                });
+                sendSocialToPlayer(res.targetId);
+            }
+            console.log(`[BUDDY] ${session.username} -> '${username}' (${res.pending ? 'pending' : 'accepted'})`);
+            break;
+        }
+
+        case 'BUDDY_ACCEPT': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const requesterId = String(data.playerId || '');
+            const res = social.acceptBuddy(session.playerId, requesterId);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            const reqName = playerStore.getPlayerById(requesterId)?.username || requesterId;
+            notifyPlayer(requesterId, {
+                op: 'BUDDY_ACCEPTED',
+                data: { buddyPlayerId: session.playerId, buddyUsername: session.username }
+            });
+            // atualiza a lista do requester tambem
+            const reqWs = findSessionSocket(requesterId);
+            if (reqWs) {
+                const rs = clientPlayerData.get(reqWs);
+                if (rs) {
+                    const online = onlinePlayerIds();
+                    const bd = social.getBuddyData(rs.playerId, online);
+                    reqWs.send(JSON.stringify({ op: 'SOCIAL_UPDATE', data: {
+                        buddies: bd.buddies, requests: bd.requests,
+                        ignores: social.getIgnores(rs.playerId), pets: social.getPets(rs.playerId),
+                        petSpecies: social.listPetSpecies()
+                    }}));
+                }
+            }
+            console.log(`[BUDDY] ${session.username} aceitou pedido de '${reqName}'`);
+            break;
+        }
+
+        case 'BUDDY_DECLINE':
+        case 'BUDDY_CANCEL': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const targetId = String(data.playerId || '');
+            const res = op === 'BUDDY_DECLINE'
+                ? social.declineBuddy(session.playerId, targetId)
+                : social.cancelBuddyRequest(session.playerId, targetId);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            sendSocialToPlayer(targetId); // outro lado tambem atualiza
+            break;
+        }
+
+        case 'BUDDY_REMOVE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const buddyId = String(data.playerId || '');
+            social.removeBuddy(session.playerId, buddyId);
+            sendSocial(ws);
+            sendSocialToPlayer(buddyId);
+            break;
+        }
+
+        case 'IGNORE_ADD': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const res = social.ignorePlayer(session.playerId, String(data.playerId || ''));
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            invalidateIgnore(session.playerId);
+            sendSocial(ws);
+            console.log(`[IGNORE] ${session.username} ignorou ${data.playerId}`);
+            break;
+        }
+
+        case 'IGNORE_REMOVE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            social.unignorePlayer(session.playerId, String(data.playerId || ''));
+            invalidateIgnore(session.playerId);
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_ADOPT': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const species = String(data.species || '');
+            const sp = social.getPetSpecies(species);
+            if (!sp) { sendError(ws, 'UNKNOWN_SPECIES', 'Espécie desconhecida'); return; }
+            const player = playerStore.getPlayerById(session.playerId);
+            if (!player || player.coins < sp.cost) {
+                sendError(ws, 'INSUFFICIENT_COINS', 'Moedas insuficientes');
+                return;
+            }
+            if (checkText(data.name).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            playerStore.addCoins(session.playerId, -sp.cost);
+            const res = social.adoptPet(session.playerId, species, data.name);
+            if (res.error) { sendError(ws, res.error, res.error); return; }
+            refreshCoins(ws, session);
+            sendSocial(ws);
+            console.log(`[PET] ${session.username} adotou ${sp.name} por ${sp.cost} coins`);
+            break;
+        }
+
+        case 'PET_RENAME': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            if (checkText(data.name).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            const res = social.renamePet(session.playerId, Number(data.petRowId), data.name);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_RELEASE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const res = social.releasePet(session.playerId, Number(data.petRowId));
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_CARE': {
+            // {petRowId, action:'feed'|'play'} — restaura stats (cooldown 60s/pet)
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const petRowId = Number(data.petRowId);
+            const pet = social.getPet(session.playerId, petRowId);
+            if (!pet) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
+            const action = data.action;
+            if (action !== 'feed' && action !== 'play') { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
+            const key = `${session.playerId}:${petRowId}`;
+            const last = petCareCooldown.get(key) || 0;
+            const nowTs = Date.now();
+            if (nowTs - last < 60_000) {
+                sendError(ws, 'CARE_COOLDOWN', 'Aguarde um pouco antes de cuidar de novo');
+                return;
+            }
+            petCareCooldown.set(key, nowTs);
+            const fresh = social.getPets(session.playerId).find((p) => p.petRowId === petRowId);
+            if (!fresh) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
+            const nh = Math.min(100, fresh.hunger + (action === 'feed' ? 30 : 5));
+            const np = Math.min(100, fresh.happiness + (action === 'play' ? 30 : 5));
+            social.setPetStats(session.playerId, petRowId, nh, np);
+            sendSocial(ws);
             break;
         }
     }

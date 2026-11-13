@@ -29,6 +29,7 @@ import { WORLD_W, WORLD_H, computeSupersample } from '../display.js';
 import { RoomInteractions } from '../room/RoomInteractions.js';
 import { CatalogueOverlay } from '../ui/Catalogue.js';
 import { MinigameOverlay } from '../minigames/MinigameOverlay.js';
+import SocialPanel from '../ui/SocialPanel.js';
 
 // salas do clone -> pacote /swf/<pack>/ vetorial (timelines.json + SVGs).
 // Sem fallback: se o pack falhar, a sala mostra um retangulo de erro.
@@ -238,6 +239,8 @@ export default class RoomScene extends Phaser.Scene {
         this.playerCard = new PlayerCard(this);
         this.wardrobe = new Wardrobe(this);
         this.wardrobe.onClose = () => { this.clothesOpen = false; };
+        // 6d. Painel social (buddies/ignores/pets) — botao buddy do HUD
+        this.socialPanel = new SocialPanel(this);
 
         // 7. Modal do Mapa da Ilha e guarda-roupa
         this.createMapModal();
@@ -629,6 +632,13 @@ export default class RoomScene extends Phaser.Scene {
                 break;
             case 'igloo':
                 this.toggleClothes();
+                break;
+            case 'buddy':
+                this.socialPanel?.toggle();
+                break;
+            case 'mail':
+            case 'news':
+                this.localPlayer && this.localPlayer.showChat('Em breve!');
                 break;
             case 'help':
                 this.localPlayer && this.localPlayer.showChat('Precisa de ajuda? Visite a seccao Help!');

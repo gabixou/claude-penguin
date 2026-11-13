@@ -446,13 +446,38 @@ export default class PlayerCard {
                     this.nameChangeModal.open();
                 }
                 break;
-            case 'ignore':
+            case 'buddy': {
+                // add buddy por username (servidor resolve p/ playerId)
+                const net = scene.network;
+                const target = this.penguin;
+                if (!net || !target || target === scene.localPlayer) break;
+                if (net.isBuddy?.(target.playerId)) {
+                    scene.localPlayer?.showChat?.(`(${target.username} já é seu buddy)`);
+                } else {
+                    net.buddyAdd(target.username);
+                    scene.localPlayer?.showChat?.(`(pedido de buddy enviado para ${target.username})`);
+                }
+                break;
+            }
+            case 'ignore': {
+                // toggle ignore — chat do jogador some para mim
+                const net = scene.network;
+                const target = this.penguin;
+                if (!net || !target || target === scene.localPlayer) break;
+                if (net.isIgnored?.(target.playerId)) {
+                    net.ignoreRemove(target.playerId);
+                    scene.localPlayer?.showChat?.(`(não ignorando mais ${target.username})`);
+                } else {
+                    net.ignoreAdd(target.playerId);
+                    scene.localPlayer?.showChat?.(`(ignorando ${target.username} — chat e interações ocultas)`);
+                }
+                break;
+            }
             case 'report':
-            case 'buddy':
             case 'home':
             case 'mail':
             case 'stamps':
-                // acoes sociais ainda nao tem suporte no backend — so feedback
+                // acoes ainda sem backend — so feedback
                 if (this.penguin) {
                     scene.localPlayer?.showChat?.(`(${action} em ${this.penguin.username} — em breve)`);
                 }
