@@ -9,6 +9,10 @@ concurrency:
   group: devin-local-smoke
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   smoke:
     runs-on: self-hosted
@@ -16,10 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
+
+      # Queued runs can be superseded by newer pushes, so test from the last commit a run actually tested.
+      - name: Find last tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow devin-local-smoke.yml --branch master \
+            --status completed --limit 20 --json headSha,conclusion \
+            -q '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // empty' || true)
+          echo "PUSH_BEFORE=${last:-$EVENT_BEFORE}" >> "$GITHUB_ENV"
 
       - name: Run Devin Local smoke test
         env:
-          PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.sha }}
         run: devin -p --prompt-file .github/devin/smoke-test.md --permission-mode dangerous --respect-workspace-trust false
