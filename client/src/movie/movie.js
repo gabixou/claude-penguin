@@ -1880,6 +1880,40 @@ export class MovieRoom {
         return null;
     }
 
+    // Centroide da zona de trigger `name` em coords de mundo — usado como
+    // alvo de caminhada das mesas (o centro do game_btn nem sempre cai
+    // dentro da zona, ex.: table205 do lodge).
+    triggerCenter(name) {
+        const t = (this._triggers || []).find((tr) => tr.name === name);
+        if (!t?.grid) return null;
+        const s = this._colScale || 1;
+        let sx = 0, sy = 0, n = 0;
+        const { data, w, h } = t.grid;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (data[y * w + x] === 1) { sx += x; sy += y; n++; }
+            }
+        }
+        return n ? [Math.round(sx / n / s), Math.round(sy / n / s)] : null;
+    }
+
+    // Ponto livre mais proximo (sem trigger/bloqueio) — tira o pinguim da
+    // area da mesa ao fim da partida para nao travar a mesa p/ outros.
+    findFreePoint(x, y, maxR = 140) {
+        const ok = (ex, ey) =>
+            ex >= 20 && ex <= 740 && ey >= 20 && ey <= 430
+            && !this.triggerAt(ex, ey) && !this.hitBlock(ex, ey);
+        if (ok(x, y)) return { x, y };
+        for (let r = 8; r <= maxR; r += 8) {
+            for (let a = 0; a < 16; a++) {
+                const ex = Math.round(x + r * Math.cos((a * Math.PI) / 8));
+                const ey = Math.round(y + r * Math.sin((a * Math.PI) / 8));
+                if (ok(ex, ey)) return { x: ex, y: ey };
+            }
+        }
+        return null;
+    }
+
     // isValidSpawn: posição acessível (não bloqueada, não em saída, dentro dos limites)
     isValidSpawn(x, y) {
         if (x < 20 || x > 740 || y < 20 || y > 430) return false;

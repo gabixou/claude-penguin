@@ -149,8 +149,10 @@ export default class RoomScene extends Phaser.Scene {
             if (this.chatInputRef && document.activeElement === this.chatInputRef)
                 this.chatInputRef.blur();
 
-            // clique em cima de um pinguim abre o player card (nao anda)
-            const clicked = this._penguinAt(wx, wy);
+            // clique em cima de um pinguim abre o player card (nao anda).
+            // Botoes de cenario (mesas, portas) tem prioridade — sem isso um
+            // pinguim parado atras da mesa "roubava" o clique da mesa.
+            const clicked = btnDest ? null : this._penguinAt(wx, wy);
             if (clicked) { this.playerCard.open(clicked); return; }
             const targetX = btnDest ? btnDest.x : Math.round(wx);
             const targetY = btnDest ? btnDest.y : Math.round(wy);
@@ -1116,6 +1118,17 @@ export default class RoomScene extends Phaser.Scene {
         if (!this.tableGames) this.tableGames = new TableGames(this);
         if (this.tableGames.isOpen) return;
         this.tableGames.open({ game: table.game, room: this.currentRoom, tableId: table.id });
+    }
+
+    // Ao sair da mesa (desistir/fechar), o pinguim anda para o ponto livre
+    // mais proximo — ficar parado dentro do trigger impede outros de jogar.
+    _leaveTableArea(req) {
+        const lp = this.localPlayer;
+        if (!lp || !this.movie || this.currentRoom !== req?.room) return;
+        const p = this.movie.findFreePoint(lp.x, lp.y);
+        if (!p) return;
+        lp.moveTo(p.x, p.y, 150, () => lp.facePoint?.(p.x, p.y));
+        this.network.sendMove(p.x, p.y);
     }
 
     // Partida pelo painel (lobby ou contra o computador), sem mesa fisica
