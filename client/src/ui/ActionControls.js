@@ -1,6 +1,6 @@
 /**
  * ActionControls.js - Controles de ação clássicos do Club Penguin (somente teclado)
- * X=dance, Y=wave, B=sit/stand, C/V=throw(snowball), M=mapa
+ * D=dance, W=wave, S=sit/stand, T=throw(snowball), M=mapa
  * Sem botões visuais: gopenguin usa apenas hotkeys + dock inferior.
  */
 
@@ -15,11 +15,10 @@ export default class ActionControls {
         this._keyHandler = (event) => {
             if (event.repeat) return;
             switch ((event.key || '').toUpperCase()) {
-                case 'X': this.emit('dance'); break;
-                case 'Y': this.emit('wave'); break;
-                case 'B': this.toggleSit(); break;
-                case 'C':
-                case 'V': this.emit('throw'); break;
+                case 'D': this.emit('dance'); break;
+                case 'W': this.emit('wave'); break;
+                case 'S': this.toggleSit(); break;
+                case 'T': this.emit('throw'); break;
                 case 'M': this.emit('map'); break;
                 case 'I': this.emit('clothes'); break;
             }
