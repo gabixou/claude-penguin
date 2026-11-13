@@ -329,7 +329,7 @@ export class MovieRoom {
     //   disabled    = Set<path> (useHandCursor=false)
     // Port simplificado do parser 'ti/as' do bundle gopenguin.
     _parseInteractions() {
-        const ci = { click: {}, trigContent: {}, trigGame: {}, disabled: new Set() };
+        const ci = { click: {}, trigContent: {}, trigGame: {}, trigTable: {}, hint: {}, disabled: new Set() };
         const sources = [];
         const collect = (acts) => {
             for (const a of Object.values(acts || {})) {
@@ -347,6 +347,10 @@ export class MovieRoom {
             if (sc) return { content: sc[1] };
             const gm = /send(?:Join)?Game\(\s*["']([\w-]+)["']/.exec(body);
             if (gm) return { game: gm[1] };
+            const tb = /sendJoinTable\(\s*["'](\w+)["']\s*,\s*(\d+)/.exec(body);
+            if (tb) return { table: { game: tb[1], id: Number(tb[2]) } };
+            const wd = /sendJoinWaddle\(\s*["'](\w+)["']\s*,\s*(\d+)/.exec(body);
+            if (wd) return { table: { game: wd[1], id: Number(wd[2]) } };
             const jr = /sendJoinRoom\(\s*["']([\w-]+)["']\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(body);
             if (jr) return { room: jr[1], x: Number(jr[2]), y: Number(jr[3]) };
             return null;
@@ -366,6 +370,15 @@ export class MovieRoom {
                 const act = classify(m[2]);
                 if (act?.content) ci.trigContent[m[1]] = act.content;
                 else if (act?.game) ci.trigGame[m[1]] = act.game;
+                else if (act?.table) ci.trigTable[m[1]] = act.table;
+            }
+            // path.onRollOver = function() { INTERFACE.showHint(this,"x_hint"); }
+            const reOver = /([\w.]+)\.onRollOver\s*=\s*function\s*\(\s*\)\s*\{([\s\S]*?)\}/g;
+            while ((m = reOver.exec(src))) {
+                const h = /showHint\([^,]+,\s*["']([\w-]+)["']\)/.exec(m[2]);
+                // 'mc.game_btn' e parametro do setupTable(mc), nao path real —
+                // o sufixo 'game_btn' casaria com TODAS as mesas da sala
+                if (h && !m[1].startsWith('mc.')) ci.hint[m[1]] = h[1];
             }
             // path.useHandCursor = false -> nao interativo
             const reDis = /([\w.]+)\.useHandCursor\s*=\s*false/g;
@@ -1820,7 +1833,8 @@ export class MovieRoom {
                 const ex = e.name && this.exits[e.name];
                 const tc = e.name && this.interactions?.trigContent?.[e.name];
                 const tg = e.name && this.interactions?.trigGame?.[e.name];
-                if (!ex && !tc && !tg) continue;
+                const tt = e.name && this.interactions?.trigTable?.[e.name];
+                if (!ex && !tc && !tg && !tt) continue;
                 const canvas = document.createElement('canvas');
                 canvas.width = cw; canvas.height = ch;
                 await this.renderLayer(e, canvas, scale, trigEntry.matrix);
@@ -1829,6 +1843,7 @@ export class MovieRoom {
                     ...(ex || { room: null, x: 0, y: 0 }),
                     ...(tc ? { content: tc } : {}),
                     ...(tg ? { game: tg } : {}),
+                    ...(tt ? { table: tt } : {}),
                     grid: this._alphaGrid(canvas),
                 });
             }
@@ -1860,7 +1875,41 @@ export class MovieRoom {
     triggerAt(x, y) {
         for (const t of this._triggers || []) {
             if (this._gridHit(t.grid, x, y, this._colScale))
-                return { room: t.room, x: t.x, y: t.y, content: t.content, game: t.game };
+                return { room: t.room, x: t.x, y: t.y, content: t.content, game: t.game, table: t.table };
+        }
+        return null;
+    }
+
+    // Centroide da zona de trigger `name` em coords de mundo — usado como
+    // alvo de caminhada das mesas (o centro do game_btn nem sempre cai
+    // dentro da zona, ex.: table205 do lodge).
+    triggerCenter(name) {
+        const t = (this._triggers || []).find((tr) => tr.name === name);
+        if (!t?.grid) return null;
+        const s = this._colScale || 1;
+        let sx = 0, sy = 0, n = 0;
+        const { data, w, h } = t.grid;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (data[y * w + x] === 1) { sx += x; sy += y; n++; }
+            }
+        }
+        return n ? [Math.round(sx / n / s), Math.round(sy / n / s)] : null;
+    }
+
+    // Ponto livre mais proximo (sem trigger/bloqueio) — tira o pinguim da
+    // area da mesa ao fim da partida para nao travar a mesa p/ outros.
+    findFreePoint(x, y, maxR = 140) {
+        const ok = (ex, ey) =>
+            ex >= 20 && ex <= 740 && ey >= 20 && ey <= 430
+            && !this.triggerAt(ex, ey) && !this.hitBlock(ex, ey);
+        if (ok(x, y)) return { x, y };
+        for (let r = 8; r <= maxR; r += 8) {
+            for (let a = 0; a < 16; a++) {
+                const ex = Math.round(x + r * Math.cos((a * Math.PI) / 8));
+                const ey = Math.round(y + r * Math.sin((a * Math.PI) / 8));
+                if (ok(ex, ey)) return { x: ex, y: ey };
+            }
         }
         return null;
     }

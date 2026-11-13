@@ -97,7 +97,9 @@ export default class TableGames {
     open(req) {
         ensureStyle();
         if (!this.scene.network?.isConnected) return false;
+        this._reopen = true;
         this.close(false);
+        this._reopen = false;
         this.req = req;
         this.st = null;
         this._build();
@@ -110,6 +112,7 @@ export default class TableGames {
 
     close(leave = true) {
         if (!this.el) return;
+        const req = this.req;
         if (leave && this.st?.key) this.scene.network?.send('TABLE_LEAVE', { key: this.st.key });
         this.scene.events.off('packet-TABLE_STATE', this._onState);
         this.scene.events.off('packet-TABLE_ERROR', this._onError);
@@ -119,6 +122,9 @@ export default class TableGames {
         this.st = null;
         this._ff = null;
         this.scene._tableClosedAt = this.scene.time?.now;
+        // fim de partida/desistencia: sai da area do trigger para a mesa
+        // ficar livre (replay via open() passa _reopen e nao sai)
+        if (!this._reopen) this.scene._leaveTableArea?.(req);
     }
 
     // ---------------------------------------------------------------- UI
