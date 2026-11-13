@@ -62,6 +62,48 @@ CREATE TABLE IF NOT EXISTS equipped (
 );
 
 CREATE INDEX IF NOT EXISTS idx_equipped_player ON equipped(player_id);
+
+-- Buddy list: linha por direcao (A->B e B->A quando aceito). status:
+-- 'pending' (pedido enviado, aguardando aceite) ou 'accepted'.
+CREATE TABLE IF NOT EXISTS buddies (
+    player_id TEXT NOT NULL,
+    buddy_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (player_id, buddy_id),
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
+    FOREIGN KEY (buddy_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_buddies_player ON buddies(player_id);
+CREATE INDEX IF NOT EXISTS idx_buddies_buddy ON buddies(buddy_id);
+
+-- Ignore list: quem ignora quem (unidirecional).
+CREATE TABLE IF NOT EXISTS ignores (
+    player_id TEXT NOT NULL,
+    ignored_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (player_id, ignored_id),
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
+    FOREIGN KEY (ignored_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ignores_player ON ignores(player_id);
+
+-- Pets adotados (versao "solta" — sem habitat de iglu).
+CREATE TABLE IF NOT EXISTS pets (
+    pet_row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id TEXT NOT NULL,
+    species TEXT NOT NULL,
+    name TEXT NOT NULL,
+    hunger INTEGER NOT NULL DEFAULT 100,
+    happiness INTEGER NOT NULL DEFAULT 100,
+    adopted_at INTEGER NOT NULL,
+    last_tick INTEGER NOT NULL,
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pets_player ON pets(player_id);
 `;
 
 // Executa o schema

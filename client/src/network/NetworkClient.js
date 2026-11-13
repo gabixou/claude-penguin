@@ -22,6 +22,9 @@ export default class NetworkClient {
         this.inventory = [];
         this.equipped = {};
         this.canRename = false;
+
+        // Estado social (fase 1): buddies, pedidos, ignores, pets
+        this.social = { buddies: [], requests: [], ignores: [], pets: [], petSpecies: [] };
         
         // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
         // deriva do hostname — https => wss na mesma origem (Caddy faz
@@ -202,6 +205,29 @@ export default class NetworkClient {
         this.send('PLAYER_ACTION', { action: action || null });
     }
 
+    // ---------- Social (fase 1) ----------
+
+    getSocial() {
+        this.send('GET_SOCIAL', {});
+    }
+
+    buddyAdd(username) { this.send('BUDDY_ADD', { username }); }
+    buddyAccept(playerId) { this.send('BUDDY_ACCEPT', { playerId }); }
+    buddyDecline(playerId) { this.send('BUDDY_DECLINE', { playerId }); }
+    buddyCancel(playerId) { this.send('BUDDY_CANCEL', { playerId }); }
+    buddyRemove(playerId) { this.send('BUDDY_REMOVE', { playerId }); }
+    ignoreAdd(playerId) { this.send('IGNORE_ADD', { playerId }); }
+    ignoreRemove(playerId) { this.send('IGNORE_REMOVE', { playerId }); }
+    petAdopt(species, name) { this.send('PET_ADOPT', { species, name }); }
+    petRename(petRowId, name) { this.send('PET_RENAME', { petRowId, name }); }
+    petRelease(petRowId) { this.send('PET_RELEASE', { petRowId }); }
+    petCare(petRowId, action) { this.send('PET_CARE', { petRowId, action }); }
+
+    // helpers de estado social
+    isBuddy(playerId) { return this.social.buddies.some((b) => b.playerId === playerId); }
+    isIgnored(playerId) { return this.social.ignores.some((i) => i.playerId === playerId); }
+    buddyRequestFrom(playerId) { return this.social.requests.find((r) => r.playerId === playerId && r.direction === 'received'); }
+
     // ---------- Processamento de pacotes ----------
 
     handlePacket(packet) {
@@ -216,7 +242,30 @@ export default class NetworkClient {
                 this.scene.events.emit('need-create-player');
                 break;
             case 'ERROR':
+                // feedback de moderacao: toast generico (nunca expoe a palavra)
+                if (['CHAT_FILTERED', 'CHAT_RATE_LIMITED', 'NAME_FILTERED', 'CARE_COOLDOWN'].includes(data?.code)) {
+                    this._showDomToast(data.message || 'Ação não permitida', '#c0392b');
+                }
                 this.scene.events.emit('net-error', data);
+                break;
+            case 'SOCIAL_UPDATE':
+                this.social = {
+                    buddies: data.buddies || [],
+                    requests: data.requests || [],
+                    ignores: data.ignores || [],
+                    pets: data.pets || [],
+                    petSpecies: data.petSpecies || this.social.petSpecies
+                };
+                this.scene.events.emit('social-update', this.social);
+                break;
+            case 'BUDDY_REQUEST':
+                this.scene.events.emit('buddy-request', data);
+                this._showDomToast(`${data.fromUsername || 'Alguém'} quer ser seu buddy!`, '#2b7fd4');
+                this.getSocial();
+                break;
+            case 'BUDDY_ACCEPTED':
+                this._showDomToast(`${data.buddyUsername || 'Alguém'} agora é seu buddy!`, '#2fb344');
+                this.getSocial();
                 break;
             case 'ITEM_BOUGHT':
                 this._showDomToast(`Purchased ${data.name || 'item'}! Coins: ${data.coins}c`, '#b8860b');
@@ -283,6 +332,8 @@ export default class NetworkClient {
 
         this.scene.events.emit('player-data', data);
         this.scene.events.emit('net-connected', { playerId: this.playerId });
+        // carrega estado social apos autenticacao
+        this.getSocial();
     }
 
     // Toast DOM simples — visível mesmo sem wardrobe/HUD abertos
