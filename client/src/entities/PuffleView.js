@@ -69,14 +69,14 @@ const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
 // pinguim). Antes eu escalava p/ preencher o canvas e o pet virava um
 // borrão maior que o pinguim.
 const FRAME_W = 96, FRAME_H = 96, SS = 2, WORLD_BOX = FRAME_W / SS;
-// Escala nativa do stage 50x50 — o gp desenha o movie do puffle sem
-// escala extra (movie.draw), entao o tamanho relativo ao pinguim (~33%)
-// ja e o fiel ao original. Boost anterior (1.25x) overshoot.
-const PUFFLE_SCALE = 1.0;
-// img.y tal que a base da sombra (canvas y=86/96 = fracao 0.896) caia em
+// Comparacao visual com original (Papirolo) e gopenguin (Rockhopper):
+// o puffle andando e MENOR que o sprite nativo do stage — ~0.75x.
+// Nativo (1.0) renderizava "tamanho de igloo", maior que o original.
+const PUFFLE_SCALE = 0.65;
+// img.y tal que a base da sombra (canvas y=84/96 = fracao ~0.875) caia em
 // owner.y+20 — mesma linha dos pes do pinguim (sprite bottom = y+20).
-// imgY = 12 - (0.896-0.5)*WORLD_BOX*PUFFLE_SCALE = -7.04 -> -7
-const IMG_Y = -7;
+// imgY = 12 - (0.875-0.5)*WORLD_BOX*PUFFLE_SCALE = 0.24 -> 0
+const IMG_Y = 0;
 
 const _movieCache = new Map(); // dir -> Promise<MovieRoom|null>
 function puffleMovie(dir) {
@@ -102,8 +102,10 @@ export default class PuffleView {
         this.color = SPECIES_SPRITE[pet.species] || null;
         // puffle fica a DIREITA do pinguim: [penguin] [puffle] — como no
         // original (print do Papirolo) e no gopenguin (Rockhopper)
-        this.x = owner.x + 20;
-        this.y = owner.y + 8;
+        // spawn junto ao offset de follow (medido contra o sprite real:
+        // ty=owner.y alinha a base do puffle com a dos pes do pinguim)
+        this.x = owner.x + 30;
+        this.y = owner.y;
         this.tx = this.x; this.ty = this.y;
         this.dir = 5;          // 1-8, mesma convencao do Penguin.directionToward
         this.walking = true;   // sprite entra andando até alcançar o dono
@@ -111,6 +113,7 @@ export default class PuffleView {
         this._ready = false;
         this._dead = false;
         this._animAcc = 0;
+        this._danceAcc = 0;
 
         this.container = scene.add.container(this.x, this.y);
         this.canvas = document.createElement('canvas');
@@ -172,10 +175,31 @@ export default class PuffleView {
     tick(dt) {
         if (!this._ready || !this.owner || this._dead) return;
         const o = this.owner;
-        // alvo: offset (+20,+8) — puffle a direita do dono, mesma linha
-        // de chao (o gp usa place(x-20,y+8) mas o sprite renderiza a
-        // direita do ponto logico; aqui o offset ja e o visual final)
-        this.tx = o.x + 20; this.ty = o.y + 8;
+        // Dono dançando (frame 26 do penguin.swf): o puffle dança no lugar
+        // alternando os frames 32/33 do misc ("jump" do puffle) — no CP
+        // original o pet equipado acompanhava os emotes do dono.
+        if (o.action === 26) {
+            this.walking = false;
+            this._danceAcc += dt;
+            if (this._danceAcc >= 1 / 5) {
+                this._danceAcc = 0;
+                this.frame = this.frame === 32 ? 33 : 32;
+            }
+            this.container.setPosition(this.x, this.y);
+            this._syncDepth();
+            this._draw();
+            this._animAcc += dt;
+            if (this._animAcc >= 1 / 24) {
+                this._animAcc %= 1 / 24;
+                this.clip?.advance?.();
+            }
+            return;
+        }
+        // alvo: (+30, 0) — gap horizontal maior que o inicial (+20 ficava
+        // colado no pe do pinguim) e base alinhada aos pes do dono.
+        // Medido em pixels opacos: com ty=o.y+8 a sombra do puffle ficava
+        // ~8px abaixo da linha dos pes; com ty=o.y os bottoms coincidem.
+        this.tx = o.x + 30; this.ty = o.y;
         const dx = this.tx - this.x, dy = this.ty - this.y;
         const dist = Math.hypot(dx, dy);
         const ownerMoving = !!(o.isMoving || o.moveTarget || o.moveTween);
@@ -191,6 +215,10 @@ export default class PuffleView {
         } else {
             this.walking = false;
         }
+        // parado: o puffle "olha" na mesma direcao do dono — o direction do
+        // pinguim ja reflete o mouse (facePoint) localmente e a direcao
+        // sincronizada via rede nos remotos, entao vale pros dois lados
+        if (!this.walking) this.dir = o.direction;
         this.frame = this.walking ? walkFrame(this.dir) : standFrame(this.dir);
         this.container.setPosition(this.x, this.y);
         this._syncDepth();
