@@ -452,10 +452,11 @@ export default class PlayerCard {
                 const target = this.penguin;
                 if (!net || !target || target === scene.localPlayer) break;
                 if (net.isBuddy?.(target.playerId)) {
-                    scene.localPlayer?.showChat?.(`(${target.username} já é seu buddy)`);
+                    scene.localPlayer?.showChat?.(`(${target.username} is already your buddy)`);
                 } else {
+                    // confirmacao visual vem do server via BUDDY_REQUEST_SENT
+                    // -> prompt_mc "Request Sent" (RoomScene)
                     net.buddyAdd(target.username);
-                    scene.localPlayer?.showChat?.(`(pedido de buddy enviado para ${target.username})`);
                 }
                 break;
             }
@@ -466,10 +467,10 @@ export default class PlayerCard {
                 if (!net || !target || target === scene.localPlayer) break;
                 if (net.isIgnored?.(target.playerId)) {
                     net.ignoreRemove(target.playerId);
-                    scene.localPlayer?.showChat?.(`(não ignorando mais ${target.username})`);
+                    scene.localPlayer?.showChat?.(`(no longer ignoring ${target.username})`);
                 } else {
                     net.ignoreAdd(target.playerId);
-                    scene.localPlayer?.showChat?.(`(ignorando ${target.username} — chat e interações ocultas)`);
+                    scene.localPlayer?.showChat?.(`(ignoring ${target.username} — their chat is hidden)`);
                 }
                 break;
             }
@@ -479,7 +480,7 @@ export default class PlayerCard {
             case 'stamps':
                 // acoes ainda sem backend — so feedback
                 if (this.penguin) {
-                    scene.localPlayer?.showChat?.(`(${action} em ${this.penguin.username} — em breve)`);
+                    scene.localPlayer?.showChat?.(`(${action} on ${this.penguin.username} — coming soon)`);
                 }
                 break;
         }
