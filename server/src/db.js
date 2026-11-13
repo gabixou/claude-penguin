@@ -104,6 +104,55 @@ CREATE TABLE IF NOT EXISTS pets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pets_player ON pets(player_id);
+
+-- Jogos de mesa autoritativos (integracao PR): progresso de Card-Jitsu
+CREATE TABLE IF NOT EXISTS cardjitsu (
+    player_id TEXT PRIMARY KEY,
+    xp INTEGER NOT NULL DEFAULT 0,
+    level INTEGER NOT NULL DEFAULT 1,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    deck TEXT,
+    progress TEXT,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+-- Festas (integracao PR): tabela, substituicoes e progresso do jogador
+CREATE TABLE IF NOT EXISTS parties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    start_at INTEGER NOT NULL,
+    end_at INTEGER NOT NULL,
+    timezone TEXT,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    created_by TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_parties_window ON parties(start_at, end_at, status);
+
+CREATE TABLE IF NOT EXISTS party_substitutions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_id INTEGER NOT NULL,
+    room_id TEXT,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (party_id, room_id, kind),
+    FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_party_subs ON party_substitutions(party_id);
+
+CREATE TABLE IF NOT EXISTS player_party (
+    player_id TEXT NOT NULL,
+    party_id INTEGER NOT NULL,
+    tasks TEXT NOT NULL DEFAULT '{}',
+    messages_seen TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (player_id, party_id),
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
+    FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
+);
 `;
 
 // Executa o schema

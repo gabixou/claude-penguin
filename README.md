@@ -13,6 +13,8 @@
 ![Status](https://img.shields.io/badge/status-in%20development-orange?style=flat-square)
 ![License](https://img.shields.io/badge/license-fan%20project-lightgrey?style=flat-square)
 
+### ▶ [Play now at **claudepenguin.mooo.com**](https://claudepenguin.mooo.com) — free, no signup, just jump in.
+
 </div>
 
 ---
@@ -22,6 +24,22 @@
 **Claude Penguin** is a Brazilian fan project by **[Arenovisk](https://github.com/gabixou)** that reimagines the classic Club Penguin experience as a modern web game. Walk through snowy villages, cozy coffee shops and lively dance floors rendered with the **original vector assets**: Flash timelines, SVG shapes and paperdoll sprites, running smoothly in any modern browser.
 
 It is a love letter to the penguin that stole our childhoods: authentic HUD, real game assets, chat, rooms, outfits, catalogues, minigames and a multiplayer world rebuilt from scratch for the web.
+
+## How to play
+
+**No signup, no download — just open and play:**
+
+### ▶ [claudepenguin.mooo.com](https://claudepenguin.mooo.com)
+
+![Claude Penguin gameplay screenshot](assets/claudepenguin.jpg)
+
+- 🖱️ **Click anywhere** on the room to walk there — your penguin waddles over with the classic animation
+- 💬 **Chat bar** at the bottom — talk to other players in real time
+- 🗺️ **Island map / HUD buttons** — explore rooms, open your inventory & wardrobe, check player cards
+- 🛍️ **Catalogues** — buy clothes and items with coins in the shop rooms, then equip them from your wardrobe
+- 👥 **Multiplayer** — other players appear live: you see them walk, emote, sit and chat
+
+> Tip: everything runs in the browser and progress (penguin, coins, items) is saved on the server — come back anytime and you're the same penguin.
 
 ## Features
 
