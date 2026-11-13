@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="52px" height="52px" viewBox="0 0 52 52">
+  <defs>
+    <clipPath id="disc"><circle cx="0" cy="0" r="24.7"/></clipPath>
+    <radialGradient id="shade" cx="-4.8" cy="-6.3" r="31" gradientUnits="userSpaceOnUse">
+      <stop offset="0.655" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(26.25 26.25)">
+    <g clip-path="url(#disc)"><rect x="-26" y="-26" width="52" height="52" fill="#ffffff"/><polygon points="0,-16.5 -14.5,9.5 14.5,9.5" fill="none" stroke="#d6261d" stroke-width="4.6" stroke-linejoin="miter"/><text x="0" y="18.5" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="4" text-anchor="middle" fill="#d6261d">LIBERTAS</text></g>
+    <circle r="24.7" fill="url(#shade)"/>
+    <circle r="24.6" fill="none" stroke="#141414" stroke-width="2"/>
+  </g>
+</svg>

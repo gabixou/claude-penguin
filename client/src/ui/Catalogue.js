@@ -73,7 +73,7 @@ export class CatalogueOverlay {
     get isOpen() { return !!this.movie; }
     get promptOpen() { return !!this._prompt?.isOpen; }
 
-    async open(name) {
+    async open(name, { page = 1 } = {}) {
         const key = name.replace(/_catalogue$/, '');
         this.close();
         const gen = ++this._generation;
@@ -98,7 +98,8 @@ export class CatalogueOverlay {
             movie.prefetchSvgs(16);
             await movie.ensureFonts();
             itemsById(); // prefetch do catalogo de itens (buy labels)
-            movie.goto('book', 1);
+            const pages = movie.data?.main?.frames?.length || 1;
+            movie.goto('book', Math.max(1, Math.min(pages, page)));
             this._buildCanvas();
             await this._show();
             this._startTick();

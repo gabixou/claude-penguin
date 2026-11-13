@@ -11,6 +11,10 @@ import auth from './auth.js';
 import playerStore from './playerStore.js';
 import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
+import { checkText, allowChat, hashTerm } from './chatFilter.js';
+import * as social from './socialStore.js';
+import * as tables from './tables.js';
+import * as parties from './parties.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -80,6 +84,7 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     if (sessionToken) {
         data.sessionToken = sessionToken; // para localStorage fallback
     }
+    data.party = parties.partyClientData(parties.activeParty());
     ws.send(JSON.stringify({
         op: 'PLAYER_DATA',
         data
@@ -117,6 +122,117 @@ function broadcastToRoom(roomId, message, excludeSocket = null) {
     }
 }
 
+// ---------- Social / moderacao (fase 1) ----------
+
+// ids de jogadores com socket autenticado e em alguma sala
+function onlinePlayerIds() {
+    const set = new Set();
+    for (const p of clientSessions.values()) set.add(p.playerId);
+    return set;
+}
+
+// cache de ignore-sets por playerId (invalidado nas operacoes IGNORE_*)
+const ignoreCache = new Map();
+function ignoreSetOf(playerId) {
+    let s = ignoreCache.get(playerId);
+    if (!s) { s = social.getIgnoreSet(playerId); ignoreCache.set(playerId, s); }
+    return s;
+}
+function invalidateIgnore(playerId) { ignoreCache.delete(playerId); }
+
+// envia snapshot social completo: buddies+requests, ignores, pets
+function sendSocial(ws) {
+    const session = clientPlayerData.get(ws);
+    if (!session || !session.playerId) return;
+    const online = onlinePlayerIds();
+    const { buddies, requests } = social.getBuddyData(session.playerId, online);
+    ws.send(JSON.stringify({
+        op: 'SOCIAL_UPDATE',
+        data: {
+            buddies,
+            requests,
+            ignores: social.getIgnores(session.playerId),
+            pets: social.getPets(session.playerId),
+            petSpecies: social.listPetSpecies()
+        }
+    }));
+}
+
+// notifica um playerId online (se houver socket) com um op arbitrario
+function notifyPlayer(playerId, message) {
+    for (const p of clientSessions.values()) {
+        if (p.playerId === playerId && p.socket.readyState === WebSocket.OPEN) {
+            p.socket.send(JSON.stringify(message));
+            return true;
+        }
+    }
+    return false;
+}
+
+// chat filtrado por ignore: destinatarios que ignoram o remetente nao recebem
+function broadcastChat(roomId, message) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    const senderId = message.data.playerId;
+    const payloads = new Map(); // socket -> payload (sender sempre recebe)
+    for (const [pid, p] of room.entries()) {
+        if (p.socket.readyState !== WebSocket.OPEN) continue;
+        if (pid !== senderId && ignoreSetOf(pid).has(senderId)) continue;
+        payloads.set(p.socket, JSON.stringify(message));
+    }
+    for (const [sock, payload] of payloads) sock.send(payload);
+}
+
+function findSessionSocket(playerId) {
+    for (const p of clientSessions.values()) {
+        if (p.playerId === playerId && p.socket.readyState === WebSocket.OPEN) return p.socket;
+    }
+    return null;
+}
+
+// envia SOCIAL_UPDATE para o ws dono de um playerId (se online)
+function sendSocialToPlayer(playerId) {
+    const ws = findSessionSocket(playerId);
+    if (ws) sendSocial(ws);
+}
+
+function refreshCoins(ws, session) {
+    const pd = playerStore.getPublicPlayerData(session.playerId);
+    session.coins = pd.coins;
+    sendPlayerData(ws, pd, session.sessionToken);
+    return pd;
+}
+
+// cooldown de cuidado de pet: "playerId:petRowId" -> timestamp
+const petCareCooldown = new Map();
+
+// Jogos de mesa autoritativos (integracao PR): moedas pagas pelo servidor
+// atualizam o PLAYER_DATA do jogador (coins no HUD/card).
+tables.setTableHooks({
+    getSocket: (playerId) => findSessionSocket(playerId),
+    onCoins: (playerId) => {
+        const ws = findSessionSocket(playerId);
+        const session = ws && clientPlayerData.get(ws);
+        const playerData = playerStore.getPublicPlayerData(playerId);
+        if (session) session.coins = playerData.coins;
+        if (ws && ws.readyState === WebSocket.OPEN) sendPlayerData(ws, playerData, session?.sessionToken);
+    },
+});
+
+// Virada de festa: quando a festa ativa muda (relogio do servidor),
+// avisa todos os jogadores autenticados com PARTY_UPDATE.
+let lastPartyId = parties.activeParty()?.id ?? null;
+setInterval(() => {
+    const cur = parties.activeParty();
+    const curId = cur?.id ?? null;
+    if (curId === lastPartyId) return;
+    lastPartyId = curId;
+    const payload = JSON.stringify({ op: 'PARTY_UPDATE', data: { party: parties.partyClientData(cur) } });
+    for (const [sws] of clientPlayerData) {
+        if (sws.readyState === WebSocket.OPEN) sws.send(payload);
+    }
+}, 60 * 1000).unref?.();
+
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
     console.log(`[+] Nova conexão estabelecida de ${ip}`);
@@ -144,16 +260,21 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Arenovisk: pinguim de teste do dono do PC (IPs loopback). Criado sob
-// demanda; a flag all_items faz hasItem/getInventory cobrir o catalogo
-// inteiro e coins generosas para testar compras/equipamentos.
-const ARENOVISK_NAME = 'Arenovisk';
+// Pinguins de teste do dono do PC (IPs loopback). Criados sob demanda;
+// a flag all_items faz hasItem/getInventory cobrir o catalogo inteiro e
+// coins generosas para testar compras/equipamentos.
+// TEST_PENGUINS: ordem de ocupacao — se o primeiro ja estiver conectado
+// (ex.: segunda aba do browser no localhost), o proximo login recebe o
+// seguinte, permitindo testes multiplayer/buddy com 2 pinguins.
+const TEST_PENGUINS = ['Arenovisk', 'Penguin Test'];
+const ARENOVISK_NAME = TEST_PENGUINS[0];
 const ARENOVISK_COINS = 100000;
-function ensureArenovisk(ip) {
-    let player = playerStore.getPlayerByUsername(ARENOVISK_NAME);
+
+function ensureTestPlayer(name, ip) {
+    let player = playerStore.getPlayerByUsername(name);
     if (!player) {
-        player = playerStore.createPlayer(ip, ARENOVISK_NAME, 1);
-        console.log(`[ARENOVISK] Pinguim de teste '${ARENOVISK_NAME}' criado`);
+        player = playerStore.createPlayer(ip, name, 1);
+        console.log(`[TEST] Pinguim de teste '${name}' criado`);
     }
     if (!player.all_items) {
         playerStore.setAllItems(player.player_id, 1);
@@ -161,6 +282,27 @@ function ensureArenovisk(ip) {
         player = playerStore.getPlayerById(player.player_id);
     }
     return player;
+}
+
+function ensureArenovisk(ip) {
+    return ensureTestPlayer(ARENOVISK_NAME, ip);
+}
+
+// true se o playerId ja tem um socket aberto autenticado (ocupado)
+function playerHasLiveSession(playerId, excludeWs = null) {
+    for (const [ws, s] of clientPlayerData) {
+        if (ws !== excludeWs && ws.readyState === WebSocket.OPEN && s.playerId === playerId) return true;
+    }
+    return false;
+}
+
+// Escolhe o primeiro pinguim de teste livre; se todos ocupados, reusa o primeiro.
+function pickTestPenguin(ip) {
+    for (const name of TEST_PENGUINS) {
+        const p = ensureTestPlayer(name, ip);
+        if (!playerHasLiveSession(p.player_id)) return p;
+    }
+    return ensureTestPlayer(TEST_PENGUINS[0], ip);
 }
 
 // IPs que tem direito ao Arenovisk: por padrao so loopback (o PC do
@@ -222,30 +364,36 @@ function handlePacket(ws, req, packet) {
     const { op, data } = packet;
     if (!op || !data) return;
 
+    // Ops de jogos de mesa exigem jogador autenticado
+    const tableSession = clientPlayerData.get(ws);
+    if (tableSession?.playerId && tables.handleTableOp(ws, tableSession, packet)) {
+        return;
+    }
+
     switch (op) {
         case 'AUTH_GUEST': {
-            const ip = clientIp(req);
-
-            // IP autorizado (PC do tester): Arenovisk tem PRIORIDADE sobre
-            // token/IP-fallback — senao qualquer guest criado daquele IP
-            // bloquearia o Arenovisk para sempre. forceGuest/automacao
-            // ainda recebem pinguim normal.
-            if (isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req)) {
-                const player = ensureArenovisk(ip);
-                const sessionToken = crypto.randomBytes(32).toString('hex');
-                playerStore.updatePlayerSession(player.player_id, sessionToken);
-                sendPlayerSession(ws, player, sessionToken);
-                console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido a ${ip}`);
-                break;
-            }
-
             // Cliente envia sessionToken do localStorage (se houver)
             const clientToken = data.sessionToken || null;
             const result = auth.identifyPlayer(req, clientToken);
+            const ip = clientIp(req);
+            const testIp = isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req);
 
-            if (result.player) {
+            // localhost: se o pinguim do token ja esta conectado em outro
+            // socket (ex.: segunda aba com o mesmo localStorage), nao reutiliza
+            // — cai no fluxo de pinguim de teste livre (Arenovisk -> Penguin Test)
+            const occupied = result.player && playerHasLiveSession(result.player.player_id, ws);
+
+            if (result.player && !(testIp && occupied)) {
                 sendPlayerSession(ws, result.player, result.sessionToken);
                 console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado via ${result.sessionToken ? 'token' : 'IP'}`);
+            } else if (testIp) {
+                // IP autorizado (PC do tester): recebe o proximo pinguim de
+                // teste livre. Demais IPs e automacao recebem guest novo.
+                const player = pickTestPenguin(ip);
+                const sessionToken = crypto.randomBytes(32).toString('hex');
+                playerStore.updatePlayerSession(player.player_id, sessionToken);
+                sendPlayerSession(ws, player, sessionToken);
+                console.log(`[AUTH] Pinguim de teste '${player.username}' (${player.player_id}) atribuido ao localhost`);
             } else {
                 // Guest flow: cria o pinguim na hora, sem tela de conta
                 const guestName = generateGuestName();
@@ -297,6 +445,11 @@ function handlePacket(ws, req, packet) {
             }
 
             const { username, colorItemId = 1 } = data;
+            // moderacao: username passa pelo mesmo filtro de chat
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
             try {
                 const result = auth.createNewPlayer(session.ip, username, colorItemId);
                 const playerData = playerStore.getPublicPlayerData(result.player.player_id);
@@ -418,6 +571,10 @@ function handlePacket(ws, req, packet) {
             }
 
             const { username } = data;
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
             try {
                 const updated = playerStore.renamePlayer(session.playerId, username);
                 const playerData = playerStore.getPublicPlayerData(session.playerId);
@@ -446,6 +603,8 @@ function handlePacket(ws, req, packet) {
                 sendError(ws, 'INVALID_ROOM', 'Sala inválida');
                 return;
             }
+            // mesa de jogo: levantar ao entrar em outra sala
+            tables.leaveRoomTables(session.playerId, roomId);
             const jx = Math.max(0, Math.min(760, Number(data.x) || 400));
             const jy = Math.max(0, Math.min(480, Number(data.y) || 300));
 
@@ -541,10 +700,22 @@ function handlePacket(ws, req, packet) {
             if (!message || !message.trim()) return;
 
             const sanitized = message.trim().substring(0, 120);
+
+            // moderacao: rate limit (~5 msg/10s) + blacklist server-side
+            if (!allowChat(session.playerId)) {
+                sendError(ws, 'CHAT_RATE_LIMITED', 'Você está enviando mensagens rápido demais');
+                return;
+            }
+            if (checkText(sanitized).blocked) {
+                console.warn(`[MOD] chat bloqueado player=${session.playerId} hash=${hashTerm(sanitized)}`);
+                sendError(ws, 'CHAT_FILTERED', 'Sua mensagem contém palavras não permitidas');
+                return;
+            }
+
             console.log(`[CHAT] [${session.roomId}] ${session.username}: "${sanitized}"`);
 
-            // Transmite a mensagem para todos na sala (incluindo o remetente)
-            broadcastToRoom(session.roomId, {
+            // Transmite a mensagem para todos na sala — exceto quem ignora o remetente
+            broadcastChat(session.roomId, {
                 op: 'SEND_CHAT',
                 data: {
                     playerId: session.playerId,
@@ -639,6 +810,211 @@ function handlePacket(ws, req, packet) {
             }, ws);
             break;
         }
+
+        // ===================== SOCIAL (fase 1) =====================
+
+        case 'GET_SOCIAL': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'BUDDY_ADD': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const username = String(data.username || '').trim();
+            if (!username) { sendError(ws, 'INVALID_DATA', 'username obrigatório'); return; }
+            if (checkText(username).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            const res = social.addBuddy(session.playerId, username, onlinePlayerIds());
+            if (res.error) {
+                sendError(ws, res.error === 'NO_SUCH_PLAYER' ? 'NO_SUCH_PLAYER' : res.error, res.error);
+                break;
+            }
+            sendSocial(ws);
+            if (res.pending) {
+                // confirma ao remetente (prompt "Request Sent") + notifica o alvo
+                ws.send(JSON.stringify({ op: 'BUDDY_REQUEST_SENT', data: { toUsername: username } }));
+                notifyPlayer(res.targetId, {
+                    op: 'BUDDY_REQUEST',
+                    data: { fromPlayerId: session.playerId, fromUsername: session.username }
+                });
+                sendSocialToPlayer(res.targetId);
+            } else if (res.autoAccepted) {
+                // aceite mutuo: notifica os dois lados
+                ws.send(JSON.stringify({
+                    op: 'BUDDY_ACCEPTED',
+                    data: { buddyPlayerId: res.targetId, buddyUsername: username }
+                }));
+                notifyPlayer(res.targetId, {
+                    op: 'BUDDY_ACCEPTED',
+                    data: { buddyPlayerId: session.playerId, buddyUsername: session.username }
+                });
+                sendSocialToPlayer(res.targetId);
+            }
+            console.log(`[BUDDY] ${session.username} -> '${username}' (${res.pending ? 'pending' : 'accepted'})`);
+            break;
+        }
+
+        case 'BUDDY_ACCEPT': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const requesterId = String(data.playerId || '');
+            const res = social.acceptBuddy(session.playerId, requesterId);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            const reqName = playerStore.getPlayerById(requesterId)?.username || requesterId;
+            notifyPlayer(requesterId, {
+                op: 'BUDDY_ACCEPTED',
+                data: { buddyPlayerId: session.playerId, buddyUsername: session.username }
+            });
+            // confirma tambem para quem aceitou
+            ws.send(JSON.stringify({
+                op: 'BUDDY_ACCEPTED',
+                data: { buddyPlayerId: requesterId, buddyUsername: reqName }
+            }));
+            // atualiza a lista do requester tambem
+            const reqWs = findSessionSocket(requesterId);
+            if (reqWs) {
+                const rs = clientPlayerData.get(reqWs);
+                if (rs) {
+                    const online = onlinePlayerIds();
+                    const bd = social.getBuddyData(rs.playerId, online);
+                    reqWs.send(JSON.stringify({ op: 'SOCIAL_UPDATE', data: {
+                        buddies: bd.buddies, requests: bd.requests,
+                        ignores: social.getIgnores(rs.playerId), pets: social.getPets(rs.playerId),
+                        petSpecies: social.listPetSpecies()
+                    }}));
+                }
+            }
+            console.log(`[BUDDY] ${session.username} aceitou pedido de '${reqName}'`);
+            break;
+        }
+
+        case 'BUDDY_DECLINE':
+        case 'BUDDY_CANCEL': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const targetId = String(data.playerId || '');
+            const res = op === 'BUDDY_DECLINE'
+                ? social.declineBuddy(session.playerId, targetId)
+                : social.cancelBuddyRequest(session.playerId, targetId);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            sendSocialToPlayer(targetId); // outro lado tambem atualiza
+            break;
+        }
+
+        case 'BUDDY_REMOVE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const buddyId = String(data.playerId || '');
+            social.removeBuddy(session.playerId, buddyId);
+            sendSocial(ws);
+            sendSocialToPlayer(buddyId);
+            break;
+        }
+
+        case 'IGNORE_ADD': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const res = social.ignorePlayer(session.playerId, String(data.playerId || ''));
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            invalidateIgnore(session.playerId);
+            sendSocial(ws);
+            console.log(`[IGNORE] ${session.username} ignorou ${data.playerId}`);
+            break;
+        }
+
+        case 'IGNORE_REMOVE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            social.unignorePlayer(session.playerId, String(data.playerId || ''));
+            invalidateIgnore(session.playerId);
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_ADOPT': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const species = String(data.species || '');
+            const sp = social.getPetSpecies(species);
+            if (!sp) { sendError(ws, 'UNKNOWN_SPECIES', 'Espécie desconhecida'); return; }
+            const player = playerStore.getPlayerById(session.playerId);
+            if (!player || player.coins < sp.cost) {
+                sendError(ws, 'INSUFFICIENT_COINS', 'Moedas insuficientes');
+                return;
+            }
+            if (checkText(data.name).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            playerStore.addCoins(session.playerId, -sp.cost);
+            const res = social.adoptPet(session.playerId, species, data.name);
+            if (res.error) { sendError(ws, res.error, res.error); return; }
+            refreshCoins(ws, session);
+            sendSocial(ws);
+            console.log(`[PET] ${session.username} adotou ${sp.name} por ${sp.cost} coins`);
+            break;
+        }
+
+        case 'PET_RENAME': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            if (checkText(data.name).blocked) {
+                sendError(ws, 'NAME_FILTERED', 'Esse nome não é permitido');
+                return;
+            }
+            const res = social.renamePet(session.playerId, Number(data.petRowId), data.name);
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_RELEASE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const res = social.releasePet(session.playerId, Number(data.petRowId));
+            if (res.error) { sendError(ws, res.error, res.error); break; }
+            sendSocial(ws);
+            break;
+        }
+
+        case 'PET_CARE': {
+            // {petRowId, action:'feed'|'play'} — restaura stats (cooldown 60s/pet)
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) return;
+            const petRowId = Number(data.petRowId);
+            const pet = social.getPet(session.playerId, petRowId);
+            if (!pet) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
+            const action = data.action;
+            if (action !== 'feed' && action !== 'play') { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
+            const key = `${session.playerId}:${petRowId}`;
+            const last = petCareCooldown.get(key) || 0;
+            const nowTs = Date.now();
+            if (nowTs - last < 60_000) {
+                sendError(ws, 'CARE_COOLDOWN', 'Aguarde um pouco antes de cuidar de novo');
+                return;
+            }
+            petCareCooldown.set(key, nowTs);
+            const fresh = social.getPets(session.playerId).find((p) => p.petRowId === petRowId);
+            if (!fresh) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
+            const nh = Math.min(100, fresh.hunger + (action === 'feed' ? 30 : 5));
+            const np = Math.min(100, fresh.happiness + (action === 'play' ? 30 : 5));
+            social.setPetStats(session.playerId, petRowId, nh, np);
+            sendSocial(ws);
+            break;
+        }
     }
 }
 
@@ -647,6 +1023,8 @@ function handleDisconnect(ws, log = true) {
     if (!session) return;
 
     const { roomId, playerId, username } = session;
+    // desconectar no meio de uma partida = desistencia
+    if (playerId) tables.leaveAll(playerId);
     const room = rooms.get(roomId);
     if (room) {
         room.delete(playerId);

@@ -5,10 +5,8 @@
 /.playwright-mcp
 catalog1.png
 gopenguin.png
-/tools
 NUL
 /docs
-/tools
 tools/probe-card.mjs
 
 # deps e build
@@ -17,3 +15,7 @@ dist/
 *.log
 client/vite-dev.log
 client/dist-cat/
+
+# Banco de dados local (nunca commitar)
+server/data/
+server/data/backups/

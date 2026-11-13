@@ -19,6 +19,19 @@ const MINIGAMES = {
 // sendGameOver). Bean Counters/Pizzatron nao tem saida mid-game: mantem X.
 const NATIVE_CLOSE = new Set(['roundup', 'pufflescape', 'fish']);
 
+// Arquivos de entrada de cada minigame (iframe) baixados com antecedencia
+// quando o jogador entra numa sala que tem o jogo — os mais pesados primeiro.
+const PREFETCH = {
+    pufflescape: ['lib/phaser.min.js', 'lib/phaser-matter-collision-plugin.js', 'lib/fps-cap.js', 'main.js', 'index.html'],
+    // Main.js puxa os demais via include() (XHR sincrono) — XHR tambem le
+    // do cache HTTP, entao vale baixar todos
+    beancounters: ['index.html', 'Game.html', 'lib/jquery.min.js', 'Include/Style.css',
+        ...['sbd-shim', 'MainWindow', 'Main', 'Play', 'Hazard', 'Input', 'VR'].map((n) => `Include/Scripts/${n}.js`)],
+    pizzatron: ['index.html', 'Game.html', 'lib/jquery.min.js', 'Include/Style.css', 'Include/BurbankSmallBold.ttf',
+        ...['sbd-shim', 'MainWindow', 'Main', 'Game', 'Orders', 'Input'].map((n) => `Include/Scripts/${n}.js`)],
+};
+const _prefetched = new Set();
+
 export class MinigameOverlay {
     constructor(scene) {
         this.scene = scene;
@@ -30,6 +43,28 @@ export class MinigameOverlay {
     static urlFor(game) {
         const id = MINIGAMES[game];
         return id ? `/minigames/${id}/index.html` : null;
+    }
+
+    // Otimista: baixa para o cache HTTP o que o minigame precisa para abrir
+    // (documento + scripts pesados) enquanto o jogador ainda esta na sala —
+    // o clique no jogo nao espera rede. Idempotente.
+    static prefetch(game) {
+        if (_prefetched.has(game)) return;
+        _prefetched.add(game);
+        if (game === 'fish') {
+            // Ice Fishing roda nativo: modulo JS + pack vetorial do movie
+            import('./icefishing/icefishing.js')
+                .then((m) => m.warmIceFishing?.())
+                .catch(() => {});
+            return;
+        }
+        const id = MINIGAMES[game];
+        for (const path of PREFETCH[id] || []) {
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = `/minigames/${id}/${path}`;
+            document.head.appendChild(link);
+        }
     }
 
     get isOpen() { return !!this.el; }
@@ -57,7 +92,8 @@ export class MinigameOverlay {
                 this._native = new IceFishingGame(this.scene, this.frame, {
                     onExit: () => this.scene._closeMinigame?.(),
                     onCoins: (n) => {
-                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, amount: n });
+                        // Servidor calcula a recompensa — cliente só manda jogo/nível
+                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, game: 'icefishing' });
                         if (n > 0) this._toast(`+${n} coins`);
                     },
                     penguinColor: this.scene.localPlayer?.penguinColor,
@@ -123,10 +159,10 @@ export class MinigameOverlay {
             return;
         }
         if (d.type === 'level-complete') {
-            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1, amount: d.amount });
-            this._toast(d.amount
-                ? `+${d.amount} coins`
-                : `Level ${d.level || 1} complete! +50 coins`);
+            // d.source é o id do jogo ('pufflescape'|'beancounters'|'pizzatron')
+            // — o servidor calcula a recompensa a partir dele
+            this.scene.network?.send('MINIGAME_REWARD', { level: d.level || 1, game: d.source });
+            this._toast(`Level ${d.level || 1} complete!`);
         }
     }
 
