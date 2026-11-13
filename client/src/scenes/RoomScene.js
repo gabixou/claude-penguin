@@ -224,6 +224,8 @@ export default class RoomScene extends Phaser.Scene {
                 onYes: () => {},
             });
         });
+        // buddy/ignore mudaram -> atualiza os frames dos botoes do card aberto
+        this.events.on('social-update', () => this.playerCard?._syncSocialFrames?.());
 
         // 7. Modal do Mapa da Ilha e guarda-roupa
         this.createMapModal();
