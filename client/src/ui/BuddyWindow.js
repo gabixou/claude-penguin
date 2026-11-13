@@ -119,7 +119,8 @@ export default class BuddyWindow {
         this.ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
         this.texKey = `buddywin_${Date.now()}`;
         scene.textures.addCanvas(this.texKey, this.canvas);
-        this.img = scene.add.image(0, 0, this.texKey).setOrigin(0, 0);
+        this.img = scene.add.image(0, 0, this.texKey).setOrigin(0, 0)
+            .setDisplaySize(WORLD_W, WORLD_H);
         this.container.add(this.img);
 
         // textos dinamicos (branco bold — estilo dos campos do SWF)
