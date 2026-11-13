@@ -105,10 +105,10 @@ export default class BuddyWindow {
 
     _buildVisuals() {
         const scene = this.scene;
-        // offset para centralizar a janela na tela
-        const wb = this.winBounds;
-        this.ox = WORLD_W / 2 - (wb[0] + wb[2]) / 2;
-        this.oy = WORLD_H / 2 - (wb[1] + wb[3]) / 2 - 10;
+        // posicao autenticada: o art_mc ja vem com matrix (460,80) no stage —
+        // nao centralizar; textos/zonas usam os bounds direto (mesmo espaco).
+        this.ox = 0;
+        this.oy = 0;
         const P = (x, y) => ({ x: x + this.ox, y: y + this.oy });
 
         // canvas da arte vetorial (redesenhado a cada render)
