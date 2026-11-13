@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow devin-local-smoke.yml --branch master \
-            --status completed --limit 20 --json headSha,conclusion \
+            --status completed --limit 200 --json headSha,conclusion \
             -q '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // empty' || true)
           echo "PUSH_BEFORE=${last:-$EVENT_BEFORE}" >> "$GITHUB_ENV"
 
