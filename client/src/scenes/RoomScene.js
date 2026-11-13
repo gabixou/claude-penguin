@@ -15,8 +15,7 @@ import Penguin from '../entities/Penguin.js';
 import { PenguinLibrary } from '../entities/PenguinArt.js';
 import Wardrobe from '../ui/Wardrobe.js';
 import ActionControls from '../ui/ActionControls.js';
-import WebHud from '../ui/WebHud.js';
-import { MovieRoom, IDENT_COLOR } from '../movie/movie.js';
+import { MovieRoom } from '../movie/movie.js';
 import PlayerCard from '../ui/PlayerCard.js';
 import IslandMap from '../ui/IslandMap.js';
 import VectorHud from '../ui/VectorHud.js';
@@ -31,21 +30,14 @@ import { CatalogueOverlay } from '../ui/Catalogue.js';
 import { MinigameOverlay } from '../minigames/MinigameOverlay.js';
 import BuddyWindow from '../ui/BuddyWindow.js';
 import { PromptUI } from '../ui/Prompt.js';
-
-// salas do clone -> pacote /swf/<pack>/ vetorial (timelines.json + SVGs).
-// Sem fallback: se o pack falhar, a sala mostra um retangulo de erro.
-const MOVIE_ROOM_MAP = {
-    town: 'town', coffee: 'coffee', dance: 'dance', pizza: 'pizza',
-    plaza: 'plaza', forts: 'forts', dojo: 'dojo', beach: 'beach',
-    dock: 'dock', lodge: 'lodge', mine: 'mine', rink: 'rink',
-    // salas extras ligadas por triggers_mc das salas base
-    shop: 'shop', book: 'book', boiler: 'boiler', lounge: 'lounge',
-    pet: 'pet', cave: 'cave', stage: 'stage', forest: 'forest',
-    light: 'light', ship: 'ship', village: 'village', attic: 'attic',
-    dojoext: 'dojoext', cavemine: 'cavemine',
-    // destinos do mapa da ilha (map.swf)
-    mtn: 'mtn', cove: 'cove', shack: 'shack', berg: 'berg'
-};
+import TableGames from '../minigames/tables/TableGames.js';
+import { mark } from '../perf.js';
+import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
+import {
+    layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
+    planRoom, segmentRect, dynRect, drawSegment,
+    prerenderRoom, prerenderJob, cancelPrerenders,
+} from '../room/roomRaster.js';
 
 // nomes exibidos no loader ("Joining <sala>") — nomes do CP original
 const ROOM_NAMES = {
@@ -58,47 +50,6 @@ const ROOM_NAMES = {
     dojoext: 'Dojo', cavemine: 'Mine', mtn: 'Mountain', cove: 'Cove',
     shack: 'Mine Shack', berg: 'Iceberg'
 };
-
-// Cache de layers rasterizadas no IndexedDB: a primeira visita a uma sala
-// rasteriza os SVGs (lento); as proximas carregam blobs prontos e a sala
-// aparece quase instantaneamente. Chave inclui escala (supersampling) e
-// fingerprint do pack para invalidar se os assets mudarem.
-const LAYER_CACHE = 'penguin-movie-layers';
-let _idbPromise = null;
-function idb() {
-    if (!_idbPromise) {
-        _idbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open('penguin-movie', 1);
-            req.onupgradeneeded = () => req.result.createObjectStore(LAYER_CACHE);
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-    }
-    return _idbPromise;
-}
-async function idbGet(key) {
-    try {
-        const db = await idb();
-        return await new Promise((res) => {
-            const rq = db.transaction(LAYER_CACHE).objectStore(LAYER_CACHE).get(key);
-            rq.onsuccess = () => res(rq.result || null);
-            rq.onerror = () => res(null);
-        });
-    } catch { return null; }
-}
-async function idbPut(key, val) {
-    try {
-        const db = await idb();
-        await new Promise((res) => {
-            const tx = db.transaction(LAYER_CACHE, 'readwrite');
-            tx.objectStore(LAYER_CACHE).put(val, key);
-            tx.oncomplete = res; tx.onerror = res;
-        });
-    } catch { /* cache e best-effort */ }
-}
-function canvasToBlob(canvas) {
-    return new Promise((res) => canvas.toBlob(res, 'image/webp', 0.92));
-}
 
 export default class RoomScene extends Phaser.Scene {
     constructor() {
@@ -113,6 +64,7 @@ export default class RoomScene extends Phaser.Scene {
     }
 
     create() {
+        mark('room-scene-create');
         const width = WORLD_W, height = WORLD_H;
         // Textos de UI em alta resolucao: Phaser.Text rasteriza com
         // resolution=1 por padrao e fica borrado quando o camera zoom/fit
@@ -125,11 +77,12 @@ export default class RoomScene extends Phaser.Scene {
 
         // 1. Cena vetorial SWF (timelines.json + SVG) — unica fonte de cenario
         this.loadingScreen = new LoadingScreen(this);
+        mark('loading-screen');
         // boot inicial fica sob a tela do logo (BootScene -> showBoot);
         // o loader azul "Joining..." so aparece em trocas de sala
         this._booting = true;
         this._initMovie(this.currentRoom);
-        musicPlayer.play(this.currentRoom);
+        this._playMusic(this.currentRoom);
 
         // 2. Conexão WebSocket (autenticação acontece antes do pinguim)
         this.network = new NetworkClient(this);
@@ -209,6 +162,11 @@ export default class RoomScene extends Phaser.Scene {
             }
             const dx = dest.x - this.localPlayer.x, dy = dest.y - this.localPlayer.y;
             if (Math.hypot(dx, dy) < 4) return;
+            // otimista: o destino e uma porta — prepara a proxima sala
+            // durante a caminhada; idem para minigame no destino
+            const ahead = this.movie?.triggerAt(dest.x, dest.y);
+            if (ahead?.room && MOVIE_ROOM_MAP[ahead.room]) this._warmRoom(ahead.room);
+            else if (ahead?.game) MinigameOverlay.prefetch(ahead.game);
             this.localPlayer.moveTo(dest.x, dest.y, 150, () => {
                 // ao terminar o deslocamento, volta a "olhar" para o cursor
                 if (this._pointerWorld) {
@@ -217,6 +175,8 @@ export default class RoomScene extends Phaser.Scene {
                 const exit = this.movie && this.movie.triggerAt(this.localPlayer.x, this.localPlayer.y);
                 if (exit?.content) { this.openContent(exit.content); return; }
                 if (exit?.game) { this._showGameUnavailable(exit.game); return; }
+                // mesas (Find Four, Mancala) e waddles (Card-Jitsu) das salas
+                if (exit?.table) { this.openTable(exit.table); return; }
                 if (exit && exit.room && MOVIE_ROOM_MAP[exit.room] && exit.room !== this.currentRoom) {
                     this.changeRoom(exit.room, exit.x, exit.y);
                 }
@@ -345,6 +305,15 @@ export default class RoomScene extends Phaser.Scene {
             this.createPlayerModal.open();
         });
 
+        // Virada de festa: o servidor avisa quando a festa ativa muda —
+        // recarrega o pacote da sala atual e a música com as novas
+        // substituições (pacotes alternativos vivem em movies-party/).
+        this.events.on('party-update', () => {
+            if (!this.currentRoom || !this._playerReady) return;
+            this._initMovie(this.currentRoom);
+            this._playMusic(this.currentRoom);
+        });
+
         // Dados do jogador recebidos - criar pinguim local ou atualizar
         this.events.on('player-data', (data) => {
             // Se o nameChangeModal estiver aberto, é uma resposta de rename
@@ -358,8 +327,12 @@ export default class RoomScene extends Phaser.Scene {
                 return;
             }
             
-            if (this._playerReady) return; // já inicializado
+            if (this._playerReady) {
+                // PLAYER_DATA de refresh (buy/equip/etc.)
+                return;
+            }
             this._playerReady = true;
+            mark('player-data');
             // so esconde o loader se a sala ja terminou de carregar —
             // antes disso o hide() revelava a town parcialmente rasterizada
             if (this._movieReady) this.loadingScreen?.hide();
@@ -450,6 +423,11 @@ export default class RoomScene extends Phaser.Scene {
         this.events.on('player-chat', (data) => {
             if (!data) return;
             if (data.playerId === this.network.playerId) {
+                // eco do proprio chat ja exibido otimisticamente: so
+                // re-renderiza se o servidor alterou o texto (filtro)
+                const p = this._pendingChat;
+                this._pendingChat = null;
+                if (p && p.text === data.message && Date.now() - p.t < 5000) return;
                 if (this.localPlayer) this.localPlayer.showChat(data.message);
             } else {
                 const penguin = this.remotePlayers.get(data.playerId);
@@ -596,17 +574,29 @@ export default class RoomScene extends Phaser.Scene {
         chatInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const text = chatInput.value.trim();
-                if (text) { this.network.sendChat(text); chatInput.value = ''; }
+                if (text) {
+                    this.network.sendChat(text);
+                    chatInput.value = '';
+                    // otimista: balao aparece ja, sem esperar o eco do
+                    // servidor (rollback: erro MUTED/RATE_LIMITED/BLOCKED
+                    // troca o balao pelo aviso; texto mascarado substitui)
+                    if (this.localPlayer && this.network?.isConnected) {
+                        const shown = text.substring(0, 120); // mesmo corte do servidor
+                        this.localPlayer.showChat(shown);
+                        this._pendingChat = { text: shown, t: Date.now() };
+                    }
+                }
             } else if (e.key === 'Escape') {
                 chatInput.blur();
             }
         });
         document.body.appendChild(chatInput);
         this.chatInputRef = chatInput;
+
         this._layoutChatInput();
         this.scale.on('resize', () => this._layoutChatInput());
         // o rect real do chat_mc so existe depois do build async do VectorHud
-        this.events.on('vectorhud:ready', () => this._layoutChatInput());
+        this.events.on('vectorhud:ready', () => { mark('hud-ready'); this._layoutChatInput(); });
         this.events.once('shutdown', () => chatInput.remove());
         this.events.once('shutdown', () => musicPlayer.stop());
         this.events.once('shutdown', () => this._minigame?.close());
@@ -722,8 +712,8 @@ export default class RoomScene extends Phaser.Scene {
     _adjacentBases() {
         const out = new Set();
         for (const ex of Object.values(this.movie?.exits || {})) {
-            const pack = ex.room && MOVIE_ROOM_MAP[ex.room];
-            if (pack) out.add(`/assets/movies/${pack}`);
+            const base = ex.room && this._movieBaseFor(ex.room);
+            if (base) out.add(base);
         }
         return out;
     }
@@ -769,13 +759,80 @@ export default class RoomScene extends Phaser.Scene {
         sched(step);
     }
 
-    // Carrega o pacote vetorial /assets/movies/<pack>/ (timelines.json + SVGs).
+    // Otimista: rasteriza as salas vizinhas (saidas da sala atual) direto no
+    // cache de layers, em idle — ao atravessar a porta e cache hit e a tela
+    // de loading quase nao aparece. Jobs de salas que deixaram de ser
+    // vizinhas sao cancelados (so idle; os urgentes seguem).
+    _prerenderAdjacent() {
+        const adjacent = this._adjacentBases();
+        const current = this._movieBaseFor(this.currentRoom);
+        adjacent.delete(current);
+        cancelPrerenders(adjacent);
+        // em sequencia: um job por vez no idle (nao empilha raster)
+        const list = [...adjacent];
+        const roomAtStart = this.currentRoom;
+        const next = () => {
+            if (this.currentRoom !== roomAtStart) return;
+            const base = list.shift();
+            if (!base) return;
+            prerenderRoom(base, this._ss).promise.finally(next);
+        };
+        next();
+    }
+
+    // Jogador clicou para andar ate uma porta: comeca JA a preparar a sala
+    // destino (pack + raster no cache) com prioridade — a caminhada ate a
+    // porta (~1-3s) esconde o carregamento.
+    _warmRoom(roomKey) {
+        const base = this._movieBaseFor(roomKey);
+        if (!base || roomKey === this.currentRoom) return;
+        prerenderRoom(base, this._ss, { urgent: true });
+    }
+
+    // Minigames presentes na sala (triggers_mc + botoes do cenario):
+    // baixa os arquivos de entrada para o clique abrir sem esperar rede.
+    _prefetchMinigames(movie) {
+        const ia = movie?.interactions;
+        if (!ia) return;
+        const games = new Set(Object.values(ia.trigGame || {}));
+        for (const act of Object.values(ia.click || {})) if (act?.game) games.add(act.game);
+        const sched = typeof requestIdleCallback === 'function'
+            ? (fn) => requestIdleCallback(fn, { timeout: 4000 })
+            : (fn) => setTimeout(fn, 500);
+        for (const g of games) sched(() => MinigameOverlay.prefetch(g));
+    }
+
+    // Base do pacote vetorial da sala — durante uma festa, o servidor
+    // pode mandar package alternativo (assets/movies-party/<id>/<pack>).
+    // A URL diferente já versiona o cache IndexedDB por festa.
+    _movieBaseFor(roomKey) {
+        return movieBaseFor(roomKey, this.network?.party);
+    }
+
+    // Música da sala — substituição de festa (global ou por sala) aponta
+    // um programId alternativo; aceita JSON {"<room>":"<id>","*":"<id>"}.
+    _playMusic(roomKey) {
+        const subs = this.network?.party?.substitutions;
+        const raw = subs?.byRoom?.[roomKey]?.music || subs?.global?.music;
+        if (raw) {
+            let id = raw;
+            try {
+                const m = JSON.parse(raw);
+                if (m && typeof m === 'object') id = m[roomKey] || m['*'] || raw;
+            } catch { /* raw já é o programId */ }
+            musicPlayer.playProgram(id);
+            return;
+        }
+        musicPlayer.play(roomKey);
+    }
+
+    // Carrega o pacote vetorial da sala (ver _movieBaseFor).
     // Sem fallback: se o pack nao carregar, mostra retangulo de erro.
     _initMovie(roomKey) {
         this._clearMovie();
-        const pack = MOVIE_ROOM_MAP[roomKey];
+        const base = this._movieBaseFor(roomKey);
         if (this.roomFailText) { this.roomFailText.destroy(); this.roomFailText = null; }
-        if (!pack) { this._showRoomFail(roomKey); return; }
+        if (!base) { this._showRoomFail(roomKey); return; }
         this._movieReady = false;
         // pausa o decode agendado de fundo (prefetch idle de outras salas)
         // ate esta sala estar pronta — sem isso o cold load competia com
@@ -784,17 +841,29 @@ export default class RoomScene extends Phaser.Scene {
         const releaseHold = () => { MovieRoom._decodeHold = Math.max(0, MovieRoom._decodeHold - 1); };
         if (this._booting) this.loadingScreen?.showBoot();
         else this.loadingScreen?.show(`Joining ${ROOM_NAMES[roomKey] || roomKey}...`, 0);
-        MovieRoom.load(`/assets/movies/${pack}`)
+        mark(`room-load:${roomKey}`);
+        // Otimista: se esta sala ja esta sendo pre-renderizada em segundo
+        // plano (vizinha da anterior / jogador clicou na porta), promove o
+        // job para urgente e espera ele gravar o cache — terminar o que ja
+        // foi feito e mais rapido que recomecar do zero aqui.
+        const pre = prerenderJob(base, this._ss);
+        const preReady = pre
+            ? (pre.urgent = true, Promise.race([pre.promise, new Promise((r) => setTimeout(r, 15000))]))
+            : Promise.resolve();
+        preReady
+            .then(() => MovieRoom.load(base))
             .then(async (movie) => {
                 if (this.currentRoom !== roomKey) { releaseHold(); return; } // sala trocou durante o load
+                mark(`room-pack:${roomKey}`);
                 this.movie = movie;
                 this.movie.setScale(this._ss);
+                // Cache de layers (IDB) consultado JA — em paralelo com o
+                // setup abaixo. Hit = sala sem rasterizar nada.
+                const cacheKey = layerCacheKey(base, this._ss, movie);
+                const cachedP = layerCacheGet(cacheKey);
                 // cria playheads sem rasterizar — sem isso, rooms vindos do
                 // cache IndexedDB ficavam com animacao congelada
                 movie.warmPlayheads();
-                // decode paralelo de todos os SVGs do pack: sem isso cada
-                // renderLayer esperava um decode por vez (~60s na town)
-                movie.prefetchSvgs();
                 // sprites animados viram overlays proprios: as layers ficam
                 // estaticas (1 render + 0 uploads por frame) e so os
                 // overlays pequenos atualizam por tick
@@ -818,13 +887,9 @@ export default class RoomScene extends Phaser.Scene {
                 const total = this.movieLayers.length;
                 this.loadingScreen?.setProgress(0.15);
                 const report = (done) => this.loadingScreen?.setProgress(0.15 + 0.85 * (done / total));
-                // Tenta cache IndexedDB das layers ja rasterizadas (mesma
-                // sala + mesma escala + mesmo pack). Hit = sala instantanea.
-                // v3: cache inclui os overlays dinamicos — sem eles a sala
-                // "quente" ainda re-renderizava ~20 dyns via SVG decode
-                // (dance: 9.3s -> 7.9s entre sessoes; agora cobre tudo)
-                const cacheKey = `v3|${pack}|ss${this._ss.toFixed(2)}|${movie.fingerprint()}`;
-                const cached = await idbGet(cacheKey);
+                // Cache IndexedDB das layers ja rasterizadas (mesma sala +
+                // mesma escala + mesmo pack). v3 inclui os overlays dinamicos.
+                const cached = await cachedP;
                 let cacheHit = false;
                 if (this.movie !== movie) { releaseHold(); return; }
                 const dynCount = this._dynList?.length || 0;
@@ -841,6 +906,12 @@ export default class RoomScene extends Phaser.Scene {
                         layer.tex?.refresh();
                     }
                 }
+                // Decode dos SVGs do pack: so e necessario JA quando vamos
+                // rasterizar (cache miss) — decode paralelo, senao cada
+                // renderLayer esperava um decode por vez (~60s na town).
+                // No cache hit nada e desenhado agora: decodificar ~100-500
+                // SVGs so atrasava o reveal; fica para o idle (animacoes).
+                if (!cacheHit) movie.prefetchSvgs();
                 // revela a sala somente com todas as layers prontas —
                 // as layers nascem invisiveis, entao nenhum pixel parcial
                 // aparece mesmo se outro evento esconder o loader antes
@@ -848,12 +919,20 @@ export default class RoomScene extends Phaser.Scene {
                     releaseHold(); // sala pronta: decode de fundo pode voltar
                     if (this.movie !== movie) return;
                     for (const layer of this.movieLayers) layer.img.setVisible(true);
+                    mark(`room-ready:${roomKey}${cacheHit ? ':cache' : ''}`);
                     this._movieReady = true;
                     this._booting = false;
                     this.loadingScreen?.hide();
                     // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
                     // (ficou na fila durante o load para nao competir)
                     PenguinLibrary.startWarm?.();
+                    // cache hit: decodifica os SVGs da sala aos poucos, em
+                    // idle — prontos quando os overlays animarem
+                    if (cacheHit) movie.prefetchSvgs(4);
+                    // otimista: salas vizinhas ja rasterizadas no cache e
+                    // minigames da sala ja baixados antes do clique
+                    this._prerenderAdjacent();
+                    this._prefetchMinigames(movie);
                     // prefetch idle dos packs das salas nao visitadas (IDB)
                     this._prefetchRoomsIdle();
                     // garante que o pinguim está em posição acessível
@@ -909,7 +988,7 @@ export default class RoomScene extends Phaser.Scene {
                         if (layers.every(Boolean)
                             && dyns.every((b, i) => b || !(this._dynList || [])[i]?.canvas)
                             && this.movie === movie) {
-                            idbPut(cacheKey, { layers, dyns, ts: Date.now() });
+                            layerCachePut(cacheKey, { layers, dyns, ts: Date.now() });
                         }
                     }
                     reveal();
@@ -1012,8 +1091,8 @@ export default class RoomScene extends Phaser.Scene {
             })
             .catch((e) => {
                 releaseHold();
-                console.warn('[movie] falha ao carregar pack', pack, e);
-                if (this.currentRoom === roomKey) this._showRoomFail(roomKey);
+                console.warn('[movie] falha ao carregar pack', base, e);
+                if (this.currentRoom === roomKey) this._showRoomFail(roomKey, e);
             });
     }
 
@@ -1027,6 +1106,22 @@ export default class RoomScene extends Phaser.Scene {
         } else {
             this._contentNotice(`${name} (em breve)`);
         }
+    }
+
+    // Senta numa mesa/waddle da sala (ENGINE.sendJoinTable/sendJoinWaddle
+    // dos packs originais). As regras rodam no servidor (tables.js).
+    openTable(table) {
+        if (!table) return;
+        if (table.game === 'sled') { this._contentNotice('Corrida de trenó (em breve)'); return; }
+        if (!this.tableGames) this.tableGames = new TableGames(this);
+        if (this.tableGames.isOpen) return;
+        this.tableGames.open({ game: table.game, room: this.currentRoom, tableId: table.id });
+    }
+
+    // Partida pelo painel (lobby ou contra o computador), sem mesa fisica
+    openTableGame(game, { cpu = false } = {}) {
+        if (!this.tableGames) this.tableGames = new TableGames(this);
+        this.tableGames.open(cpu ? { game, cpu: true } : { game });
     }
 
     _showGameUnavailable(game) {
@@ -1055,12 +1150,13 @@ export default class RoomScene extends Phaser.Scene {
         this.time.delayedCall(2500, () => { this._noticeText?.destroy(); this._noticeText = null; });
     }
 
-    _showRoomFail(roomKey) {
+    _showRoomFail(roomKey, err = null) {
         this._booting = false;
         this.loadingScreen?.hide();
         this.cameras.main.setBackgroundColor(0x263238);
+        const detail = err ? `\n${err.message || err}` : '';
         this.roomFailText = this.add.text(WORLD_W / 2, WORLD_H / 2,
-            `Failed to load room "${roomKey}"\n(missing/corrupt SWF pack)`, {
+            `Failed to load room "${roomKey}"\n(missing/corrupt SWF pack)${detail}`, {
             fontFamily: 'Arial, sans-serif',
             fontSize: '16px',
             color: '#eceff1',
@@ -1069,79 +1165,13 @@ export default class RoomScene extends Phaser.Scene {
         }).setOrigin(0.5).setDepth(950000);
     }
 
-    // Segmenta cada top-level layer na ordem de desenho do Flash:
-    // subarvores estaticas viram "segmentos" (canvas cropado proprio) e
-    // sprites animados viram overlays — segmentos e overlays intercalam
-    // por depth, restaurando o z-order original (estatico pode ficar
-    // na frente de animado e vice-versa).
+    // Plano da sala (segmentos estaticos + overlays dinamicos) — mesmo
+    // algoritmo usado pelo pre-render em segundo plano (room/roomRaster.js),
+    // o que garante que o cache de layers gerado la casa com esta cena.
     async _setupDynamics(movie) {
-        this._dynList = null;
-        this._segments = null;
-        const layers = movie.topLevelLayers();
-        const collected = layers.map((l, i) => ({ l, i, items: movie.collectItems(l.entry) }));
-        const totalDyns = collected.reduce((n, c) => n + c.items.filter((it) => it.type === 'dyn').length, 0);
-        if (totalDyns > 60) {
-            // sala com animacao demais: fallback — layer inteira estatica
-            // (comportamento antigo, re-render por _dirtyRoots)
-            const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
-            this._segments = collected.map(({ l, i }) => ({
-                ops: [{ type: 'static', entries: [l.entry], matrix: ID, path: '', color: IDENT_COLOR }],
-                order: 0, depth: l.z + i * 0.001 + 0.0005,
-                layerIdx: i, layerZ: l.z,
-                rootKey: l.entry.name || `#${l.entry.depth}`,
-                paths: new Set(), canvas: null, tex: null, img: null, texKey: null, _busy: false,
-            }));
-            for (const seg of this._segments) {
-                movie.collectPaths(seg.ops[0].entries, '', seg.paths);
-                seg.paths.add('');
-            }
-            movie._skipDynamic = null;
-            return;
-        }
-        movie._skipDynamic = new Set();
-        const dyns = [];
-        const segs = [];
-        for (const { l, i, items } of collected) {
-            const base = l.z + i * 0.001;
-            const step = 0.0009 / Math.max(1, items.length);
-            const rootKey = l.entry.name || `#${l.entry.depth}`;
-            let cur = null;
-            const flush = () => {
-                if (!cur) return;
-                cur.depth = base + (cur.order + 1) * step;
-                segs.push(cur);
-                cur = null;
-            };
-            items.forEach((it, k) => {
-                if (it.type === 'dyn') {
-                    // overlay so se tiver bounds renderizavel — frames vazios
-                    // ou maiores que o limite viram op estatico (fallback)
-                    const db = movie.dynBounds(it.dyn, this._ss);
-                    const okDyn = db && (db[2] - db[0] + 8) <= 4000 && (db[3] - db[1] + 8) <= 4000;
-                    if (okDyn) {
-                        flush();
-                        it.dyn.layerZ = l.z; it.dyn.layerIdx = i;
-                        it.dyn.order = k; it.dyn.depth = base + (k + 1) * step;
-                        dyns.push(it.dyn);
-                        movie._skipDynamic.add(it.dyn.path);
-                        return;
-                    }
-                    it = { type: 'static', entries: [it.dyn.entry], matrix: it.dyn.parentMatrix, path: it.dyn.parentPath, color: it.dyn.parentColor };
-                }
-                if (!cur) cur = { ops: [], order: k, depth: 0, layerIdx: i, layerZ: l.z, rootKey, paths: new Set(), canvas: null, tex: null, img: null, texKey: null, _busy: false };
-                cur.ops.push(it);
-            });
-            flush();
-        }
-        // paths de cada segmento (para dirty/forced -> re-render cirurgico)
-        for (const seg of segs) {
-            for (const op of seg.ops) {
-                movie.collectPaths(op.entries, op.path, seg.paths);
-                if (op.path) seg.paths.add(op.path);
-            }
-        }
+        const { dyns, segments } = planRoom(movie, this._ss);
         this._dynList = dyns;
-        this._segments = segs;
+        this._segments = segments;
     }
 
     _segRelated(seg, p) {
@@ -1157,21 +1187,8 @@ export default class RoomScene extends Phaser.Scene {
     // Re-renderiza um segmento estatico no seu canvas cropado.
     async _renderSegment(seg) {
         const movie = this.movie;
-        if (!seg?.canvas || this.movie !== movie) return;
-        const ctx = seg.canvas.getContext('2d');
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, seg.canvas.width, seg.canvas.height);
-        ctx.translate(-seg.ox, -seg.oy);
-        const ss = this._ss;
-        for (const op of seg.ops) {
-            const m = op.matrix;
-            const dev = { a: ss * m.a, b: ss * m.b, c: ss * m.c, d: ss * m.d, x: ss * m.x, y: ss * m.y };
-            try {
-                await movie._drawEntries(ctx, op.entries, dev, op.path, op.color, ss, 1);
-            } catch (e) {
-                console.warn('[seg] draw', op.path, e);
-            }
-        }
+        if (!seg?.canvas || !movie) return;
+        await drawSegment(movie, seg, this._ss);
     }
 
     // Cria canvas/textura/imagem Phaser para cada overlay dinamico.
@@ -1189,12 +1206,9 @@ export default class RoomScene extends Phaser.Scene {
         const ss = this._ss;
         const base = movie.base.split('/').pop();
         await Promise.all(list.map(async (d, j) => {
-            const b = movie.dynBounds(d, ss);
-            if (!b) return;
-            const pad = 4;
-            const x0 = Math.floor(b[0]) - pad, y0 = Math.floor(b[1]) - pad;
-            const w = Math.ceil(b[2]) + pad - x0, h = Math.ceil(b[3]) + pad - y0;
-            if (w <= 0 || h <= 0 || w > 4000 || h > 4000) return;
+            const r = dynRect(movie, d, ss);
+            if (!r) return;
+            const { x0, y0, w, h } = r;
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             const texKey = `dyn_${base}_${j}`;
@@ -1228,18 +1242,9 @@ export default class RoomScene extends Phaser.Scene {
         // um canvas cropado por segmento estatico — bounds = uniao dos ops
         // em device px (mesma convencao dos overlays dinamicos)
         for (const seg of this._segments) {
-            let b = null;
-            for (const op of seg.ops) {
-                const m = op.matrix;
-                const dev = { a: ss * m.a, b: ss * m.b, c: ss * m.c, d: ss * m.d, x: ss * m.x, y: ss * m.y };
-                const ob = this.movie._boundsOfEntries(op.entries, dev, op.path);
-                if (ob) b = b ? [Math.min(b[0], ob[0]), Math.min(b[1], ob[1]), Math.max(b[2], ob[2]), Math.max(b[3], ob[3])] : ob;
-            }
-            if (!b) continue; // segmento sem conteudo visivel
-            const pad = 4;
-            const x0 = Math.floor(b[0]) - pad, y0 = Math.floor(b[1]) - pad;
-            const w = Math.ceil(b[2]) + pad - x0, h = Math.ceil(b[3]) + pad - y0;
-            if (w <= 0 || h <= 0 || w > 8000 || h > 8000) continue;
+            const r = segmentRect(this.movie, seg, ss);
+            if (!r) continue; // sem conteudo visivel ou grande demais
+            const { x0, y0, w, h } = r;
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             const texKey = `movie_seg_${base}_${this.movieLayers.length}`;
@@ -1283,10 +1288,12 @@ export default class RoomScene extends Phaser.Scene {
         if (!this._playerReady || !this.localPlayer) return;
         this.playerCard?.close();
         this._closeMinigame();
+        // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
+        if (this.tableGames?.isOpen && this.tableGames.st?.room) this.tableGames.close();
         this.currentRoom = newRoomKey;
         this._clearMovie();
         this._initMovie(newRoomKey);
-        musicPlayer.play(newRoomKey);
+        this._playMusic(newRoomKey);
 
         // guarda a posição desejada; o safe spawn é aplicado quando o movie carregar
         this._pendingSpawn = { x: spawnX, y: spawnY };

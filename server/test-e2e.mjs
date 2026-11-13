@@ -47,7 +47,8 @@ const ws1 = await connect();
 const c1 = makeClient(ws1);
 
 console.log('== auth/guest auto-create ==');
-c1.send('AUTH_GUEST', {});
+// forceGuest: sem isso, conexões de loopback herdam o pinguim Arenovisk
+c1.send('AUTH_GUEST', { forceGuest: true });
 const pd1 = await c1.waitOp('PLAYER_DATA');
 check('PLAYER_DATA recebido (auto-cripto)', !!pd1.data?.playerId);
 check('nome automatico Penguin_XXXX', /^Penguin_/.test(pd1.data?.username || ''), pd1.data?.username);
@@ -126,7 +127,7 @@ await new Promise(r => setTimeout(r, 300));
 
 const ws2 = await connect();
 const c2 = makeClient(ws2);
-c2.send('AUTH_GUEST', { sessionToken });
+c2.send('AUTH_GUEST', { sessionToken, forceGuest: true });
 const pdRelog = await c2.waitOp('PLAYER_DATA');
 check('mesmo playerId via token', pdRelog.data?.playerId === playerId);
 check('dailyBonus NAO repete no mesmo dia', !pdRelog.data?.dailyBonus, `dailyBonus=${pdRelog.data?.dailyBonus}`);

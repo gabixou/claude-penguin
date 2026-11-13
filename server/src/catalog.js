@@ -51,9 +51,48 @@ export function getItemCost(itemId) {
     return item ? (item.cost || 0) : null;
 }
 
-// Todos os ids do catalogo — usado pelo flag all_items (pinguim de teste).
-export function listAllIds() {
-    return [...byId.keys()];
+// ---------- Vigência de catálogo (Fase 7) ----------
+// Itens podem ter `validFrom`/`validTo` (ISO date ou timestamp) no
+// items.json. Fora da janela o item não é vendável nem listado —
+// permite rodar edições de catálogo sem apagar itens do arquivo.
+// Quem já possui o item mantém (hasItem não passa pelo catálogo).
+
+function itemValid(item, now = Date.now()) {
+    if (!item) return false;
+    const from = item.validFrom ? Date.parse(item.validFrom) : null;
+    const to = item.validTo ? Date.parse(item.validTo) : null;
+    if (from !== null && Number.isFinite(from) && now < from) return false;
+    if (to !== null && Number.isFinite(to) && now > to) return false;
+    return true;
 }
 
-export default { isLoaded, getItem, getItemCost, listAllIds };
+export function isItemAvailable(itemId, now = Date.now()) {
+    return itemValid(byId.get(Number(itemId)), now);
+}
+
+// Item apenas se está dentro da vigência (para compras/listagens).
+export function getAvailableItem(itemId, now = Date.now()) {
+    const item = getItem(itemId);
+    return itemValid(item, now) ? item : null;
+}
+
+// Todos os ids do catalogo — usado pelo flag all_items (pinguim de teste).
+export function listAllIds(now = Date.now()) {
+    return [...byId.values()].filter((i) => itemValid(i, now)).map((i) => i.id);
+}
+
+// Busca por id ou nome (painel admin) — só itens vigentes.
+export function searchItems(query, limit = 50, now = Date.now()) {
+    const q = String(query || '').trim().toLowerCase();
+    const out = [];
+    for (const item of byId.values()) {
+        if (!itemValid(item, now)) continue;
+        if (!q || String(item.id).includes(q) || String(item.name || '').toLowerCase().includes(q)) {
+            out.push(item);
+            if (out.length >= limit) break;
+        }
+    }
+    return out;
+}
+
+export default { isLoaded, getItem, getItemCost, isItemAvailable, getAvailableItem, listAllIds, searchItems };

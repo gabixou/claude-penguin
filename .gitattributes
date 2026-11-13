@@ -1,0 +1,20 @@
+# Os .pack sao concatenacoes de SVG indexadas por OFFSET DE BYTE no
+# timelines.json. Como parecem texto, o Git no Windows (core.autocrlf=true)
+# convertia LF -> CRLF no checkout, deslocando todos os offsets: nenhum SVG
+# decodificava e o jogo abria com a tela preta. "binary" desliga a conversao.
+*.pack binary
+
+# Demais assets binarios (o Git ja detecta, mas fica explicito)
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.swf binary
+*.db binary

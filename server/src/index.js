@@ -13,6 +13,8 @@ import catalog from './catalog.js';
 import { clientIp, isLoopbackIp } from './net.js';
 import { checkText, allowChat, hashTerm } from './chatFilter.js';
 import * as social from './socialStore.js';
+import * as tables from './tables.js';
+import * as parties from './parties.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -82,6 +84,7 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     if (sessionToken) {
         data.sessionToken = sessionToken; // para localStorage fallback
     }
+    data.party = parties.partyClientData(parties.activeParty());
     ws.send(JSON.stringify({
         op: 'PLAYER_DATA',
         data
@@ -202,6 +205,33 @@ function refreshCoins(ws, session) {
 
 // cooldown de cuidado de pet: "playerId:petRowId" -> timestamp
 const petCareCooldown = new Map();
+
+// Jogos de mesa autoritativos (integracao PR): moedas pagas pelo servidor
+// atualizam o PLAYER_DATA do jogador (coins no HUD/card).
+tables.setTableHooks({
+    getSocket: (playerId) => findSessionSocket(playerId),
+    onCoins: (playerId) => {
+        const ws = findSessionSocket(playerId);
+        const session = ws && clientPlayerData.get(ws);
+        const playerData = playerStore.getPublicPlayerData(playerId);
+        if (session) session.coins = playerData.coins;
+        if (ws && ws.readyState === WebSocket.OPEN) sendPlayerData(ws, playerData, session?.sessionToken);
+    },
+});
+
+// Virada de festa: quando a festa ativa muda (relogio do servidor),
+// avisa todos os jogadores autenticados com PARTY_UPDATE.
+let lastPartyId = parties.activeParty()?.id ?? null;
+setInterval(() => {
+    const cur = parties.activeParty();
+    const curId = cur?.id ?? null;
+    if (curId === lastPartyId) return;
+    lastPartyId = curId;
+    const payload = JSON.stringify({ op: 'PARTY_UPDATE', data: { party: parties.partyClientData(cur) } });
+    for (const [sws] of clientPlayerData) {
+        if (sws.readyState === WebSocket.OPEN) sws.send(payload);
+    }
+}, 60 * 1000).unref?.();
 
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
@@ -333,6 +363,12 @@ function sendPlayerSession(ws, player, sessionToken) {
 function handlePacket(ws, req, packet) {
     const { op, data } = packet;
     if (!op || !data) return;
+
+    // Ops de jogos de mesa exigem jogador autenticado
+    const tableSession = clientPlayerData.get(ws);
+    if (tableSession?.playerId && tables.handleTableOp(ws, tableSession, packet)) {
+        return;
+    }
 
     switch (op) {
         case 'AUTH_GUEST': {
@@ -567,6 +603,8 @@ function handlePacket(ws, req, packet) {
                 sendError(ws, 'INVALID_ROOM', 'Sala inválida');
                 return;
             }
+            // mesa de jogo: levantar ao entrar em outra sala
+            tables.leaveRoomTables(session.playerId, roomId);
             const jx = Math.max(0, Math.min(760, Number(data.x) || 400));
             const jy = Math.max(0, Math.min(480, Number(data.y) || 300));
 
@@ -985,6 +1023,8 @@ function handleDisconnect(ws, log = true) {
     if (!session) return;
 
     const { roomId, playerId, username } = session;
+    // desconectar no meio de uma partida = desistencia
+    if (playerId) tables.leaveAll(playerId);
     const room = rooms.get(roomId);
     if (room) {
         room.delete(playerId);

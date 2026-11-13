@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 471 665" width="471" height="665" role="img">
+<defs>
+<linearGradient id="handle" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#00adeb"/><stop offset=".28" stop-color="#0065ad"/><stop offset=".62" stop-color="#007dcc"/><stop offset="1" stop-color="#00396c"/></linearGradient>
+<linearGradient id="shell" x1="0" y1="0" x2=".75" y2="1"><stop stop-color="#028ccc"/><stop offset=".54" stop-color="#006bb4"/><stop offset="1" stop-color="#008bca"/></linearGradient>
+<linearGradient id="edge" x1="0" y1="0" x2="1" y2=".2"><stop stop-color="#00b7f1"/><stop offset=".23" stop-color="#007cc8"/><stop offset=".86" stop-color="#0081ca"/><stop offset="1" stop-color="#004f94"/></linearGradient>
+</defs>
+
+<!-- Handle sits behind the housing -->
+<path d="M136 38 L137 30 Q142 2 168 2 L301 2 Q333 3 334 31 L334 38 Z" fill="url(#handle)" stroke="#032444" stroke-width="3"/>
+<path d="M142 37 Q148 8 171 8 L297 8 Q318 8 325 32" fill="none" stroke="#11b7e5" stroke-width="5" opacity=".8"/>
+<path d="M168 37 Q168 9 181 9 L296 9 Q311 12 312 37 Z" fill="#0371b2" opacity=".74"/>
+<g stroke="#061e2b" stroke-width="2.1"><line x1="198" y1="18" x2="198" y2="37" /><line x1="202" y1="18" x2="202" y2="37" /><line x1="206" y1="18" x2="206" y2="37" /><line x1="210" y1="18" x2="210" y2="37" /><line x1="214" y1="18" x2="214" y2="37" /><line x1="218" y1="18" x2="218" y2="37" /><line x1="222" y1="18" x2="222" y2="37" /><line x1="226" y1="18" x2="226" y2="37" /><line x1="230" y1="18" x2="230" y2="37" /><line x1="234" y1="18" x2="234" y2="37" /><line x1="238" y1="18" x2="238" y2="37" /><line x1="242" y1="18" x2="242" y2="37" /><line x1="246" y1="18" x2="246" y2="37" /><line x1="250" y1="18" x2="250" y2="37" /><line x1="254" y1="18" x2="254" y2="37" /><line x1="258" y1="18" x2="258" y2="37" /><line x1="262" y1="18" x2="262" y2="37" /><line x1="266" y1="18" x2="266" y2="37" /><line x1="270" y1="18" x2="270" y2="37" /><line x1="274" y1="18" x2="274" y2="37" /></g>
+<!-- Broad shell -->
+<rect x="1.8" y="36" width="467.4" height="627.1" rx="30" fill="url(#shell)" stroke="#042f59" stroke-width="3.6" />
+<rect x="7" y="41" width="457" height="615" rx="25" fill="none" stroke="#13c5ee" stroke-width="4" opacity=".83"/>
+<rect x="20" y="54" width="431" height="590" rx="22" fill="#005298" stroke="#0576bd" stroke-width="2"/>
+<path d="M23 62 Q23 55 36 55 H434" stroke="#0a7dbb" stroke-width="2.3" fill="none" opacity=".8"/>
+<path d="M21 622 Q21 643 42 644 H431 Q450 644 450 621" stroke="#004b90" stroke-width="3" fill="none" opacity=".7"/>
+
+</svg>
