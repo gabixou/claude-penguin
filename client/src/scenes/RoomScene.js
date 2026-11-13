@@ -246,15 +246,18 @@ export default class RoomScene extends Phaser.Scene {
         this.promptUI = new PromptUI(this);
         this.events.on('buddy-request', (d) => {
             this.promptUI.show({
-                text: `${d.fromUsername || 'Alguém'} wants to be your buddy. Accept?`,
+                text: `${d.fromUsername || 'Someone'} has asked to be your buddy. Do you accept?`,
                 mode: 'yesno',
                 onYes: () => this.network?.buddyAccept(d.fromPlayerId),
                 onNo: () => {},
             });
         });
+        this.events.on('buddy-request-sent', () => {
+            this.promptUI.show({ text: 'Request Sent', mode: 'ok', onYes: () => {} });
+        });
         this.events.on('buddy-accepted', (d) => {
             this.promptUI.show({
-                text: `${d.buddyUsername || 'Alguém'} is now your buddy!`,
+                text: `${d.buddyUsername || 'Someone'} is now your buddy!`,
                 mode: 'ok',
                 onYes: () => {},
             });

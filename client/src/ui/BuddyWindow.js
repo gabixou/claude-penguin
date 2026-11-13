@@ -260,7 +260,7 @@ export default class BuddyWindow {
         } else {
             const p = scene.remotePlayers?.get(row.playerId);
             if (p && scene.playerCard) scene.playerCard.open(p);
-            else scene.localPlayer?.showChat?.(`(${row.name} não está nesta sala)`);
+            else scene.localPlayer?.showChat?.(`(${row.name} is not in this room)`);
         }
     }
 

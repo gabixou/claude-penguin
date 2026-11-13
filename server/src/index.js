@@ -801,7 +801,8 @@ function handlePacket(ws, req, packet) {
             }
             sendSocial(ws);
             if (res.pending) {
-                // notifica o alvo se estiver online + refresh da lista dele
+                // confirma ao remetente (prompt "Request Sent") + notifica o alvo
+                ws.send(JSON.stringify({ op: 'BUDDY_REQUEST_SENT', data: { toUsername: username } }));
                 notifyPlayer(res.targetId, {
                     op: 'BUDDY_REQUEST',
                     data: { fromPlayerId: session.playerId, fromUsername: session.username }
@@ -809,6 +810,10 @@ function handlePacket(ws, req, packet) {
                 sendSocialToPlayer(res.targetId);
             } else if (res.autoAccepted) {
                 // aceite mutuo: notifica os dois lados
+                ws.send(JSON.stringify({
+                    op: 'BUDDY_ACCEPTED',
+                    data: { buddyPlayerId: res.targetId, buddyUsername: username }
+                }));
                 notifyPlayer(res.targetId, {
                     op: 'BUDDY_ACCEPTED',
                     data: { buddyPlayerId: session.playerId, buddyUsername: session.username }

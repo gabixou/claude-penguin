@@ -263,6 +263,9 @@ export default class NetworkClient {
                 this.scene.events.emit('buddy-request', data);
                 this.getSocial();
                 break;
+            case 'BUDDY_REQUEST_SENT':
+                this.scene.events.emit('buddy-request-sent', data);
+                break;
             case 'BUDDY_ACCEPTED':
                 this.scene.events.emit('buddy-accepted', data);
                 this.getSocial();
