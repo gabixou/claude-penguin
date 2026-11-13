@@ -133,19 +133,16 @@ export default class Penguin extends Phaser.GameObjects.Container {
         return ((d % 8) + 8) % 8 + 1;
     }
 
-    // "Olhar" para o cursor: quando parado, o pinguim gira no proprio eixo
-    // (troca o frame idle 1-8, ou senta na direcao 17-24) sempre de frente
-    // para o ponteiro — igual ao Club Penguin original. Nao gira em emote.
+    // "Olhar" para o cursor: SO quando parado em pe (frame idle = direction).
+    // Sentado (17-24), emotes (25+), walk, throw e snowball nao acompanham
+    // o mouse — a direcao fica travada no que estava ao entrar no estado.
     facePoint(x, y) {
         if (this.isMoving || !this.view) return;
-        // sentado (frames 17-24 = dir+16) tambem gira pro cursor, mantendo
-        // a pose sentada — no original o pinguim sentaba olhando o mouse
-        const sitting = this.action >= 17 && this.action <= 24;
-        if (this.action !== this.direction && !sitting) return; // emote: nao gira
+        if (this.action !== this.direction) return; // nao esta em idle: nao gira
         const dir = this.directionToward(x, y);
         if (dir !== this.direction) {
             this.direction = dir;
-            this.setAction(sitting ? dir + 16 : dir); // frame idle/sentado da nova direcao
+            this.setAction(dir); // frame idle da nova direcao
         }
     }
 
