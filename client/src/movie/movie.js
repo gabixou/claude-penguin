@@ -1246,7 +1246,11 @@ export class MovieRoom {
 
     topLevelLayers() {
         const frame = this._mainTl.frames[0] || [];
-        const SKIP = new Set(['block_mc', 'triggers_mc']);
+        // block/triggers nunca renderizam; os *_area do igloo sao
+        // marcadores de debug do SWF (parede p/ moveis, area do pet,
+        // piso) — no original sao invisiveis, aqui viravam manchas coloridas
+        const SKIP = new Set(['block_mc', 'triggers_mc',
+            'trash_area', 'room_area', 'wall_area', 'pet_area', 'waypointsClip']);
         return frame
             .filter((e) => !SKIP.has(e.name))
             .map((e) => ({ entry: e, z: this._depthOf(e) }))
