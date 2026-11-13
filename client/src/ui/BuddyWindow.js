@@ -143,7 +143,11 @@ export default class BuddyWindow {
         for (let i = 0; i < ROWS; i++) {
             const nb = this.rows[i]?.children.name_txt;
             if (!nb) { this.rowTexts.push(null); continue; }
-            const t = scene.add.text(nb[0] + 4 + this.ox, (nb[1] + nb[3]) / 2 + this.oy, '', {
+            // alinha pela linha do icone (centro visual da linha), nao pelo
+            // centro do campo de texto — evita o leve descaso vertical
+            const ib = this.rows[i]?.children.icon_mc;
+            const cy = ib ? (ib[1] + ib[3]) / 2 : (nb[1] + nb[3]) / 2;
+            const t = scene.add.text(nb[0] + 4 + this.ox, cy + this.oy, '', {
                 fontFamily: 'Arial, sans-serif', fontSize: '12px', fontStyle: 'bold',
                 color: '#ffffff', stroke: '#1c3a5e', strokeThickness: 2,
             }).setOrigin(0, 0.5);
