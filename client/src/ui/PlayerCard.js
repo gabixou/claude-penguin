@@ -6,6 +6,7 @@ import Phaser from 'phaser';
 import { MovieRoom } from '../movie/movie.js';
 import { Clip } from '../movie/clip.js';
 import { veColor } from '../entities/PenguinArt.js';
+import { SPECIES_SPRITE } from '../entities/PuffleView.js';
 import { WORLD_W, WORLD_H } from '../display.js';
 import NameChangeModal from './NameChangeModal.js';
 import { UiTooltip } from './Tooltip.js';
@@ -73,6 +74,18 @@ function assetMovieCached(kind, cache, id) {
 }
 const photoMovie = (id) => assetMovieCached('photos', _photoMovies, id);
 const iconMovie = (id) => assetMovieCached('icons', _iconMovies, id);
+
+// puffle equipado no card (variante doll com pet): sprite real
+// /assets/puffle/<cor>, frame 1 = stand frontal
+const _puffleMovies = new Map();
+function puffleMovie(dir) {
+    if (!_puffleMovies.has(dir)) {
+        _puffleMovies.set(dir, MovieRoom.load(`/assets/puffle/${dir}`)
+            .then((m) => { m.setScale(1); return m; })
+            .catch((e) => { console.warn('[playercard] puffle', dir, e); _puffleMovies.delete(dir); return null; }));
+    }
+    return _puffleMovies.get(dir);
+}
 
 // lapis branco diagonal (silhueta estilo icone edit: cap quadrado no
 // quadrante sup-dir, corpo retangular, ponta triangular no inf-esq) —
@@ -231,7 +244,7 @@ export default class PlayerCard {
         // anchor 110.7,142.9, na ordem feet->body->neck->face->head->hand) ----
         const dollEntry = entries.find((e) => e.name === 'paper_doll_mc');
         const dollFrame = dollEntry && movie.sprites[String(dollEntry.id)]?.frames?.[0];
-        let dollWorld = null, bodyE = null, outlineE = null;
+        let dollWorld = null, bodyE = null, outlineE = null, feetB = null;
         const look = penguin.gpaOutfit || {};
         if (dollFrame) {
             // world = matriz do paper_doll_mc (coords do filho -> frame do
@@ -310,7 +323,9 @@ export default class PlayerCard {
                         const pm = await paperMovie(id);
                         if (!pm) continue;
                         const pclip = new Clip(pm);
-                        await pclip._drawListFrame(ctx, pm.data?.main?.frames?.[0] || [],
+                        const fr = pm.data?.main?.frames?.[0] || [];
+                        if (slot === 'feet') feetB = pclip._boundsOf(fr, dollWorld, '');
+                        await pclip._drawListFrame(ctx, fr,
                             dollWorld, '', IDENT_COLOR, RENDER_SCALE);
                     }
                 }
@@ -323,6 +338,30 @@ export default class PlayerCard {
                     const pclip = new Clip(pm);
                     await pclip._drawListFrame(ctx, pm._mainTl?.frames?.[0] || [],
                         flagWorld, '', IDENT_COLOR, RENDER_SCALE);
+                }
+            }
+            // puffle equipado: variante "doll com pet" — sprite real do
+            // puffle em pe a direita do boneco, pes na linha do chao
+            const petDir = SPECIES_SPRITE[penguin.pet?.species];
+            if (petDir && dollWorld && dollFrame) {
+                const pm = await puffleMovie(petDir);
+                if (pm) {
+                    const pclip = new Clip(pm);
+                    const entries = pm._mainTl?.frames?.[0] || [];
+                    const pb = pclip._boundsOf(entries, IDENT, '');
+                    const dollB = clip._boundsOf(dollFrame, dollWorld, '');
+                    if (pb && dollB) {
+                        const dollH = Math.max(1, dollB[3] - dollB[1]);
+                        const ground = Math.max(dollB[3], feetB?.[3] ?? 0);
+                        const right = Math.max(dollB[2], feetB?.[2] ?? 0);
+                        const s = (dollH * 0.42) / Math.max(1, pb[3] - pb[1]);
+                        const mat = {
+                            a: s, b: 0, c: 0, d: s,
+                            x: right + 6 - pb[0] * s,
+                            y: ground - pb[3] * s,
+                        };
+                        await pclip._drawListFrame(ctx, entries, mat, '', IDENT_COLOR, RENDER_SCALE);
+                    }
                 }
             }
         };
