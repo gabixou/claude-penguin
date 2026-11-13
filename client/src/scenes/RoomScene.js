@@ -1279,6 +1279,7 @@ export default class RoomScene extends Phaser.Scene {
         }
         this._segments = null;
         this.movie = null;
+        this._interactions?.destroy?.();
         this._interactions = null;
         this.cameras.main.setBackgroundColor(0x000000);
     }
