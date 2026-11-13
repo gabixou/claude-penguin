@@ -389,37 +389,52 @@ export class Clip {
             p[2] - (p[2] - grid[2]) * w / local.a, p[2]];
         const C = [p[1], p[1] + (grid[1] - p[1]) * S / local.d,
             p[3] - (p[3] - grid[3]) * S / local.d, p[3]];
-        // rect da fatia no espaco de mundo (world -> unidades base do ctx)
-        const devRect = (rx, ry, rw, rh) => {
+        // Renderiza o frame UMA vez numa canvas offscreen e fatia o bitmap
+        // em 9 drawImages — a versao anterior re-renderizava o vetor por
+        // fatia com clip fracionario e abria gap de ~1px nas emendas.
+        // Fonte de cada fatia = celula da GRADE (b/v) no render nativo
+        // (parent = world * inv(local), sem o stretch da instancia);
+        // destino = celula x/C sob world. SS = scale (fator device).
+        const SS = scale || 1;
+        const devRectM = (m, rx, ry, rw, rh) => {
             const pts = [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]
                 .map(([px, py]) => [
-                    world.a * px + world.c * py + world.x,
-                    world.b * px + world.d * py + world.y,
+                    m.a * px + m.c * py + m.x,
+                    m.b * px + m.d * py + m.y,
                 ]);
             const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
             return [Math.min(...xs), Math.min(...ys),
                 Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
         };
+        const parent = matMul(world, {
+            a: 1 / local.a, b: 0, c: 0, d: 1 / local.d,
+            x: -local.x / local.a, y: -local.y / local.d,
+        });
+        // devRectM retorna [x, y, w, h] — nw/nh sao w/h, nao coords
+        const [nx0, ny0, nw, nh] = devRectM(parent, p[0], p[1], p[2] - p[0], p[3] - p[1]);
+        // L: supersample extra para a celula central (ver movie.js) —
+        // margem vira downscale nitido, centro fica perto da resolucao nativa
+        const L = Math.min(3, Math.max(Math.abs(local.a), Math.abs(local.d), 1));
+        const SSX = SS * L;
+        const fw = Math.max(1, Math.ceil(nw * SSX)), fh = Math.max(1, Math.ceil(nh * SSX));
+        const off = document.createElement('canvas');
+        off.width = fw; off.height = fh;
+        const octx = off.getContext('2d');
+        const mOff = {
+            a: parent.a * SSX, b: parent.b * SSX, c: parent.c * SSX, d: parent.d * SSX,
+            x: (parent.x - nx0) * SSX, y: (parent.y - ny0) * SSX,
+        };
+        await this._drawListFrame(octx, frame, mOff, path, color, 1, force);
         for (let r = 0; r < 3; r++) {
             for (let cIdx = 0; cIdx < 3; cIdx++) {
                 const P = x[cIdx + 1] - x[cIdx], I = C[r + 1] - C[r];
                 if (P <= 0 || I <= 0 || b[cIdx + 1] === b[cIdx] || v[r + 1] === v[r]) continue;
-                const kx = P / (b[cIdx + 1] - b[cIdx]);
-                const ky = I / (v[r + 1] - v[r]);
-                const t = {
-                    a: kx, b: 0, c: 0, d: ky,
-                    x: x[cIdx] - b[cIdx] * kx,
-                    y: C[r] - v[r] * ky,
-                };
-                const mSlice = matMul(world, t);
-                const [dx, dy, dw, dh] = devRect(x[cIdx], C[r], P, I);
-                if (dw <= 0 || dh <= 0) continue;
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(dx, dy, dw, dh);
-                ctx.clip();
-                await this._drawListFrame(ctx, frame, mSlice, path, color, scale, force);
-                ctx.restore();
+                // src: celula da grade (b/v) no render nativo (mOff, px);
+                // dst: celula de destino (x/C) sob world (unidades base)
+                const s = devRectM(mOff, b[cIdx], v[r], b[cIdx + 1] - b[cIdx], v[r + 1] - v[r]);
+                const d = devRectM(world, x[cIdx], C[r], P, I);
+                if (s[2] <= 0 || s[3] <= 0 || d[2] <= 0 || d[3] <= 0) continue;
+                ctx.drawImage(off, s[0], s[1], s[2], s[3], d[0], d[1], d[2], d[3]);
             }
         }
     }
