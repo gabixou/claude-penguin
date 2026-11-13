@@ -72,9 +72,9 @@ export default class PuffleCard {
         this.container.add(this.img);
         // nome do pet sobre name_txt
         this.nameText = this.scene.add.text(0, 0, '', {
-            fontFamily: "'gpf-195', Arial, sans-serif",
-            fontSize: '13px', fontStyle: 'bold', color: '#ffffff',
-            stroke: '#1c3a5e', strokeThickness: 2,
+            // editText original: font 176, size 16, #000000, align center
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '14px', fontStyle: 'bold', color: '#000000',
         }).setOrigin(0.5);
         this.container.add(this.nameText);
     }
@@ -116,6 +116,12 @@ export default class PuffleCard {
         const c = this.clip;
         const frameIdx = this.care ? 1 : 0;
         const entries = this._frames[frameIdx] || this._frames[0] || [];
+        // bounds do name_txt via _localBounds — _boundsOf retorna null
+        // quando o state visible:false ja foi aplicado num render anterior
+        const nameEntry = entries.find((e) => e.name === 'name_txt');
+        const nm = nameEntry?.matrix;
+        const nameBounds = nameEntry ? c._localBounds(nameEntry, 'name_txt',
+            nm ? { a: nm[0], b: nm[1], c: nm[2], d: nm[3], x: nm[4], y: nm[5] } : IDENT) : null;
         // esconde textos/elementos dinâmicos que serao sobrepostos
         c.set('name_txt', { visible: false });
         // paper_mc: frame = tipo+1 (ordem gp dos puffles); clamp p/ 9 frames
@@ -126,27 +132,23 @@ export default class PuffleCard {
         c.set('stats_mc.hunger_mc', { frame: this._barFrame(p.hunger) });
         c.set('stats_mc.health_mc', { frame: this._barFrame(p.happiness) });
         c.set('stats_mc.rest_mc', { frame: this._barFrame(p.rest ?? 100) });
-        // redesenha
-        const ctx = this.ctx;
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-        await c._drawListFrame(ctx, entries, IDENT, '', IDENT_COLOR, SCALE);
-        if (gen !== this._gen) return;
-        this.scene.textures.get(this.texKey)?.refresh();
-
         // posiciona o card: centralizado na tela (bounds do arte em stage)
         const b = this.cardBounds;
         const cx = WORLD_W / 2, cy = WORLD_H / 2 - 10;
         const ox = cx - (b[0] + b[2]) / 2, oy = cy - (b[1] + b[3]) / 2;
+        // redesenha — ox/oy centralizam a arte (antes so nome/zonas
+        // usavam o offset e o card renderizava no canto, pela metade)
+        const ctx = this.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.setTransform(SCALE, 0, 0, SCALE, ox * SCALE, oy * SCALE);
+        await c._drawListFrame(ctx, entries, IDENT, '', IDENT_COLOR, SCALE);
+        if (gen !== this._gen) return;
+        this.scene.textures.get(this.texKey)?.refresh();
         // name_txt: bounds do elemento no frame ativo
-        const nameEntry = entries.find((e) => e.name === 'name_txt');
-        if (nameEntry) {
-            const nb = c._boundsOf([nameEntry], IDENT, '');
-            if (nb) {
-                this.nameText.setPosition(
-                    (nb[0] + nb[2]) / 2 + ox, (nb[1] + nb[3]) / 2 + oy);
-            }
+        if (nameBounds) {
+            this.nameText.setPosition(
+                (nameBounds[0] + nameBounds[2]) / 2 + ox, (nameBounds[1] + nameBounds[3]) / 2 + oy);
         }
         this.nameText.setText(this.pet.name || '');
         this._syncZones(entries, ox, oy);
