@@ -30,6 +30,7 @@ import { RoomInteractions } from '../room/RoomInteractions.js';
 import { CatalogueOverlay } from '../ui/Catalogue.js';
 import { MinigameOverlay } from '../minigames/MinigameOverlay.js';
 import BuddyWindow from '../ui/BuddyWindow.js';
+import { PromptUI } from '../ui/Prompt.js';
 
 // salas do clone -> pacote /swf/<pack>/ vetorial (timelines.json + SVGs).
 // Sem fallback: se o pack falhar, a sala mostra um retangulo de erro.
@@ -241,6 +242,23 @@ export default class RoomScene extends Phaser.Scene {
         this.wardrobe.onClose = () => { this.clothesOpen = false; };
         // 6d. Buddy List vetorial (interface_mc.widgets_mc.buddy_mc)
         this.buddyWindow = new BuddyWindow(this);
+        // 6e. Prompt autenticico (interface_mc.prompt_mc) — requests de buddy
+        this.promptUI = new PromptUI(this);
+        this.events.on('buddy-request', (d) => {
+            this.promptUI.show({
+                text: `${d.fromUsername || 'Alguém'} wants to be your buddy. Accept?`,
+                mode: 'yesno',
+                onYes: () => this.network?.buddyAccept(d.fromPlayerId),
+                onNo: () => {},
+            });
+        });
+        this.events.on('buddy-accepted', (d) => {
+            this.promptUI.show({
+                text: `${d.buddyUsername || 'Alguém'} is now your buddy!`,
+                mode: 'ok',
+                onYes: () => {},
+            });
+        });
 
         // 7. Modal do Mapa da Ilha e guarda-roupa
         this.createMapModal();

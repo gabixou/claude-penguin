@@ -259,12 +259,12 @@ export default class NetworkClient {
                 this.scene.events.emit('social-update', this.social);
                 break;
             case 'BUDDY_REQUEST':
+                // notificacao visual fica a cargo da cena (PromptUI prompt_mc)
                 this.scene.events.emit('buddy-request', data);
-                this._showDomToast(`${data.fromUsername || 'Alguém'} quer ser seu buddy!`, '#2b7fd4');
                 this.getSocial();
                 break;
             case 'BUDDY_ACCEPTED':
-                this._showDomToast(`${data.buddyUsername || 'Alguém'} agora é seu buddy!`, '#2fb344');
+                this.scene.events.emit('buddy-accepted', data);
                 this.getSocial();
                 break;
             case 'ITEM_BOUGHT':

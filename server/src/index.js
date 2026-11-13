@@ -831,6 +831,11 @@ function handlePacket(ws, req, packet) {
                 op: 'BUDDY_ACCEPTED',
                 data: { buddyPlayerId: session.playerId, buddyUsername: session.username }
             });
+            // confirma tambem para quem aceitou
+            ws.send(JSON.stringify({
+                op: 'BUDDY_ACCEPTED',
+                data: { buddyPlayerId: requesterId, buddyUsername: reqName }
+            }));
             // atualiza a lista do requester tambem
             const reqWs = findSessionSocket(requesterId);
             if (reqWs) {
