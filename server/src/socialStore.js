@@ -16,8 +16,8 @@ export const PET_SPECIES = [
     { id: 'puffle_white',  name: 'White Puffle',  cost: 2600 },
     { id: 'puffle_orange', name: 'Orange Puffle', cost: 2800 },
     { id: 'puffle_brown',  name: 'Brown Puffle',  cost: 3000 },
-    { id: 'lounge_lizard', name: 'Lounge Lizard', cost: 750 },
-    { id: 'cave_croc',     name: 'Cave Crocodile',cost: 900 },
+    // lounge_lizard/cave_croc removidos: sao pets de habitat do EPF,
+    // nao pets soltos — e nao tem sprites de follow no cliente
 ];
 
 export function getPetSpecies(id) {
