@@ -526,14 +526,18 @@ export default class RoomScene extends Phaser.Scene {
         // toca a animacao de reacao (port do 'pcare' do gopenguin)
         this.events.on('player-pet-care', (data) => {
             if (!data?.playerId || !data?.action) return;
-            if (this.petViews?.get(data.playerId)) {
-                this.petViews.get(data.playerId).react(data.action);
-                return;
+            // casa pelo petRowId nas duas colecoes: o equipado segue em
+            // petViews e os demais pets do jogador vagam em iglooPetViews —
+            // sem isso o cuidado de um pet do iglu animava o equipado
+            for (const v of this.petViews?.values() || []) {
+                if (v.pet?.petRowId === data.petRowId) { v.react(data.action); return; }
             }
-            // pet do proprio iglu (petRowId, nao playerId)
             for (const v of this.iglooPetViews?.values() || []) {
                 if (v.pet?.petRowId === data.petRowId) { v.react(data.action); return; }
             }
+            // fallback p/ evento sem petRowId: pet equipado do remetente
+            const follower = this.petViews?.get(data.playerId);
+            if (follower) follower.react(data.action);
         });
 
         this.events.on('player-left', (data) => {
