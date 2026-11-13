@@ -78,6 +78,8 @@ export default class PuffleCard {
             fontSize: '14px', fontStyle: 'bold', color: '#000000',
         }).setOrigin(0.5);
         this.container.add(this.nameText);
+        this._drag = null;
+        this._dragZone = null;
     }
 
     // pet: linha de network.social.pets; species p/ frame do paper_mc
@@ -85,6 +87,7 @@ export default class PuffleCard {
         if (!this._ready || !pet) return;
         this.pet = pet;
         this.care = false;
+        this.container.setPosition(0, 0); // reabre centralizado
         this.container.setVisible(true);
         this.scene.catalogue && (this.scene.catalogue._prompt?.close?.());
         this._syncPet();
@@ -175,6 +178,10 @@ export default class PuffleCard {
             this._zones.push(z);
         };
         const find = (n) => entries.find((e) => e.name === n);
+        // handle de arraste cobrindo o rect do card — criado ANTES das
+        // zonas de acao: com input.topOnly do Phaser os botoes (adicionados
+        // depois, portanto acima) continuam recebendo o clique
+        this._syncDragZone(ox, oy);
         zone(find('close_btn'), () => this.close());
         zone(find('walk_btn'), () => this._walk());
         zone(find('play_btn'), () => this._care('play'));
@@ -207,8 +214,41 @@ export default class PuffleCard {
         // erro de cooldown cai no handler global net-error (chat)
     }
 
+    // zona invisivel sobre a arte do card que arrasta o container inteiro
+    // (mesmo padrao do PlayerCard.makeDragHandle, sem persistir posicao)
+    _syncDragZone(ox, oy) {
+        const scene = this.scene;
+        this._dragZone?.destroy();
+        const b = this.cardBounds;
+        const w = Math.max(8, b[2] - b[0]), h = Math.max(8, b[3] - b[1]);
+        const z = scene.add.zone((b[0] + b[2]) / 2 + ox, (b[1] + b[3]) / 2 + oy, w, h);
+        z.setInteractive();
+        z.input.cursor = 'grab';
+        scene.input.setDraggable(z);
+        z.on('dragstart', (p) => {
+            this._drag = { px: p.worldX, py: p.worldY, x: this.container.x, y: this.container.y };
+            scene.input.setDefaultCursor('grabbing');
+        });
+        z.on('drag', (p) => {
+            const d = this._drag;
+            if (!d || !this.container) return;
+            // clamp simples: mantem o card dentro da tela
+            const bw = (b[2] - b[0]), bh = (b[3] - b[1]);
+            const nx = Phaser.Math.Clamp(d.x + p.worldX - d.px, -ox - bw + 40, WORLD_W - ox - 40);
+            const ny = Phaser.Math.Clamp(d.y + p.worldY - d.py, -oy - bh + 40, WORLD_H - oy - 40);
+            this.container.setPosition(nx, ny);
+        });
+        z.on('dragend', () => {
+            scene.input.setDefaultCursor('default');
+            this._drag = null;
+        });
+        this.container.add(z);
+        this._dragZone = z;
+    }
+
     destroy() {
         this._gen++;
+        this._dragZone?.destroy();
         this.container?.destroy(true);
         this.container = null;
     }

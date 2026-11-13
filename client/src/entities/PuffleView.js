@@ -96,7 +96,13 @@ const walkFrame = (d) => d + 8;
 // Reacoes de cuidado (PuffleCard) -> frames do misc, port do mapa Ya= do
 // gopenguin: play=27, rest=25, eat=31, cookie=30, gum=29, bath=34.
 // O frame fica fixo e os sub-playheads (advance a 24fps) animam a acao.
-const CARE_FRAMES = { play: 27, rest: 25, eat: 31, cookie: 30, gum: 29, bath: 34 };
+const CARE_FRAMES = { play: 27, rest: 25, eat: 31, cookie: 30, gum: 29, bath: 34, dance: 35 };
+// Emotes do dono -> frame unico do misc (cada frame e uma sub-animacao
+// completa; NUNCA alternar frames — medido por trajetoria de pixels:
+// f27=play/hop (wave), f35=balanceio lateral = a "danca" do puffle.
+// f32/33 sao poses quase estaticas — usar elas era o bug do puffle
+// "parado" durante dance/wave.
+const OWNER_EMOTE_FRAMES = { 25: 27, 26: 35 };
 // duracao em ticks a 24fps (~4s) — o gp usa nl[type] por especie (100-260)
 const CARE_TICKS = { play: 96, rest: 72, eat: 60, cookie: 60, gum: 60, bath: 72 };
 
@@ -120,8 +126,7 @@ export default class PuffleView {
         this._ready = false;
         this._dead = false;
         this._animAcc = 0;
-        this._emoteAcc = 0;
-        this._emoteFlip = false;
+        this._emoteActive = false;
         this._care = null;    // {frame, ticks, max} — reacao de cuidado em curso
 
         this.container = scene.add.container(this.x, this.y);
@@ -184,6 +189,9 @@ export default class PuffleView {
     react(kind) {
         const frame = CARE_FRAMES[kind];
         if (!frame || !this._ready || this._dead) return;
+        // gp: movie.resetPlayback() antes do frame — sem isso os sub-clips
+        // ficam no playhead que o walk deixou e o misc renderiza vazio
+        this.clip?.resetPlayback?.();
         this._care = { frame, ticks: 0, max: CARE_TICKS[kind] || 60 };
     }
 
@@ -205,7 +213,7 @@ export default class PuffleView {
         const o = this.owner;
         // reacao de cuidado tem prioridade: congela o follow ate acabar
         if (this._care) {
-            if (++this._care.ticks > this._care.max) this._care = null;
+            if (++this._care.ticks > this._care.max) { this._care = null; this._emoteActive = false; }
             else {
                 this.walking = false;
                 this.frame = this._care.frame;
@@ -214,27 +222,26 @@ export default class PuffleView {
             }
         }
         // Emotes do dono (frames do penguin.swf): wave=25 -> puffle "play"
-        // (27/28), dance=26 -> puffle "jump" (32/33); sit (17-24) -> puffle
-        // "rest" (25, unica pose deitada do misc). No CP original o pet
-        // equipado acompanhava os emotes do dono.
+        // (27), dance=26 -> puffle misc 35 (balanceio = danca); sit (17-24)
+        // -> puffle "rest" (25). Cada misc frame e uma sub-animacao que os
+        // playheads tocam sozinhos — o frame fica FIXO enquanto o dono
+        // emoteia (alternar frames cortava a animacao no meio).
         const act = o.action;
-        const emote = act === 25 ? [27, 28] : act === 26 ? [32, 33] : null;
-        const sitting = !emote && act >= 17 && act <= 24;
-        if (emote || sitting) {
-            this.walking = false;
-            if (emote) {
-                this._emoteAcc += dt;
-                if (this._emoteAcc >= 1 / 5) {
-                    this._emoteAcc = 0;
-                    this._emoteFlip = !this._emoteFlip;
-                    this.frame = emote[this._emoteFlip ? 1 : 0];
-                }
-            } else {
-                this.frame = 25;
+        const emoteFrame = OWNER_EMOTE_FRAMES[act];
+        const sitting = !emoteFrame && act >= 17 && act <= 24;
+        if (emoteFrame || sitting) {
+            // transicao p/ emote: reseta os playheads dos sub-clips (port do
+            // resetPlayback do gp) — frames misc dependem deles p/ animar
+            if (!this._emoteActive) {
+                this._emoteActive = true;
+                this.clip?.resetPlayback?.();
             }
+            this.walking = false;
+            this.frame = emoteFrame ?? 25;
             this._still(dt);
             return;
         }
+        this._emoteActive = false;
         // alvo: (+30, 0) — gap horizontal maior que o inicial (+20 ficava
         // colado no pe do pinguim) e base alinhada aos pes do dono.
         // Medido em pixels opacos: com ty=o.y+8 a sombra do puffle ficava
