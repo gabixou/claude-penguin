@@ -160,9 +160,13 @@ export default class RoomScene extends Phaser.Scene {
             // clique em cima de um pinguim abre o player card (nao anda).
             // Botoes de cenario (mesas, portas) tem prioridade — sem isso um
             // pinguim parado atras da mesa "roubava" o clique da mesa.
-            // clique no proprio puffle abre o puffle card (como no gp)
-            const puffle = this._ownPuffleAt(wx, wy);
+            // puffle card SO existe dentro do iglu (pets vagando la).
+            // Fora do iglu o puffle equipado nao abre card nenhum —
+            // clicar nele abre o player card do dono (doll com o pet)
+            const puffle = this.currentRoom === 'igloo' ? this._iglooPetAt(wx, wy) : null;
             if (puffle) { this.puffleCard?.open(puffle.pet); return; }
+            const petOwner = this._petFollowerAt(wx, wy);
+            if (petOwner) { this.playerCard.open(petOwner); return; }
             const clicked = btnDest ? null : this._penguinAt(wx, wy);
             if (clicked) { this.playerCard.open(clicked); return; }
             const targetX = btnDest ? btnDest.x : Math.round(wx);
@@ -607,13 +611,21 @@ export default class RoomScene extends Phaser.Scene {
         });
     }
 
-    // pet do jogador local sob o ponto (clique abre o puffle card) —
-    // vale pro seguidor (petViews) e pros pets do iglu (iglooPetViews)
-    _ownPuffleAt(wx, wy) {
-        const views = [this.localPlayer && this.petViews.get(this.localPlayer.playerId)];
-        for (const v of this.iglooPetViews?.values() || []) views.push(v);
-        for (const v of views) {
+    // pet do iglu sob o ponto (clique abre o puffle card) — so os pets
+    // que vagam em iglooPetViews; o puffle equipado (petViews) segue o
+    // pinguim e NAO abre card (o player card do dono mostra o pet na doll)
+    _iglooPetAt(wx, wy) {
+        for (const v of this.iglooPetViews?.values() || []) {
             if (v?._ready && Math.abs(wx - v.x) < 22 && Math.abs(wy - (v.y - 10)) < 26) return v;
+        }
+        return null;
+    }
+
+    // puffle equipado sob o ponto -> devolve o pinguim dono (player card)
+    _petFollowerAt(wx, wy) {
+        for (const v of this.petViews?.values() || []) {
+            if (v?._ready && v.owner
+                && Math.abs(wx - v.x) < 22 && Math.abs(wy - (v.y - 10)) < 26) return v.owner;
         }
         return null;
     }
