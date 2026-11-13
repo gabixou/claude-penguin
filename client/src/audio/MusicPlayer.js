@@ -45,6 +45,12 @@ class MusicPlayer {
 
     play(roomKey) {
         const id = ROOM_MUSIC[roomKey] || null;
+        this.playProgram(id);
+    }
+
+    // Toca um programa de música diretamente por id (usado pelas
+    // substituições de festa, que apontam programIds alternativos).
+    playProgram(id) {
         const prog = id ? MUSIC[id] : null;
         if (!prog) { this.stop(); return; }
         if (String(id) === this.programId) return;

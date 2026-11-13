@@ -5,6 +5,7 @@
  */
 
 import { DEFAULT_COLOR_ITEM_ID, colorItemToRgb } from '../items/colors.js';
+import { mark } from '../perf.js';
 
 export default class NetworkClient {
     constructor(scene) {
@@ -22,20 +23,101 @@ export default class NetworkClient {
         this.inventory = [];
         this.equipped = {};
         this.canRename = false;
-        
-        // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
-        // deriva do hostname — https => wss na mesma origem (Caddy faz
-        // proxy /ws), http local => ws://host:8080.
-        const envUrl = import.meta.env?.VITE_WS_URL;
-        if (envUrl) {
-            this.url = envUrl;
-        } else if (window.location.protocol === 'https:') {
-            this.url = `wss://${window.location.host}/ws`;
-        } else {
-            this.url = `ws://${window.location.hostname || 'localhost'}:8080`;
-        }
 
-        this.connect();
+        // Estado social (fase 1): buddies, pedidos, ignores, pets
+        this.social = { buddies: [], requests: [], ignores: [], pets: [], petSpecies: [] };
+        this.party = null; // festa ativa — vem no PLAYER_DATA
+        
+        this.url = NetworkClient.resolveUrl();
+        // socket aberto (e ja autenticado) por preconnect() antes do Phaser
+        // subir: adota em vez de abrir outro
+        if (!this._adoptEarly()) this.connect();
+    }
+
+    // URL do WebSocket: VITE_WS_URL tem prioridade (producao); senao
+    // deriva do hostname — https => wss na mesma origem (Caddy faz
+    // proxy /ws), http local => ws://host:8080.
+    static resolveUrl() {
+        const envUrl = import.meta.env?.VITE_WS_URL;
+        if (envUrl) return envUrl;
+        if (window.location.protocol === 'https:') return `wss://${window.location.host}/ws`;
+        return `ws://${window.location.hostname || 'localhost'}:8080`;
+    }
+
+    // Pacotes de autenticacao enviados ao abrir o socket.
+    static authPackets() {
+        const params = new URLSearchParams(location.search);
+        // ?penguin=Nome (ou localStorage penguin_user) -> LOGIN_PLAYER
+        // (somente funciona em localhost — o servidor bloqueia em producao)
+        const want = params.get('penguin') || localStorage.getItem('penguin_user');
+        if (want) {
+            if (params.get('penguin')) localStorage.setItem('penguin_user', want);
+            return [['LOGIN_PLAYER', { username: want }]];
+        }
+        // ?guest=1 ou automacao (navigator.webdriver = Playwright etc.) ->
+        // entra direto como visitante, sem tela de login
+        const forceGuest = params.get('guest') === '1' || !!navigator.webdriver;
+        if (forceGuest) localStorage.removeItem('penguin_user');
+        const sessionToken = localStorage.getItem('penguin_session');
+        // Sem token e sem pedido de guest: servidor responde NEED_AUTH
+        // e o cliente abre a tela de login/cadastro.
+        return [
+            ['AUTH_GUEST', {
+                sessionToken: sessionToken || undefined,
+                forceGuest: forceGuest || undefined,
+            }],
+        ];
+    }
+
+    // Otimista: abre o WebSocket e autentica ENQUANTO o Phaser, as fontes e
+    // os packs ainda carregam (antes so conectava depois do boot inteiro).
+    // Mensagens recebidas antes da cena existir ficam na fila e sao
+    // entregues quando o NetworkClient adota o socket.
+    static preconnect() {
+        if (NetworkClient._early || typeof WebSocket === 'undefined') return;
+        let socket;
+        const url = NetworkClient.resolveUrl();
+        try { socket = new WebSocket(url); } catch { return; }
+        const early = { socket, url, queue: [], authSent: false };
+        socket.onopen = () => {
+            mark('ws-open');
+            try {
+                for (const [op, data] of NetworkClient.authPackets())
+                    socket.send(JSON.stringify({ op, data }));
+                early.authSent = true;
+            } catch { /* adocao reenvia */ }
+        };
+        socket.onmessage = (ev) => {
+            try { early.queue.push(JSON.parse(ev.data)); } catch { /* ignora */ }
+        };
+        NetworkClient._early = early;
+    }
+
+    _adoptEarly() {
+        const early = NetworkClient._early;
+        NetworkClient._early = null;
+        if (!early) return false;
+        const { socket } = early;
+        if (early.url !== this.url || socket.readyState === WebSocket.CLOSING
+            || socket.readyState === WebSocket.CLOSED) {
+            try { socket.close(); } catch { /* noop */ }
+            return false;
+        }
+        this.socket = socket;
+        this._wire(socket, { authSent: early.authSent });
+        if (socket.readyState === WebSocket.OPEN) {
+            this.isConnected = true;
+            console.log('[NetworkClient] Conectado (pré-conexão adotada).');
+            if (!early.authSent) this.authenticate();
+        }
+        // entrega a fila depois que a cena registrou os listeners (o
+        // construtor roda no meio do RoomScene.create, sincrono)
+        const queued = early.queue;
+        early.queue = null;
+        if (queued.length) Promise.resolve().then(() => {
+            for (const p of queued) this.handlePacket(p);
+        });
+        return true;
     }
 
     connect() {
@@ -45,8 +127,12 @@ export default class NetworkClient {
 
         console.log(`[NetworkClient] Conectando a ${this.url}...`);
         this.socket = new WebSocket(this.url);
+        this._wire(this.socket);
+    }
 
-        this.socket.onopen = () => {
+    _wire(socket, { authSent = false } = {}) {
+        socket.onopen = () => {
+            mark('ws-open');
             console.log('[NetworkClient] Conectado ao servidor WebSocket com sucesso!');
             this.isConnected = true;
             if (this.reconnectTimer) {
@@ -54,10 +140,10 @@ export default class NetworkClient {
                 this.reconnectTimer = null;
             }
             // Envia autenticação guest automaticamente
-            this.authenticate();
+            if (!authSent) this.authenticate();
         };
 
-        this.socket.onmessage = (event) => {
+        socket.onmessage = (event) => {
             try {
                 const packet = JSON.parse(event.data);
                 this.handlePacket(packet);
@@ -66,7 +152,7 @@ export default class NetworkClient {
             }
         };
 
-        this.socket.onclose = () => {
+        socket.onclose = () => {
             console.warn('[NetworkClient] Conexão encerrada. Tentando reconectar em 3s...');
             this.isConnected = false;
             this.scene.events.emit('net-disconnected');
@@ -99,21 +185,12 @@ export default class NetworkClient {
     // ---------- Autenticação ----------
 
     authenticate() {
-        const params = new URLSearchParams(location.search);
-        // ?penguin=Nome (ou localStorage penguin_user) -> LOGIN_PLAYER
-        // (somente funciona em localhost — o servidor bloqueia em producao)
-        const want = params.get('penguin') || localStorage.getItem('penguin_user');
-        if (want) {
-            if (params.get('penguin')) localStorage.setItem('penguin_user', want);
-            this.send('LOGIN_PLAYER', { username: want });
-            return;
-        }
-        // ?guest=1 ou automacao (navigator.webdriver = Playwright etc.) ->
-        // nao herda o Arenovisk; recebe guest normal com pinguim proprio
-        const forceGuest = params.get('guest') === '1' || !!navigator.webdriver;
-        if (forceGuest) localStorage.removeItem('penguin_user');
-        const sessionToken = localStorage.getItem('penguin_session');
-        this.send('AUTH_GUEST', { sessionToken, forceGuest });
+        for (const [op, data] of NetworkClient.authPackets()) this.send(op, data);
+    }
+
+    playAsGuest() {
+        localStorage.removeItem('penguin_session');
+        this.send('AUTH_GUEST', { guest: true });
     }
 
     loginPlayer(username) {
@@ -202,6 +279,29 @@ export default class NetworkClient {
         this.send('PLAYER_ACTION', { action: action || null });
     }
 
+    // ---------- Social (fase 1) ----------
+
+    getSocial() {
+        this.send('GET_SOCIAL', {});
+    }
+
+    buddyAdd(username) { this.send('BUDDY_ADD', { username }); }
+    buddyAccept(playerId) { this.send('BUDDY_ACCEPT', { playerId }); }
+    buddyDecline(playerId) { this.send('BUDDY_DECLINE', { playerId }); }
+    buddyCancel(playerId) { this.send('BUDDY_CANCEL', { playerId }); }
+    buddyRemove(playerId) { this.send('BUDDY_REMOVE', { playerId }); }
+    ignoreAdd(playerId) { this.send('IGNORE_ADD', { playerId }); }
+    ignoreRemove(playerId) { this.send('IGNORE_REMOVE', { playerId }); }
+    petAdopt(species, name) { this.send('PET_ADOPT', { species, name }); }
+    petRename(petRowId, name) { this.send('PET_RENAME', { petRowId, name }); }
+    petRelease(petRowId) { this.send('PET_RELEASE', { petRowId }); }
+    petCare(petRowId, action) { this.send('PET_CARE', { petRowId, action }); }
+
+    // helpers de estado social
+    isBuddy(playerId) { return this.social.buddies.some((b) => b.playerId === playerId); }
+    isIgnored(playerId) { return this.social.ignores.some((i) => i.playerId === playerId); }
+    buddyRequestFrom(playerId) { return this.social.requests.find((r) => r.playerId === playerId && r.direction === 'received'); }
+
     // ---------- Processamento de pacotes ----------
 
     handlePacket(packet) {
@@ -215,8 +315,38 @@ export default class NetworkClient {
             case 'NEED_CREATE':
                 this.scene.events.emit('need-create-player');
                 break;
+            case 'PARTY_UPDATE':
+                this.party = data?.party || null;
+                this.scene.events.emit('party-update', data);
+                break;
             case 'ERROR':
+                // feedback de moderacao: toast generico (nunca expoe a palavra)
+                if (['CHAT_FILTERED', 'CHAT_RATE_LIMITED', 'NAME_FILTERED', 'CARE_COOLDOWN'].includes(data?.code)) {
+                    this._showDomToast(data.message || 'Ação não permitida', '#c0392b');
+                }
                 this.scene.events.emit('net-error', data);
+                break;
+            case 'SOCIAL_UPDATE':
+                this.social = {
+                    buddies: data.buddies || [],
+                    requests: data.requests || [],
+                    ignores: data.ignores || [],
+                    pets: data.pets || [],
+                    petSpecies: data.petSpecies || this.social.petSpecies
+                };
+                this.scene.events.emit('social-update', this.social);
+                break;
+            case 'BUDDY_REQUEST':
+                // notificacao visual fica a cargo da cena (PromptUI prompt_mc)
+                this.scene.events.emit('buddy-request', data);
+                this.getSocial();
+                break;
+            case 'BUDDY_REQUEST_SENT':
+                this.scene.events.emit('buddy-request-sent', data);
+                break;
+            case 'BUDDY_ACCEPTED':
+                this.scene.events.emit('buddy-accepted', data);
+                this.getSocial();
                 break;
             case 'ITEM_BOUGHT':
                 this._showDomToast(`Purchased ${data.name || 'item'}! Coins: ${data.coins}c`, '#b8860b');
@@ -261,6 +391,7 @@ export default class NetworkClient {
         this.inventory = data.inventory || [];
         this.equipped = data.equipped || {};
         this.canRename = data.canRename || false;
+        this.party = data.party || null;
         this.dailyBonus = data.dailyBonus || 0;
 
         // Salva session token no localStorage para fallback
@@ -283,6 +414,8 @@ export default class NetworkClient {
 
         this.scene.events.emit('player-data', data);
         this.scene.events.emit('net-connected', { playerId: this.playerId });
+        // carrega estado social apos autenticacao
+        this.getSocial();
     }
 
     // Toast DOM simples — visível mesmo sem wardrobe/HUD abertos
