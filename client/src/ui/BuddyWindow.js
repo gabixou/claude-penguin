@@ -50,7 +50,9 @@ export default class BuddyWindow {
 
     _buildDom() {
         // container Phaser fica invisivel ate o movie carregar
-        this.container = this.scene.add.container(0, 0).setDepth(9990).setVisible(false);
+        // acima do HUD (10M) e elementos de sala (~1M); abaixo de
+        // PlayerCard/IslandMap (20M) e prompt (21M)
+        this.container = this.scene.add.container(0, 0).setDepth(15000000).setVisible(false);
     }
 
     async _init() {
