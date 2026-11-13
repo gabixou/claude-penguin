@@ -69,6 +69,14 @@ const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
 // pinguim). Antes eu escalava p/ preencher o canvas e o pet virava um
 // borrão maior que o pinguim.
 const FRAME_W = 96, FRAME_H = 96, SS = 2, WORLD_BOX = FRAME_W / SS;
+// Escala nativa do stage 50x50 — o gp desenha o movie do puffle sem
+// escala extra (movie.draw), entao o tamanho relativo ao pinguim (~33%)
+// ja e o fiel ao original. Boost anterior (1.25x) overshoot.
+const PUFFLE_SCALE = 1.0;
+// img.y tal que a base da sombra (canvas y=86/96 = fracao 0.896) caia em
+// owner.y+20 — mesma linha dos pes do pinguim (sprite bottom = y+20).
+// imgY = 12 - (0.896-0.5)*WORLD_BOX*PUFFLE_SCALE = -7.04 -> -7
+const IMG_Y = -7;
 
 const _movieCache = new Map(); // dir -> Promise<MovieRoom|null>
 function puffleMovie(dir) {
@@ -92,7 +100,9 @@ export default class PuffleView {
         this.pet = pet;
         this.owner = owner;
         this.color = SPECIES_SPRITE[pet.species] || null;
-        this.x = owner.x - 20;
+        // puffle fica a DIREITA do pinguim: [penguin] [puffle] — como no
+        // original (print do Papirolo) e no gopenguin (Rockhopper)
+        this.x = owner.x + 20;
         this.y = owner.y + 8;
         this.tx = this.x; this.ty = this.y;
         this.dir = 5;          // 1-8, mesma convencao do Penguin.directionToward
@@ -108,8 +118,9 @@ export default class PuffleView {
         this.ctx = this.canvas.getContext('2d');
         this.texKey = `puffle_${this.color || 'x'}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
         scene.textures.addCanvas(this.texKey, this.canvas);
-        this.img = scene.add.image(0, -15, this.texKey)
-            .setOrigin(0.5, 0.5).setDisplaySize(WORLD_BOX, WORLD_BOX);
+        this.img = scene.add.image(0, IMG_Y, this.texKey)
+            .setOrigin(0.5, 0.5)
+            .setDisplaySize(WORLD_BOX * PUFFLE_SCALE, WORLD_BOX * PUFFLE_SCALE);
         this.container.add(this.img);
         this._syncDepth();
 
@@ -161,8 +172,10 @@ export default class PuffleView {
     tick(dt) {
         if (!this._ready || !this.owner || this._dead) return;
         const o = this.owner;
-        // alvo: offset (-20,+8) atrás/abaixo do pinguim (port do gp follow)
-        this.tx = o.x - 20; this.ty = o.y + 8;
+        // alvo: offset (+20,+8) — puffle a direita do dono, mesma linha
+        // de chao (o gp usa place(x-20,y+8) mas o sprite renderiza a
+        // direita do ponto logico; aqui o offset ja e o visual final)
+        this.tx = o.x + 20; this.ty = o.y + 8;
         const dx = this.tx - this.x, dy = this.ty - this.y;
         const dist = Math.hypot(dx, dy);
         const ownerMoving = !!(o.isMoving || o.moveTarget || o.moveTween);
