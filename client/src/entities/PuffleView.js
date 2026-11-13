@@ -113,7 +113,8 @@ export default class PuffleView {
         this._ready = false;
         this._dead = false;
         this._animAcc = 0;
-        this._danceAcc = 0;
+        this._emoteAcc = 0;
+        this._emoteFlip = false;
 
         this.container = scene.add.container(this.x, this.y);
         this.canvas = document.createElement('canvas');
@@ -175,15 +176,24 @@ export default class PuffleView {
     tick(dt) {
         if (!this._ready || !this.owner || this._dead) return;
         const o = this.owner;
-        // Dono dançando (frame 26 do penguin.swf): o puffle dança no lugar
-        // alternando os frames 32/33 do misc ("jump" do puffle) — no CP
-        // original o pet equipado acompanhava os emotes do dono.
-        if (o.action === 26) {
+        // Emotes do dono (frames do penguin.swf): wave=25 -> puffle "play"
+        // (27/28), dance=26 -> puffle "jump" (32/33); sit (17-24) -> puffle
+        // "rest" (25, unica pose deitada do misc). No CP original o pet
+        // equipado acompanhava os emotes do dono.
+        const act = o.action;
+        const emote = act === 25 ? [27, 28] : act === 26 ? [32, 33] : null;
+        const sitting = !emote && act >= 17 && act <= 24;
+        if (emote || sitting) {
             this.walking = false;
-            this._danceAcc += dt;
-            if (this._danceAcc >= 1 / 5) {
-                this._danceAcc = 0;
-                this.frame = this.frame === 32 ? 33 : 32;
+            if (emote) {
+                this._emoteAcc += dt;
+                if (this._emoteAcc >= 1 / 5) {
+                    this._emoteAcc = 0;
+                    this._emoteFlip = !this._emoteFlip;
+                    this.frame = emote[this._emoteFlip ? 1 : 0];
+                }
+            } else {
+                this.frame = 25;
             }
             this.container.setPosition(this.x, this.y);
             this._syncDepth();
