@@ -4,6 +4,8 @@
 // (ex.: toldo da Dance Club acendendo, porta da Gift Shop).
 
 import { playRoomSfx } from '../audio/Sfx.js';
+import { UiTooltip } from '../ui/Tooltip.js';
+import HINTS from '../ui/hints.js';
 
 // Scripts extraidos do bundle do gopenguin (room actions). Chaves casam por
 // sufixo com o path do botao (ex.: 'background_mc.coffee_btn').
@@ -46,6 +48,28 @@ const ROOM_SCRIPTS = {
     },
 };
 
+// Mesas de jogo — port do setupTable() dos packs SWF (lodge/attic/book):
+// o game_btn anda ate a mesa (a trigger sendJoinTable resolve a partida) e
+// o hover mostra a hint original + troca o game_mc para o frame 'over' (2).
+// Os waddles (dojo/mtn) ja trazem onRelease/onRollOver inline no AS — o
+// parse do movie.js cobre walk + hint automaticamente.
+const TABLE_GAME = {
+    lodge: ['four', [205, 206, 207]],
+    attic: ['four', [200, 201, 202, 203, 204]],
+    book: ['mancala', [100, 101, 102, 103, 104]],
+};
+const TABLE_HINT = { four: 'four_hint', mancala: 'mancala_hint' };
+for (const [room, [game, ids]] of Object.entries(TABLE_GAME)) {
+    const buttons = {};
+    for (const id of ids) {
+        buttons[`table${id}_mc.game_btn`] = {
+            hint: TABLE_HINT[game],
+            hover: [{ path: `table${id}_mc.game_mc`, over: 2, out: 1 }],
+        };
+    }
+    ROOM_SCRIPTS[room] = { buttons: { ...(ROOM_SCRIPTS[room]?.buttons || {}), ...buttons } };
+}
+
 export class RoomInteractions {
     constructor(scene, movie, roomKey) {
         this.scene = scene;
@@ -53,6 +77,16 @@ export class RoomInteractions {
         this.roomKey = roomKey;
         this.buttons = [];
         this.hovered = null;
+        this._hintText = null;
+        this._tooltip = null;
+        this._hintLayer = null;
+    }
+
+    destroy() {
+        this._tooltip?.hide();
+        this._hintLayer?.destroy();
+        this._hintLayer = null;
+        this._tooltip = null;
     }
 
     build() {
@@ -77,6 +111,10 @@ export class RoomInteractions {
                 sfxClick: def.sfxClick,
                 content: def.content || parsed?.content,
                 game: def.game || parsed?.game,
+                hint: (() => {
+                    const key = def.hint || this.movie._matchPath(this.movie.interactions.hint || {}, b.path, b.name);
+                    return key ? HINTS[key] : null;
+                })(),
                 disabled: parsedDis || !!def.disabled
                     // interface_mc so interage se o AS der acao real
                     // (catalogo/jogo); sem acao, botao de HUD nao anda o pinguim
@@ -121,6 +159,24 @@ export class RoomInteractions {
             if (b.sfxHover !== undefined) playRoomSfx(this.roomKey, b.sfxHover);
         }
         this.hovered = path;
+        // hint original (INTERFACE.showHint) — caixa hint_mc acima do botao
+        if ((b?.hint || null) !== this._hintText) {
+            this._hintText = b?.hint || null;
+            if (this._hintText) this._showHint(b);
+            else this._tooltip?.hide();
+        }
+    }
+
+    _ensureHint() {
+        if (this._tooltip || !this.scene.add) return;
+        this._hintLayer = this.scene.add.container(0, 0).setDepth(16000000);
+        this._tooltip = new UiTooltip(this.scene, this._hintLayer);
+    }
+
+    _showHint(b) {
+        this._ensureHint();
+        const [x0, y0, x1, y1] = b.bounds;
+        this._tooltip.show(x0, y0, x1 - x0, y1 - y0, this._hintText);
     }
 
     // Clique no botao: retorna {walk} ou {content}/{game} do onRelease.
