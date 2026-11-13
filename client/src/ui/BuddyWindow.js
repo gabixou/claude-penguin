@@ -137,10 +137,18 @@ export default class BuddyWindow {
         };
         this.titleText = mkText(this.elems.title_txt, 15);
         this.totalText = mkText(this.elems.buddy_total_txt, 12);
+        // nomes das linhas: alinhados a esquerda dentro do campo (como o
+        // text field do SWF), verticalmente centrados — origin(0, 0.5)
         this.rowTexts = [];
         for (let i = 0; i < ROWS; i++) {
             const nb = this.rows[i]?.children.name_txt;
-            this.rowTexts.push(nb ? mkText(nb, 12) : null);
+            if (!nb) { this.rowTexts.push(null); continue; }
+            const t = scene.add.text(nb[0] + 4 + this.ox, (nb[1] + nb[3]) / 2 + this.oy, '', {
+                fontFamily: 'Arial, sans-serif', fontSize: '12px', fontStyle: 'bold',
+                color: '#ffffff', stroke: '#1c3a5e', strokeThickness: 2,
+            }).setOrigin(0, 0.5);
+            this.container.add(t);
+            this.rowTexts.push(t);
         }
 
         // zonas de clique (coords de stage -> container)
