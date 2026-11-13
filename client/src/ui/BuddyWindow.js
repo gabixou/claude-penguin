@@ -269,13 +269,19 @@ export default class BuddyWindow {
             return;
         }
         // buddies/room/pending: abre o player card se o pinguim esta na sala
-        if (row.penguin && scene.playerCard) {
-            scene.playerCard.open(row.penguin);
-        } else {
-            const p = scene.remotePlayers?.get(row.playerId);
-            if (p && scene.playerCard) scene.playerCard.open(p);
-            else scene.localPlayer?.showChat?.(`(${row.name} is not in this room)`);
-        }
+        const findPenguin = () => {
+            if (row.penguin) return row.penguin;
+            const byId = scene.remotePlayers?.get(row.playerId);
+            if (byId) return byId;
+            // fallback por username (cobre mismatch de tipo do playerId)
+            for (const p of scene.remotePlayers?.values() || []) {
+                if (p.username === row.name || p.username === row.name?.replace(/ \((request|pending)\)$/, '')) return p;
+            }
+            return null;
+        };
+        const p = findPenguin();
+        if (p && scene.playerCard) scene.playerCard.open(p);
+        else scene.localPlayer?.showChat?.(`(${row.name} is not in this room)`);
     }
 
     toggle() {
