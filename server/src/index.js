@@ -1034,7 +1034,11 @@ function handlePacket(ws, req, packet) {
             const pet = social.getPet(session.playerId, petRowId);
             if (!pet) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
             const action = data.action;
-            if (!['feed', 'play', 'rest'].includes(action)) { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
+            // acoes granulares do card (gum/cookie/eat/bath) mapeiam pros
+            // mesmos buckets de stat: feed=hunger, play=happiness, rest=rest
+            const CARE_BUCKET = { play: 'play', rest: 'rest', bath: 'rest', feed: 'feed', eat: 'feed', cookie: 'feed', gum: 'feed' };
+            const bucket = CARE_BUCKET[action];
+            if (!bucket) { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
             const key = `${session.playerId}:${petRowId}`;
             const last = petCareCooldown.get(key) || 0;
             const nowTs = Date.now();
@@ -1045,10 +1049,17 @@ function handlePacket(ws, req, packet) {
             petCareCooldown.set(key, nowTs);
             const fresh = social.getPets(session.playerId).find((p) => p.petRowId === petRowId);
             if (!fresh) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
-            const nh = Math.min(100, fresh.hunger + (action === 'feed' ? 30 : 5));
-            const np = Math.min(100, fresh.happiness + (action === 'play' ? 30 : 5));
-            const nr = Math.min(100, Math.max(0, fresh.rest + (action === 'rest' ? 30 : action === 'feed' ? -10 : 10)));
+            const nh = Math.min(100, fresh.hunger + (bucket === 'feed' ? 30 : 5));
+            const np = Math.min(100, fresh.happiness + (bucket === 'play' ? 30 : 5));
+            const nr = Math.min(100, Math.max(0, fresh.rest + (bucket === 'rest' ? 30 : bucket === 'feed' ? -10 : 10)));
             social.setPetStats(session.playerId, petRowId, nh, np, nr);
+            // avisa a sala: o puffle equipado toca a animacao do cuidado
+            // (gp usa o evento 'pcare' -> class Do.react -> frame do misc)
+            const roomSession = clientSessions.get(ws);
+            if (roomSession?.roomId) broadcastToRoom(roomSession.roomId, {
+                op: 'PLAYER_PET_CARE',
+                data: { playerId: session.playerId, petRowId, action }
+            });
             sendSocial(ws);
             break;
         }

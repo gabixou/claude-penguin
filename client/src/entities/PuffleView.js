@@ -93,6 +93,13 @@ function puffleMovie(dir) {
 const standFrame = (d) => d;
 const walkFrame = (d) => d + 8;
 
+// Reacoes de cuidado (PuffleCard) -> frames do misc, port do mapa Ya= do
+// gopenguin: play=27, rest=25, eat=31, cookie=30, gum=29, bath=34.
+// O frame fica fixo e os sub-playheads (advance a 24fps) animam a acao.
+const CARE_FRAMES = { play: 27, rest: 25, eat: 31, cookie: 30, gum: 29, bath: 34 };
+// duracao em ticks a 24fps (~4s) — o gp usa nl[type] por especie (100-260)
+const CARE_TICKS = { play: 96, rest: 72, eat: 60, cookie: 60, gum: 60, bath: 72 };
+
 export default class PuffleView {
     // pet: {petRowId, species, name}; owner: Penguin (local ou remoto)
     constructor(scene, pet, owner) {
@@ -115,6 +122,7 @@ export default class PuffleView {
         this._animAcc = 0;
         this._emoteAcc = 0;
         this._emoteFlip = false;
+        this._care = null;    // {frame, ticks, max} — reacao de cuidado em curso
 
         this.container = scene.add.container(this.x, this.y);
         this.canvas = document.createElement('canvas');
@@ -172,10 +180,39 @@ export default class PuffleView {
         this.container.setDepth((this.owner?.depth ?? 0) - 1);
     }
 
+    // reacao de cuidado vinda do card (PLAYER_PET_CARE -> 'player-pet-care')
+    react(kind) {
+        const frame = CARE_FRAMES[kind];
+        if (!frame || !this._ready || this._dead) return;
+        this._care = { frame, ticks: 0, max: CARE_TICKS[kind] || 60 };
+    }
+
+    // desenho estatico de um frame (emote/cuidado): para no lugar, sem follow
+    _still(dt) {
+        this.container.setPosition(this.x, this.y);
+        this._syncDepth();
+        this._draw();
+        this._animAcc += dt;
+        if (this._animAcc >= 1 / 24) {
+            this._animAcc %= 1 / 24;
+            this.clip?.advance?.();
+        }
+    }
+
     // chamado pelo RoomScene.update — segue o dono como no original
     tick(dt) {
         if (!this._ready || !this.owner || this._dead) return;
         const o = this.owner;
+        // reacao de cuidado tem prioridade: congela o follow ate acabar
+        if (this._care) {
+            if (++this._care.ticks > this._care.max) this._care = null;
+            else {
+                this.walking = false;
+                this.frame = this._care.frame;
+                this._still(dt);
+                return;
+            }
+        }
         // Emotes do dono (frames do penguin.swf): wave=25 -> puffle "play"
         // (27/28), dance=26 -> puffle "jump" (32/33); sit (17-24) -> puffle
         // "rest" (25, unica pose deitada do misc). No CP original o pet
@@ -195,14 +232,7 @@ export default class PuffleView {
             } else {
                 this.frame = 25;
             }
-            this.container.setPosition(this.x, this.y);
-            this._syncDepth();
-            this._draw();
-            this._animAcc += dt;
-            if (this._animAcc >= 1 / 24) {
-                this._animAcc %= 1 / 24;
-                this.clip?.advance?.();
-            }
+            this._still(dt);
             return;
         }
         // alvo: (+30, 0) — gap horizontal maior que o inicial (+20 ficava

@@ -380,6 +380,9 @@ export default class NetworkClient {
             case 'PLAYER_PET':
                 this.scene.events.emit('player-pet', data);
                 break;
+            case 'PLAYER_PET_CARE':
+                this.scene.events.emit('player-pet-care', data);
+                break;
             default:
                 this.scene.events.emit('packet-' + op, data);
                 break;

@@ -515,6 +515,13 @@ export default class RoomScene extends Phaser.Scene {
             }
         });
 
+        // cuidado do pet (play/rest/feed...): o puffle equipado do dono
+        // toca a animacao de reacao (port do 'pcare' do gopenguin)
+        this.events.on('player-pet-care', (data) => {
+            if (!data?.playerId || !data?.action) return;
+            this.petViews?.get(data.playerId)?.react(data.action);
+        });
+
         this.events.on('player-left', (data) => {
             if (!data) return;
             const penguin = this.remotePlayers.get(data.playerId);
