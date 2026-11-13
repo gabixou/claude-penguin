@@ -165,4 +165,14 @@ if (!playerCols.includes('all_items')) {
     db.exec('ALTER TABLE players ADD COLUMN all_items INTEGER NOT NULL DEFAULT 0');
 }
 
+// Migracao: pets equipados (puffle "passeando" segue o dono) + stat rest
+// (barra do puffle card: hunger/health/rest como no original).
+const petCols = db.prepare('PRAGMA table_info(pets)').all().map((c) => c.name);
+if (!petCols.includes('equipped')) {
+    db.exec('ALTER TABLE pets ADD COLUMN equipped INTEGER NOT NULL DEFAULT 0');
+}
+if (!petCols.includes('rest')) {
+    db.exec('ALTER TABLE pets ADD COLUMN rest INTEGER NOT NULL DEFAULT 100');
+}
+
 export default db;

@@ -296,6 +296,7 @@ export default class NetworkClient {
     petRename(petRowId, name) { this.send('PET_RENAME', { petRowId, name }); }
     petRelease(petRowId) { this.send('PET_RELEASE', { petRowId }); }
     petCare(petRowId, action) { this.send('PET_CARE', { petRowId, action }); }
+    petEquip(petRowId) { this.send('PET_EQUIP', { petRowId }); }
 
     // helpers de estado social
     isBuddy(playerId) { return this.social.buddies.some((b) => b.playerId === playerId); }
@@ -375,6 +376,9 @@ export default class NetworkClient {
                 break;
             case 'PLAYER_LEFT':
                 this.scene.events.emit('player-left', data);
+                break;
+            case 'PLAYER_PET':
+                this.scene.events.emit('player-pet', data);
                 break;
             default:
                 this.scene.events.emit('packet-' + op, data);

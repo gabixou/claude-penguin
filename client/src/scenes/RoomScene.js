@@ -30,6 +30,10 @@ import { CatalogueOverlay } from '../ui/Catalogue.js';
 import { MinigameOverlay } from '../minigames/MinigameOverlay.js';
 import BuddyWindow from '../ui/BuddyWindow.js';
 import { PromptUI } from '../ui/Prompt.js';
+import PuffleView, { ADOPT_SPECIES } from '../entities/PuffleView.js';
+import PetsWindow from '../ui/PetsWindow.js';
+import PuffleCard from '../ui/PuffleCard.js';
+import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
 import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
@@ -152,6 +156,9 @@ export default class RoomScene extends Phaser.Scene {
             // clique em cima de um pinguim abre o player card (nao anda).
             // Botoes de cenario (mesas, portas) tem prioridade — sem isso um
             // pinguim parado atras da mesa "roubava" o clique da mesa.
+            // clique no proprio puffle abre o puffle card (como no gp)
+            const puffle = this._ownPuffleAt(wx, wy);
+            if (puffle) { this.puffleCard?.open(puffle.pet); return; }
             const clicked = btnDest ? null : this._penguinAt(wx, wy);
             if (clicked) { this.playerCard.open(clicked); return; }
             const targetX = btnDest ? btnDest.x : Math.round(wx);
@@ -204,6 +211,12 @@ export default class RoomScene extends Phaser.Scene {
         this.wardrobe.onClose = () => { this.clothesOpen = false; };
         // 6d. Buddy List vetorial (interface_mc.widgets_mc.buddy_mc)
         this.buddyWindow = new BuddyWindow(this);
+        // 6f. Pets: janela de puffles (interino ate o iglu da Fase 3) +
+        // card do pet e seguidores na sala
+        this.petsWindow = new PetsWindow(this);
+        this.puffleCard = new PuffleCard(this);
+        this.petNameModal = new PetNameModal(this);
+        this.petViews = new Map(); // ownerPlayerId -> PuffleView
         // 6e. Prompt autenticico (interface_mc.prompt_mc) — requests de buddy
         this.promptUI = new PromptUI(this);
         this.events.on('buddy-request', (d) => {
@@ -225,7 +238,10 @@ export default class RoomScene extends Phaser.Scene {
             });
         });
         // buddy/ignore mudaram -> atualiza os frames dos botoes do card aberto
-        this.events.on('social-update', () => this.playerCard?._syncSocialFrames?.());
+        this.events.on('social-update', () => {
+            this.playerCard?._syncSocialFrames?.();
+            this._syncLocalPet();
+        });
 
         // 7. Modal do Mapa da Ilha e guarda-roupa
         this.createMapModal();
@@ -409,9 +425,15 @@ export default class RoomScene extends Phaser.Scene {
             if (!data || !data.players) return;
             this.clearRemotePlayers();
             data.players.forEach(p => {
-                if (p.playerId !== this.network.playerId) {
-                    this.upsertRemotePlayer(p.playerId, p.x, p.y, p.colorItemId, p.paperdoll, p.username, p.action);
+                if (p.playerId === this.network.playerId) {
+                    // pet equipado do proprio jogador (vem no playerList tb)
+                    if (this.localPlayer) {
+                        this.localPlayer.pet = p.pet || null;
+                        this._syncPetView(this.localPlayer);
+                    }
+                    return;
                 }
+                this.upsertRemotePlayer(p.playerId, p.x, p.y, p.colorItemId, p.paperdoll, p.username, p.action, p.pet);
             });
         });
 
@@ -443,7 +465,17 @@ export default class RoomScene extends Phaser.Scene {
 
         this.events.on('player-joined', (data) => {
             if (!data || data.playerId === this.network.playerId) return;
-            this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username, data.action);
+            this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username, data.action, data.pet);
+        });
+
+        // pet de outro jogador equipou/desequipou na sala
+        this.events.on('player-pet', (data) => {
+            if (!data) return;
+            const penguin = data.playerId === this.network.playerId
+                ? this.localPlayer : this.remotePlayers.get(data.playerId);
+            if (!penguin) return;
+            penguin.pet = data.pet || null;
+            this._syncPetView(penguin);
         });
 
         this.events.on('player-equip', (data) => {
@@ -490,7 +522,71 @@ export default class RoomScene extends Phaser.Scene {
                 penguin.destroy();
                 this.remotePlayers.delete(data.playerId);
             }
+            this._removePetView(data.playerId);
         });
+    }
+
+    // ---------- pets (pufflers seguindo o pinguim) ----------
+
+    // pet equipado do jogador local a partir do estado social
+    _syncLocalPet() {
+        if (!this.localPlayer || !this.network?.social) return;
+        const eq = (this.network.social.pets || []).find((p) => p.equipped);
+        this.localPlayer.pet = eq ? { petRowId: eq.petRowId, species: eq.species, name: eq.name } : null;
+        this._syncPetView(this.localPlayer);
+    }
+
+    // cria/remove o PuffleView conforme penguin.pet
+    _syncPetView(penguin) {
+        if (!penguin?.playerId) return;
+        const existing = this.petViews.get(penguin.playerId);
+        if (penguin.pet && !existing) {
+            this.petViews.set(penguin.playerId, new PuffleView(this, penguin.pet, penguin));
+        } else if (!penguin.pet && existing) {
+            existing.destroy();
+            this.petViews.delete(penguin.playerId);
+        }
+    }
+
+    _removePetView(playerId) {
+        const v = this.petViews.get(playerId);
+        if (v) { v.destroy(); this.petViews.delete(playerId); }
+    }
+
+    // ---------- adocao de puffle (catalogo do Pet Shop) ----------
+
+    // fluxo original do gp: confirm "Would you like to adopt this puffle
+    // for N coins?" -> prompt_mc c/ input "Name your puffle:" -> adocao
+    // -> "X is waiting in your igloo."
+    adoptPuffleFlow(speciesId) {
+        const sp = (this.network?.social?.petSpecies || [])
+            .find((s) => s.id === speciesId);
+        if (!sp) { this.localPlayer?.showChat?.('(unknown pet)'); return; }
+        const coins = this.network?.coins ?? 0;
+        if (coins < sp.cost) {
+            this.promptUI?.show({
+                text: `You need more coins. A ${sp.name} costs ${sp.cost} coins.`,
+                mode: 'ok',
+            });
+            return;
+        }
+        this.promptUI?.show({
+            text: `Would you like to adopt this ${sp.name} for ${sp.cost} coins?`,
+            mode: 'yesno',
+            onYes: () => this.petNameModal?.open(speciesId, (name) => {
+                this.promptUI?.show({
+                    text: `${name} is waiting in your igloo.`,
+                    mode: 'ok',
+                });
+            }),
+        });
+    }
+
+    // pet do jogador local sob o ponto (clique abre o puffle card)
+    _ownPuffleAt(wx, wy) {
+        const v = this.localPlayer && this.petViews.get(this.localPlayer.playerId);
+        if (!v || !v._ready) return null;
+        return Math.abs(wx - v.x) < 22 && Math.abs(wy - (v.y - 10)) < 26 ? v : null;
     }
 
     clearRemotePlayers() {
@@ -498,6 +594,16 @@ export default class RoomScene extends Phaser.Scene {
             penguin.destroy();
         }
         this.remotePlayers.clear();
+        for (const v of this.petViews?.values() || []) v.destroy();
+        this.petViews?.clear();
+        this.localPlayer && (this.localPlayer.pet = null);
+    }
+
+    // tick dos pets: seguem o dono (local + remotos) a cada frame
+    update(time, delta) {
+        if (!this.petViews?.size) return;
+        const dt = Math.min(0.1, (delta || 16.7) / 1000);
+        for (const v of this.petViews.values()) v.tick(dt);
     }
 
     // Retorna o pinguim (local ou remoto) sob o ponto, ou null.
@@ -517,13 +623,15 @@ export default class RoomScene extends Phaser.Scene {
         return best;
     }
 
-    upsertRemotePlayer(playerId, x = 380, y = 300, colorItemId = null, paperdoll = null, username = null, action = null) {
+    upsertRemotePlayer(playerId, x = 380, y = 300, colorItemId = null, paperdoll = null, username = null, action = null, pet = null) {
         let penguin = this.remotePlayers.get(playerId);
         if (!penguin) {
             const colorId = colorItemId || DEFAULT_COLOR_ITEM_ID;
             penguin = new Penguin(this, x, y, playerId, username || playerId, colorId);
             this.remotePlayers.set(playerId, penguin);
         }
+        penguin.pet = pet || penguin.pet || null;
+        this._syncPetView(penguin);
         if (paperdoll) penguin.applyOutfit(paperdoll);
         if (colorItemId) penguin.setColorItemId(colorItemId);
         // estado de acao atual (ex.: dançando ao entrar na sala)
@@ -646,7 +754,9 @@ export default class RoomScene extends Phaser.Scene {
                 this.toggleMap();
                 break;
             case 'igloo':
-                this.toggleClothes();
+                // interino ate a Fase 3 (iglu real): o botao de iglu abre
+                // a lista de pets — e onde os puffles "moram"
+                this.petsWindow?.toggle();
                 break;
             case 'buddy':
                 this.buddyWindow?.toggle();
