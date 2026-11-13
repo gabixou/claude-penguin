@@ -171,7 +171,26 @@ export default class PlayerCard {
         this._modBtnCleanup?.();
         this._modBtnCleanup = null;
         this._modBtn = null;
+        this._clip = null;
         this.penguin = null;
+    }
+
+    // aplica os frames corretos dos botoes sociais conforme o estado
+    // buddy/ignore — chamado no build e a cada SOCIAL_UPDATE
+    _syncSocialFrames() {
+        const clip = this._clip, p = this.penguin, scene = this.scene;
+        if (!clip || !p || !scene?.network) return;
+        const isSelf = p === scene.localPlayer
+            || (scene.localPlayer && p.playerId === scene.localPlayer.playerId);
+        if (isSelf) return;
+        const isB = !!scene.network.isBuddy?.(p.playerId);
+        const isI = !!scene.network.isIgnored?.(p.playerId);
+        const online = isB && !!scene.remotePlayers?.has?.(p.playerId);
+        clip.set('buddy_mc', { frame: isB ? 3 : isI ? 1 : 2 });
+        clip.set('ignore_mc', { frame: isB ? 1 : isI ? 3 : 2 });
+        clip.set('home_mc', { frame: isB ? 2 : 1 });
+        clip.set('profile_mc', { frame: online ? 2 : 1 });
+        this._repaint?.();
     }
 
     async _build(movie, penguin) {
@@ -191,6 +210,13 @@ export default class PlayerCard {
         // esconde o "Your Coins: 000000" estatico — o valor real e desenhado
         // como texto Phaser na posicao nativa do coins_txt (ver abaixo)
         clip.set('coins_txt', { visible: false });
+
+        // estados dos botoes sociais (so no card de outro pinguim) —
+        // port do renderCard do gopenguin: buddy_mc frame 3=ja buddy
+        // (remove), 1=ignored, 2=add normal; ignore_mc 1=buddy, 3=ignored,
+        // 2=normal; home_mc 2=buddy, 1=cinza; profile_mc 2=buddy online
+        this._clip = clip;
+        if (!isSelf) this._syncSocialFrames();
 
         // bounds do frame em coords do sprite -> canvas
         const b = clip._boundsOf(entries, IDENT, '') || [0, 0, 240, 300];
@@ -529,6 +555,8 @@ export default class PlayerCard {
                 const net = scene.network;
                 const target = this.penguin;
                 if (!net || !target || target === scene.localPlayer) break;
+                // ignored (sem ser buddy): botao cinza sem acao — igual ao gp
+                if (net.isIgnored?.(target.playerId) && !net.isBuddy?.(target.playerId)) break;
                 if (net.isBuddy?.(target.playerId)) {
                     scene.localPlayer?.showChat?.(`(${target.username} is already your buddy)`);
                 } else {
@@ -543,6 +571,8 @@ export default class PlayerCard {
                 const net = scene.network;
                 const target = this.penguin;
                 if (!net || !target || target === scene.localPlayer) break;
+                // buddy: botao cinza sem acao — igual ao gp (ignore_mc frame 1)
+                if (net.isBuddy?.(target.playerId)) break;
                 if (net.isIgnored?.(target.playerId)) {
                     net.ignoreRemove(target.playerId);
                     scene.localPlayer?.showChat?.(`(no longer ignoring ${target.username})`);
