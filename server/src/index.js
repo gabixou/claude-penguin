@@ -230,16 +230,21 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Arenovisk: pinguim de teste do dono do PC (IPs loopback). Criado sob
-// demanda; a flag all_items faz hasItem/getInventory cobrir o catalogo
-// inteiro e coins generosas para testar compras/equipamentos.
-const ARENOVISK_NAME = 'Arenovisk';
+// Pinguins de teste do dono do PC (IPs loopback). Criados sob demanda;
+// a flag all_items faz hasItem/getInventory cobrir o catalogo inteiro e
+// coins generosas para testar compras/equipamentos.
+// TEST_PENGUINS: ordem de ocupacao — se o primeiro ja estiver conectado
+// (ex.: segunda aba do browser no localhost), o proximo login recebe o
+// seguinte, permitindo testes multiplayer/buddy com 2 pinguins.
+const TEST_PENGUINS = ['Arenovisk', 'Penguin Test'];
+const ARENOVISK_NAME = TEST_PENGUINS[0];
 const ARENOVISK_COINS = 100000;
-function ensureArenovisk(ip) {
-    let player = playerStore.getPlayerByUsername(ARENOVISK_NAME);
+
+function ensureTestPlayer(name, ip) {
+    let player = playerStore.getPlayerByUsername(name);
     if (!player) {
-        player = playerStore.createPlayer(ip, ARENOVISK_NAME, 1);
-        console.log(`[ARENOVISK] Pinguim de teste '${ARENOVISK_NAME}' criado`);
+        player = playerStore.createPlayer(ip, name, 1);
+        console.log(`[TEST] Pinguim de teste '${name}' criado`);
     }
     if (!player.all_items) {
         playerStore.setAllItems(player.player_id, 1);
@@ -247,6 +252,27 @@ function ensureArenovisk(ip) {
         player = playerStore.getPlayerById(player.player_id);
     }
     return player;
+}
+
+function ensureArenovisk(ip) {
+    return ensureTestPlayer(ARENOVISK_NAME, ip);
+}
+
+// true se o playerId ja tem um socket aberto autenticado (ocupado)
+function playerHasLiveSession(playerId, excludeWs = null) {
+    for (const [ws, s] of clientPlayerData) {
+        if (ws !== excludeWs && ws.readyState === WebSocket.OPEN && s.playerId === playerId) return true;
+    }
+    return false;
+}
+
+// Escolhe o primeiro pinguim de teste livre; se todos ocupados, reusa o primeiro.
+function pickTestPenguin(ip) {
+    for (const name of TEST_PENGUINS) {
+        const p = ensureTestPlayer(name, ip);
+        if (!playerHasLiveSession(p.player_id)) return p;
+    }
+    return ensureTestPlayer(TEST_PENGUINS[0], ip);
 }
 
 // IPs que tem direito ao Arenovisk: por padrao so loopback (o PC do
@@ -314,18 +340,24 @@ function handlePacket(ws, req, packet) {
             const clientToken = data.sessionToken || null;
             const result = auth.identifyPlayer(req, clientToken);
             const ip = clientIp(req);
+            const testIp = isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req);
 
-            if (result.player) {
+            // localhost: se o pinguim do token ja esta conectado em outro
+            // socket (ex.: segunda aba com o mesmo localStorage), nao reutiliza
+            // — cai no fluxo de pinguim de teste livre (Arenovisk -> Penguin Test)
+            const occupied = result.player && playerHasLiveSession(result.player.player_id, ws);
+
+            if (result.player && !(testIp && occupied)) {
                 sendPlayerSession(ws, result.player, result.sessionToken);
                 console.log(`[AUTH] Jogador '${result.player.username}' (${result.player.player_id}) autenticado via ${result.sessionToken ? 'token' : 'IP'}`);
-            } else if (isArenoviskIp(ip) && !data.forceGuest && !isAutomationClient(req)) {
-                // IP autorizado (PC do tester): recebe o Arenovisk.
-                // Demais IPs e automacao recebem guest novo.
-                const player = ensureArenovisk(ip);
+            } else if (testIp) {
+                // IP autorizado (PC do tester): recebe o proximo pinguim de
+                // teste livre. Demais IPs e automacao recebem guest novo.
+                const player = pickTestPenguin(ip);
                 const sessionToken = crypto.randomBytes(32).toString('hex');
                 playerStore.updatePlayerSession(player.player_id, sessionToken);
                 sendPlayerSession(ws, player, sessionToken);
-                console.log(`[AUTH] Arenovisk (${player.player_id}) atribuido ao localhost`);
+                console.log(`[AUTH] Pinguim de teste '${player.username}' (${player.player_id}) atribuido ao localhost`);
             } else {
                 // Guest flow: cria o pinguim na hora, sem tela de conta
                 const guestName = generateGuestName();
