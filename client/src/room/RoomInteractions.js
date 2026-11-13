@@ -64,6 +64,7 @@ for (const [room, [game, ids]] of Object.entries(TABLE_GAME)) {
     for (const id of ids) {
         buttons[`table${id}_mc.game_btn`] = {
             hint: TABLE_HINT[game],
+            triggerName: `table${id}_mc`,
             hover: [{ path: `table${id}_mc.game_mc`, over: 2, out: 1 }],
         };
     }
@@ -106,6 +107,7 @@ export class RoomInteractions {
             return {
                 ...b,
                 walk: def.walk || parsed?.walk || this._defaultWalk(b),
+                triggerName: def.triggerName || null,
                 hover: def.hover || [],
                 sfxHover: def.sfxHover,
                 sfxClick: def.sfxClick,
@@ -186,6 +188,10 @@ export class RoomInteractions {
         if (!b) return null;
         if (b.content) return { content: b.content };
         if (b.game) return { game: b.game };
-        return { x: b.walk[0], y: b.walk[1] };
+        // centroide da zona de trigger — resolvido no clique porque o
+        // buildCollision pode nao ter terminado quando build() rodou
+        const tw = b.triggerName && this.movie.triggerCenter?.(b.triggerName);
+        const [tx, ty] = tw || b.walk;
+        return { x: tx, y: ty };
     }
 }
