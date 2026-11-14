@@ -113,7 +113,7 @@ const OWNER_EMOTE_FRAMES = { 25: 27, 26: 35 };
 // puffle_action_lengths[9][6] do gopenguin-3ds (gerado dos SWFs:
 // prepare-puffle-actions.py). Colunas na ordem dos frames
 // {play,rest,eat,cookie,gum,bath}; linhas na ordem de SPECIES_TYPE
-// (blue,pink,black,green,purple,red,yellow,white,orange). Os valores
+// (blue,pink,black,green,purple,red,yellow,white,orange,brown). Os valores
 // reais sao 60-397 ticks (2.5-16.5s) — os CARE_TICKS antigos (60-96)
 // cortavam a animacao do SWF no meio e o puffle voltava a andar
 // "no meio do brincar/comer", exatamente o bug reportado.
@@ -127,6 +127,7 @@ const CARE_LENGTHS = [
     [397, 210, 267, 222, 321, 223], // yellow
     [220, 287, 145, 149, 179, 253], // white
     [152, 147, 116, 99, 177, 182],  // orange
+    [220, 349, 168, 301, 208, 201], // brown (36 frames main — misc propio)
 ];
 const CARE_ACTION_IDX = { play: 0, rest: 1, eat: 2, cookie: 3, gum: 4, bath: 5 };
 
@@ -261,19 +262,27 @@ export default class PuffleView {
     // deficit (N frames por tick) senao a animacao de misc corta antes
     // do cuidado acabar e o puffle "anda no meio do brincar/comer".
     _advanceAnims(dt) {
+        const c = this.clip;
+        // playheads so nascem no primeiro _drawListFrame (async) — se
+        // consumirmos o acumulador antes disso, os primeiros ~2-7
+        // advances se perdem e a sub-animacao termina ~3 frames antes
+        // do _care acabar (medido: black gum parava em 215/218). Tambem
+        // nao acumulamos dt enquanto vazio: senão o playhead nasceria
+        // "devendo" frames e saltaria 24+ de uma vez.
+        if (!c || !c.playheads?.size) return;
         this._animAcc += dt;
         let n = 0;
         while (this._animAcc >= 1 / 24 && n < 24) {
             this._animAcc -= 1 / 24;
             n++;
         }
-        if (n && this.clip) {
+        if (n) {
             // _draw e async e pode pular ticks (_drawing) — sem redraw o
             // frameOf nao marca `seen` e o advance perdia frames, atrasando
             // a sub-animacao em relacao ao relogio real do _care. O clip do
             // puffle e minusculo: marca tudo como visto e avanca pelo tempo.
-            for (const ph of this.clip.playheads.values()) ph.seen = true;
-            this.clip.advance(n);
+            for (const ph of c.playheads.values()) ph.seen = true;
+            c.advance(n);
         }
     }
 
