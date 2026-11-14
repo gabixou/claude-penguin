@@ -16,8 +16,8 @@ export const PET_SPECIES = [
     { id: 'puffle_white',  name: 'White Puffle',  cost: 2600 },
     { id: 'puffle_orange', name: 'Orange Puffle', cost: 2800 },
     { id: 'puffle_brown',  name: 'Brown Puffle',  cost: 3000 },
-    { id: 'lounge_lizard', name: 'Lounge Lizard', cost: 750 },
-    { id: 'cave_croc',     name: 'Cave Crocodile',cost: 900 },
+    // lounge_lizard/cave_croc removidos: sao pets de habitat do EPF,
+    // nao pets soltos — e nao tem sprites de follow no cliente
 ];
 
 export function getPetSpecies(id) {
@@ -35,25 +35,28 @@ function decay(stats, adoptedAt, lastTick) {
     return {
         hunger: Math.max(0, stats.hunger - steps),
         happiness: Math.max(0, stats.happiness - steps),
+        rest: Math.max(0, (stats.rest ?? 100) - steps),
         _dirty: steps > 0,
     };
 }
-function persistStats(petRowId, hunger, happiness) {
-    db.prepare('UPDATE pets SET hunger = ?, happiness = ?, last_tick = ? WHERE pet_row_id = ?')
-        .run(hunger, happiness, now(), petRowId);
+function persistStats(petRowId, hunger, happiness, rest) {
+    db.prepare('UPDATE pets SET hunger = ?, happiness = ?, rest = ?, last_tick = ? WHERE pet_row_id = ?')
+        .run(hunger, happiness, rest ?? 100, now(), petRowId);
 }
 
 export function getPets(playerId) {
     const rows = db.prepare('SELECT * FROM pets WHERE player_id = ?').all(playerId);
     return rows.map((r) => {
-        const d = decay({ hunger: r.hunger, happiness: r.happiness }, r.adopted_at, r.last_tick);
-        if (d._dirty) persistStats(r.pet_row_id, d.hunger, d.happiness);
+        const d = decay({ hunger: r.hunger, happiness: r.happiness, rest: r.rest }, r.adopted_at, r.last_tick);
+        if (d._dirty) persistStats(r.pet_row_id, d.hunger, d.happiness, d.rest);
         return {
             petRowId: r.pet_row_id,
             species: r.species,
             name: r.name,
             hunger: d.hunger,
             happiness: d.happiness,
+            rest: d.rest,
+            equipped: !!r.equipped,
             adoptedAt: r.adopted_at,
         };
     });
@@ -85,10 +88,26 @@ export function releasePet(playerId, petRowId) {
     return r.changes ? { ok: true } : { error: 'NOT_FOUND' };
 }
 
-export function setPetStats(playerId, petRowId, hunger, happiness) {
-    db.prepare('UPDATE pets SET hunger = ?, happiness = ?, last_tick = ? WHERE player_id = ? AND pet_row_id = ?')
-        .run(hunger, happiness, now(), playerId, petRowId);
+export function setPetStats(playerId, petRowId, hunger, happiness, rest) {
+    db.prepare('UPDATE pets SET hunger = ?, happiness = ?, rest = ?, last_tick = ? WHERE player_id = ? AND pet_row_id = ?')
+        .run(hunger, happiness, rest ?? 100, now(), playerId, petRowId);
     return { ok: true };
+}
+
+// equipar/desequipar: so um pet "passeando" por vez — equipar outro
+// devolve o anterior pro igloo automaticamente
+export function setPetEquipped(playerId, petRowId, on) {
+    db.prepare('UPDATE pets SET equipped = 0 WHERE player_id = ?').run(playerId);
+    if (on) {
+        const r = db.prepare('UPDATE pets SET equipped = 1 WHERE player_id = ? AND pet_row_id = ?').run(playerId, petRowId);
+        if (!r.changes) return { error: 'NOT_FOUND' };
+    }
+    return { ok: true };
+}
+
+// pet equipado do jogador (o que "passeia" seguindo o pinguim) ou null
+export function getEquippedPet(playerId) {
+    return db.prepare('SELECT * FROM pets WHERE player_id = ? AND equipped = 1').get(playerId) || null;
 }
 
 // ---------- BUDDIES ----------

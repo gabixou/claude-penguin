@@ -58,6 +58,12 @@ export class PenguinLibrary {
         }
         lib.items = new Map();      // itemId -> Promise<Clip|null>
         lib.bounds = lib._unionBounds();
+        // bounds "firmes" (so +4) p/ hit-test de clique — a margem de
+        // render nao deve inflar a area que abre o player card
+        lib.hitBounds = { ...lib.bounds };
+        const t = 12; // diferença entre margem de render (16) e a firme
+        lib.hitBounds.x0 += t; lib.hitBounds.y0 += t;
+        lib.hitBounds.x1 -= t; lib.hitBounds.y1 -= t;
         // decode de SVG e lazy: _svgImage e chamado sob demanda por
         // artCanvas/Clip e fica em cache. Prefetch em chunks minusculos
         // agendado em idle — lotes maiores saturavam a fila de decode.
@@ -82,9 +88,13 @@ export class PenguinLibrary {
                   : fb;
         }
         if (!b) b = [-20, -60, 20, 10];
-        // margem para poses maiores que a uniao inicial
-        return { x0: Math.floor(b[0]) - 4, y0: Math.floor(b[1]) - 4,
-                 x1: Math.ceil(b[2]) + 4, y1: Math.ceil(b[3]) + 4 };
+        // margem ampla: os bounds sao ESTATICOS (matrizes das entries) —
+        // partes animadas por playheads (bracos da danca, arco do throw,
+        // puffle misc) excedem a uniao e clipavam no canvas do sprite.
+        // O displaySize deriva de viewW/viewH, entao a margem so adiciona
+        // borda transparente — o tamanho na tela nao muda.
+        return { x0: Math.floor(b[0]) - 16, y0: Math.floor(b[1]) - 16,
+                 x1: Math.ceil(b[2]) + 16, y1: Math.ceil(b[3]) + 16 };
     }
 
     get viewW() { return this.bounds.x1 - this.bounds.x0; }

@@ -7,6 +7,7 @@
 //   - texto dinamico: book.coinTotal.coins_txt = "YOUR COINS: N"
 import { MovieRoom } from '../movie/movie.js';
 import { PromptUI } from './Prompt.js';
+import { ADOPT_SPECIES } from '../entities/PuffleView.js';
 
 const FRAME_RATE_MS = 1000 / 24;
 
@@ -381,7 +382,16 @@ export class CatalogueOverlay {
     // Port direto do xo.commands — retorna funcao ou null.
     _commands(body, basePath, movie = this.movie, show = true) {
         const adopt = /adoptPuffle\((\d+)\)/.exec(body);
-        if (adopt) return () => this._notice('Puffle adoption is not available yet.');
+        // adoptPuffle(N): N indexa a ordem gp dos puffles no catalogo adopt
+        // (blue,pink,black,green,purple,red,yellow,white,orange) — o fluxo
+        // de confirmacao + nome acontece na RoomScene (prompt original)
+        if (adopt) {
+            const species = ADOPT_SPECIES[Number(adopt[1])];
+            return () => {
+                this.close();
+                if (species) this.scene.adoptPuffleFlow?.(species);
+            };
+        }
         const buy = BUY_RE.exec(body);
         if (buy) {
             const kind = BUY_KINDS[buy[1]];
