@@ -202,9 +202,15 @@ export default class PuffleView {
         this.movie = movie;
         this.clip = new Clip(movie);
         this._main = movie._mainTl;
-        // bounds do puffle inteiro (todos os frames) p/ centralizar no canvas
+        // bounds so dos frames de locomocao (stand 1-8, walk 9-16,
+        // walkhop 17-24) p/ centralizar no canvas. Se usar TODOS os
+        // frames, as animacoes misc de cuidado (play/eat/bath) tem
+        // excursões assimetricas ~60+ unidades (ex.: green chega a x=61)
+        // que deslocam o centro _cx e o sprite visivel fica ~15un fora
+        // do container.x — o puffle "cola" no pinguim (bug reportado).
+        // O canvas 512un ainda comporta todas as excursions de misc.
         let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-        for (const f of this._main.frames) {
+        for (const f of this._main.frames.slice(0, 24)) {
             const b = this.clip._boundsOf(f, IDENT, '');
             if (!b) continue;
             x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]);
