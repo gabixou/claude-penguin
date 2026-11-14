@@ -43,66 +43,61 @@ jobs:
           node test-tables.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # Porta aleatoria por run: um servidor de teste antigo nao pode sobrar
-      # escutando numa porta fixa e fazer os testes rodarem contra o banco dele.
-      - name: Start test server (porta aleatoria)
+      # Um unico step para todo o resto: processos filhos de um step sao
+      # encerrados quando ele termina, entao servidor/build/browser precisam
+      # viver dentro do mesmo step.
+      - name: Smoke completo (server e2e + build + browser)
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
+          $failed = $false
+          function Step($name, [scriptblock]$fn) {
+            Write-Host "`n=== $name ==="
+            & $fn
+            if ($LASTEXITCODE -ne 0) { $script:failed = $true; Write-Host "FALHOU: $name" }
+          }
+
+          # porta aleatoria: servidor de teste antigo nao pode sequestrar os testes
           $port = $null
           foreach ($i in 1..30) {
             $cand = 18000 + (Get-Random -Max 2000)
             if (-not (Get-NetTCPConnection -LocalPort $cand -State Listen -ErrorAction SilentlyContinue)) { $port = $cand; break }
           }
           if (-not $port) { Write-Host "nenhuma porta livre"; exit 1 }
-          "SMOKE_PORT=$port" >> $env:GITHUB_ENV
-          "SMOKE_WS_URL=ws://localhost:$port" >> $env:GITHUB_ENV
+          $env:SMOKE_PORT = "$port"
+          $env:SMOKE_WS_URL = "ws://localhost:$port"
+          Write-Host "porta de teste: $port"
+
+          cd server
           $env:PENGUIN_DB = Join-Path $env:TEMP "penguin-smoke-$([guid]::NewGuid().ToString('N')).db"
           $env:PORT = "$port"
-          $p = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory "server" -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
-          $p.Id | Out-File -Encoding ascii server-smoke.pid
-          $ok = $false
-          foreach ($i in 1..40) {
-            try {
-              $t = New-Object Net.Sockets.TcpClient
-              $t.Connect('127.0.0.1', $port); $t.Close(); $ok = $true; break
-            } catch { Start-Sleep -Milliseconds 500 }
+          $srv = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory "server" -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
+          try {
+            $ok = $false
+            foreach ($i in 1..40) {
+              try {
+                $t = New-Object Net.Sockets.TcpClient
+                $t.Connect('127.0.0.1', $port); $t.Close(); $ok = $true; break
+              } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $ok -or $srv.HasExited) {
+              Get-Content server-smoke.err.log -ErrorAction SilentlyContinue
+              exit 1
+            }
+            Write-Host "server pid=$($srv.Id)"
+
+            Step "test-e2e" { node test-e2e.mjs }
+            Step "test-multi" { node test-multi.mjs }
+
+            cd ..\client
+            Step "npm ci (client)" { npm ci }
+            $env:VITE_WS_URL = "ws://localhost:$port"
+            Step "build client" { npm run build }
+
+            cd ..\tools
+            Step "npm ci (tools)" { npm ci }
+            Step "browser smoke" { node smoke-ci.mjs http://localhost:3100 }
+          } finally {
+            Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
           }
-          if (-not $ok -or $p.HasExited) { Get-Content server-smoke.err.log -ErrorAction SilentlyContinue; exit 1 }
-          Write-Host "server pid=$($p.Id) porta=$port"
-
-      - name: Server e2e + multiplayer tests
-        shell: powershell
-        run: |
-          cd server
-          node test-e2e.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node test-multi.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Client build
-        shell: powershell
-        run: |
-          cd client
-          npm ci
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:VITE_WS_URL = "ws://localhost:$env:SMOKE_PORT"
-          npm run build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Browser smoke test
-        shell: powershell
-        run: |
-          cd tools
-          npm ci
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node smoke-ci.mjs http://localhost:3100
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Cleanup test server
-        if: always()
-        shell: powershell
-        run: |
-          if (Test-Path server-smoke.pid) {
-            $procId = [int](Get-Content server-smoke.pid)
-            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-          }
+          if ($failed) { exit 1 }
