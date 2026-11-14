@@ -71,7 +71,7 @@ jobs:
           cd server
           $env:PENGUIN_DB = Join-Path $env:TEMP "penguin-smoke-$([guid]::NewGuid().ToString('N')).db"
           $env:PORT = "$port"
-          $srv = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory "server" -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
+          $srv = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory (Get-Location).Path -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
           try {
             $ok = $false
             foreach ($i in 1..40) {
