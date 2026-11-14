@@ -217,7 +217,10 @@ export default class PuffleView {
         // gp: movie.resetPlayback() antes do frame — sem isso os sub-clips
         // ficam no playhead que o walk deixou e o misc renderiza vazio
         this.clip?.resetPlayback?.();
-        this._care = { frame, ticks: 0, max: CARE_TICKS[kind] || 60 };
+        // duracao em "ticks" a 24fps (~2.5-4s) como os playheads do SWF;
+        // tick() roda a ~60fps — sem converter por dt o cuidado durava
+        // ~2.5x menos e o puffle voltava a andar no meio da animacao
+        this._care = { frame, ticks: 0, acc: 0, max: CARE_TICKS[kind] || 60 };
     }
 
     // playheads dos sub-clips a ~24fps como o frameRate do SWF —
@@ -307,7 +310,8 @@ export default class PuffleView {
         // reacao de cuidado tem prioridade: congela o follow/vagabundo
         // ate acabar (vale pros dois modos — owner ou iglu)
         if (this._care) {
-            if (++this._care.ticks > this._care.max) { this._care = null; this._emoteActive = false; }
+            this._care.acc += dt * 24; // CARE_TICKS e em ticks de 24fps
+            if (this._care.acc > this._care.max) { this._care = null; this._emoteActive = false; }
             else {
                 this.walking = false;
                 this.frame = this._care.frame;
