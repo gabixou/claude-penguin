@@ -10,7 +10,9 @@ export const MOVIE_ROOM_MAP = {
     light: 'light', ship: 'ship', village: 'village', attic: 'attic',
     dojoext: 'dojoext', cavemine: 'cavemine',
     // destinos do mapa da ilha (map.swf)
-    mtn: 'mtn', cove: 'cove', shack: 'shack', berg: 'berg'
+    mtn: 'mtn', cove: 'cove', shack: 'shack', berg: 'berg',
+    // iglu proprio do jogador (Fase 3) — pack igloos/1.swf do wand
+    igloo: 'igloo'
 };
 
 // Sala inicial (?room=<id>), mesma regra do RoomScene

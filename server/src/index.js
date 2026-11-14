@@ -66,6 +66,12 @@ function sanitizePaperdoll(raw) {
     return outfit;
 }
 
+// pet "passeando" do jogador — info publica p/ renderizar o seguidor
+function publicPet(row) {
+    if (!row) return null;
+    return { petRowId: row.pet_row_id, species: row.species, name: row.name };
+}
+
 function publicPlayer(player) {
     return {
         playerId: player.playerId,
@@ -75,7 +81,8 @@ function publicPlayer(player) {
         color: player.color,
         colorItemId: player.colorItemId,
         paperdoll: player.paperdoll,
-        action: player.action || null
+        action: player.action || null,
+        pet: player.pet || null
     };
 }
 
@@ -622,6 +629,7 @@ function handlePacket(ws, req, packet) {
                 colorItemId: session.colorItemId || 1,
                 paperdoll: sanitizePaperdoll(session.equipped),
                 action: null,
+                pet: publicPet(social.getEquippedPet(session.playerId)),
                 socket: ws
             };
 
@@ -990,6 +998,34 @@ function handlePacket(ws, req, packet) {
             break;
         }
 
+        case 'PET_EQUIP': {
+            // {petRowId} — toggle "walk": pet sai do igloo e segue o pinguim
+            // (ou volta, se ja estiver equipado). Um pet por vez.
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Jogador não autenticado');
+                return;
+            }
+            const petRowId = Number(data.petRowId);
+            const pet = social.getPet(session.playerId, petRowId);
+            if (!pet) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
+            const turningOff = !!pet.equipped;
+            const res = social.setPetEquipped(session.playerId, petRowId, !turningOff);
+            if (res.error) { sendError(ws, res.error, res.error); return; }
+            // atualiza o player da sala e avisa os demais (pet aparece/some)
+            const roomPlayer = clientSessions.get(ws);
+            if (roomPlayer) {
+                roomPlayer.pet = turningOff ? null : publicPet(social.getPet(session.playerId, petRowId));
+                broadcastToRoom(roomPlayer.roomId, {
+                    op: 'PLAYER_PET',
+                    data: { playerId: session.playerId, pet: roomPlayer.pet }
+                }, ws);
+            }
+            sendSocial(ws);
+            console.log(`[PET] ${session.username} ${turningOff ? 'guardou' : 'passeou com'} ${pet.name}`);
+            break;
+        }
+
         case 'PET_CARE': {
             // {petRowId, action:'feed'|'play'} — restaura stats (cooldown 60s/pet)
             const session = clientPlayerData.get(ws);
@@ -998,7 +1034,11 @@ function handlePacket(ws, req, packet) {
             const pet = social.getPet(session.playerId, petRowId);
             if (!pet) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
             const action = data.action;
-            if (action !== 'feed' && action !== 'play') { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
+            // acoes granulares do card (gum/cookie/eat/bath) mapeiam pros
+            // mesmos buckets de stat: feed=hunger, play=happiness, rest=rest
+            const CARE_BUCKET = { play: 'play', rest: 'rest', bath: 'rest', feed: 'feed', eat: 'feed', cookie: 'feed', gum: 'feed' };
+            const bucket = CARE_BUCKET[action];
+            if (!bucket) { sendError(ws, 'INVALID_DATA', 'action inválida'); return; }
             const key = `${session.playerId}:${petRowId}`;
             const last = petCareCooldown.get(key) || 0;
             const nowTs = Date.now();
@@ -1009,9 +1049,17 @@ function handlePacket(ws, req, packet) {
             petCareCooldown.set(key, nowTs);
             const fresh = social.getPets(session.playerId).find((p) => p.petRowId === petRowId);
             if (!fresh) { sendError(ws, 'NOT_FOUND', 'Pet não encontrado'); return; }
-            const nh = Math.min(100, fresh.hunger + (action === 'feed' ? 30 : 5));
-            const np = Math.min(100, fresh.happiness + (action === 'play' ? 30 : 5));
-            social.setPetStats(session.playerId, petRowId, nh, np);
+            const nh = Math.min(100, fresh.hunger + (bucket === 'feed' ? 30 : 5));
+            const np = Math.min(100, fresh.happiness + (bucket === 'play' ? 30 : 5));
+            const nr = Math.min(100, Math.max(0, fresh.rest + (bucket === 'rest' ? 30 : bucket === 'feed' ? -10 : 10)));
+            social.setPetStats(session.playerId, petRowId, nh, np, nr);
+            // avisa a sala: o puffle equipado toca a animacao do cuidado
+            // (gp usa o evento 'pcare' -> class Do.react -> frame do misc)
+            const roomSession = clientSessions.get(ws);
+            if (roomSession?.roomId) broadcastToRoom(roomSession.roomId, {
+                op: 'PLAYER_PET_CARE',
+                data: { playerId: session.playerId, petRowId, action }
+            });
             sendSocial(ws);
             break;
         }
