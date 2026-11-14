@@ -174,6 +174,10 @@ export default class PlayerCard {
         this._cardBounds = null;
         this._drag = null;
         this._placeModBtn = null;
+        this._puffleZone = null;
+        this._puffleRect = null;
+        this._cardSpriteBounds = null;
+        this._cardScale = 1;
         this.scene?.input?.setDefaultCursor('default');
         // textura do card e por-abertura (playercard_<ts>) — sem remover,
         // cada open vazava uma CanvasTexture na GPU
@@ -343,6 +347,7 @@ export default class PlayerCard {
             // puffle equipado: variante "doll com pet" — sprite real do
             // puffle em pe a direita do boneco, pes na linha do chao
             const petDir = SPECIES_SPRITE[penguin.pet?.species];
+            this._puffleRect = null;
             if (petDir && dollWorld && dollFrame) {
                 const pm = await puffleMovie(petDir);
                 if (pm) {
@@ -367,6 +372,13 @@ export default class PlayerCard {
                         // clamp: nunca sai dos bounds do card
                         left = Math.min(left, b[2] - 8 - pW);
                         left = Math.max(left, b[0] + 8);
+                        // guarda o rect (coords do sprite) p/ a zona de
+                        // clique que desequipa o pet — repositionada a
+                        // cada repaint (_syncPuffleZone)
+                        this._puffleRect = {
+                            x: left, y: ground - (pb[3] - pb[1]) * s,
+                            w: pW, h: (pb[3] - pb[1]) * s,
+                        };
                         const mat = {
                             a: s, b: 0, c: 0, d: s,
                             x: left - pb[0] * s,
@@ -384,6 +396,9 @@ export default class PlayerCard {
         const scale = Math.min(1, 480 / h); // cabe em ~480px de altura
         const dw = w * scale, dh = h * scale;
         this._cardSize = { dw, dh };
+        // guarda p/ _syncPuffleZone (rect do puffle e em coords do sprite)
+        this._cardSpriteBounds = b;
+        this._cardScale = scale;
         // posicao: centro da tela + deslocamento escolhido pelo jogador
         // (arrastando), sempre dentro da area visivel
         const pos = this._clampTopLeft(WORLD_W / 2 + _cardOffset.x - dw / 2, WORLD_H / 2 + _cardOffset.y - dh / 2);
@@ -459,6 +474,19 @@ export default class PlayerCard {
             cont.add(dz);
         }
 
+        // self: clicar no puffle da doll desequipa o pet (PET_EQUIP faz
+        // toggle — ele volta a vagar no iglu). So no card proprio: o
+        // server so deixa equipar/guardar pets do proprio jogador.
+        if (isSelf && penguin.pet?.petRowId) {
+            this._puffleZone = scene.add.zone(0, 0, 10, 10)
+                .setInteractive({ useHandCursor: true });
+            this._puffleZone.on('pointerdown', () => {
+                scene.network?.petEquip(penguin.pet.petRowId);
+            });
+            cont.add(this._puffleZone);
+            this._syncPuffleZone();
+        }
+
         // Coins do jogador local — editText nativo coins_txt (id 667:
         // "Your Coins: N", font 190 size 12, align left) posicionado ao lado
         // do icone de moeda (#141/#142) no rodape esquerdo do card
@@ -497,6 +525,7 @@ export default class PlayerCard {
                 this._coinsText.setText(`Your Coins: ${scene.network?.coins || 0}`);
             }
             await paint(true);
+            this._syncPuffleZone();
             if (this.container === cont && scene.textures.exists(texKey)) {
                 scene.textures.get(texKey).refresh();
             }
@@ -570,6 +599,26 @@ export default class PlayerCard {
             };
             try { localStorage.setItem(CARD_POS_KEY, JSON.stringify(_cardOffset)); } catch { /* sem storage */ }
         });
+    }
+
+    // reposiciona a zona de clique do puffle sobre o rect pintado no
+    // canvas (o rect pode mudar no repaint quando os papers carregam e
+    // o ground/feetB se ajustam)
+    _syncPuffleZone() {
+        const z = this._puffleZone, r = this._puffleRect;
+        if (!z) return;
+        const b = this._cardSpriteBounds, s = this._cardScale || 1;
+        if (!r || !b) {
+            z.setVisible(false);
+            // zona invisivel continua hittable no Phaser — desativa o
+            // input p/ nao capturar cliques numa area vazia do card
+            if (z.input) z.input.enabled = false;
+            return;
+        }
+        z.setVisible(true);
+        if (z.input) z.input.enabled = true;
+        z.setPosition((r.x + r.w / 2 - b[0]) * s, (r.y + r.h / 2 - b[1]) * s);
+        z.setSize(r.w * s, r.h * s);
     }
 
     // repinta o doll quando o wardrobe equipa/desequipa itens
