@@ -1,4 +1,4 @@
-name: Devin Local smoke test
+name: Smoke test
 
 on:
   push:
@@ -6,23 +6,22 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: devin-local-smoke
+  group: smoke-test
   cancel-in-progress: false
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   smoke:
     runs-on: self-hosted
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Queued runs can be superseded by newer pushes, so test from the last commit a run actually tested.
+      # Queued runs can be superseded by newer pushes, so record the range for the report.
       - name: Find last tested commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -33,8 +32,67 @@ jobs:
           $last = $runs | Where-Object { $_.conclusion -eq 'success' -or $_.conclusion -eq 'failure' } | Select-Object -First 1 -ExpandProperty headSha
           $before = if ($last) { $last } else { $env:EVENT_BEFORE }
           Add-Content -Path $env:GITHUB_ENV -Value "PUSH_BEFORE=$before"
+          Write-Host "PUSH_BEFORE=$before PUSH_AFTER=$env:GITHUB_SHA"
 
-      - name: Run Devin Local smoke test
-        env:
-          PUSH_AFTER: ${{ github.sha }}
-        run: devin -p --prompt-file .github/devin/smoke-test.md --permission-mode dangerous --respect-workspace-trust false
+      - name: Server deps + unit tests
+        shell: powershell
+        run: |
+          cd server
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node test-tables.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Start test server (ws://localhost:8090)
+        shell: powershell
+        run: |
+          $env:PENGUIN_DB = Join-Path $env:TEMP "penguin-smoke-$PID.db"
+          $env:PORT = "8090"
+          $p = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory "server" -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
+          $p.Id | Out-File -Encoding ascii server-smoke.pid
+          $ok = $false
+          foreach ($i in 1..40) {
+            try {
+              $t = New-Object Net.Sockets.TcpClient
+              $t.Connect('127.0.0.1', 8090); $t.Close(); $ok = $true; break
+            } catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { Get-Content server-smoke.err.log -ErrorAction SilentlyContinue; exit 1 }
+          Write-Host "server pid=$($p.Id)"
+
+      - name: Server e2e + multiplayer tests
+        shell: powershell
+        run: |
+          cd server
+          node test-e2e.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node test-multi.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Client build
+        shell: powershell
+        run: |
+          cd client
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:VITE_WS_URL = "ws://localhost:8090"
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Browser smoke test
+        shell: powershell
+        run: |
+          cd tools
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node smoke-ci.mjs http://localhost:3100
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cleanup test server
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path server-smoke.pid) {
+            $procId = [int](Get-Content server-smoke.pid)
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+          }
