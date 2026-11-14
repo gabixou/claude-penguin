@@ -27,12 +27,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_BEFORE: ${{ github.event.before }}
-        shell: bash
+        shell: powershell
         run: |
-          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow devin-local-smoke.yml --branch master \
-            --status completed --limit 200 --json headSha,conclusion \
-            -q '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // empty' || true)
-          echo "PUSH_BEFORE=${last:-$EVENT_BEFORE}" >> "$GITHUB_ENV"
+          $runs = gh run list --repo $env:GITHUB_REPOSITORY --workflow devin-local-smoke.yml --branch master --status completed --limit 200 --json headSha,conclusion | ConvertFrom-Json
+          $last = $runs | Where-Object { $_.conclusion -eq 'success' -or $_.conclusion -eq 'failure' } | Select-Object -First 1 -ExpandProperty headSha
+          $before = if ($last) { $last } else { $env:EVENT_BEFORE }
+          Add-Content -Path $env:GITHUB_ENV -Value "PUSH_BEFORE=$before"
 
       - name: Run Devin Local smoke test
         env:
