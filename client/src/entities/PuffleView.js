@@ -104,8 +104,26 @@ const CARE_FRAMES = { play: 27, rest: 25, eat: 31, cookie: 30, gum: 29, bath: 34
 // f32/33 sao poses quase estaticas — usar elas era o bug do puffle
 // "parado" durante dance/wave.
 const OWNER_EMOTE_FRAMES = { 25: 27, 26: 35 };
-// duracao em ticks a 24fps (~4s) — o gp usa nl[type] por especie (100-260)
-const CARE_TICKS = { play: 96, rest: 72, eat: 60, cookie: 60, gum: 60, bath: 72 };
+// Duracao do cuidado em ticks a 24fps, POR ESPECIE — port de
+// puffle_action_lengths[9][6] do gopenguin-3ds (gerado dos SWFs:
+// prepare-puffle-actions.py). Colunas na ordem dos frames
+// {play,rest,eat,cookie,gum,bath}; linhas na ordem de SPECIES_TYPE
+// (blue,pink,black,green,purple,red,yellow,white,orange). Os valores
+// reais sao 60-397 ticks (2.5-16.5s) — os CARE_TICKS antigos (60-96)
+// cortavam a animacao do SWF no meio e o puffle voltava a andar
+// "no meio do brincar/comer", exatamente o bug reportado.
+const CARE_LENGTHS = [
+    [256, 210, 145, 114, 160, 212], // blue
+    [132, 210, 145, 140, 260, 254], // pink
+    [231, 365, 145, 122, 218, 327], // black
+    [170, 290, 145, 180, 220, 278], // green
+    [60, 195, 190, 210, 299, 283],  // purple
+    [311, 210, 145, 148, 222, 223], // red
+    [397, 210, 267, 222, 321, 223], // yellow
+    [220, 287, 145, 149, 179, 253], // white
+    [152, 147, 116, 99, 177, 182],  // orange
+];
+const CARE_ACTION_IDX = { play: 0, rest: 1, eat: 2, cookie: 3, gum: 4, bath: 5 };
 
 // serial p/ depth dos pets do iglu (mesma formula do Penguin:
 // 901 + serial*0.01 + 1000*floor(y))
@@ -217,10 +235,12 @@ export default class PuffleView {
         // gp: movie.resetPlayback() antes do frame — sem isso os sub-clips
         // ficam no playhead que o walk deixou e o misc renderiza vazio
         this.clip?.resetPlayback?.();
-        // duracao em "ticks" a 24fps (~2.5-4s) como os playheads do SWF;
-        // tick() roda a ~60fps — sem converter por dt o cuidado durava
-        // ~2.5x menos e o puffle voltava a andar no meio da animacao
-        this._care = { frame, ticks: 0, acc: 0, max: CARE_TICKS[kind] || 60 };
+        // duracao real da sub-animacao do SWF por especie (CARE_LENGTHS,
+        // ticks a 24fps) — o cuidado so termina quando o ciclo completa,
+        // igual ao reactionTicks>puffle_action_lengths do gp
+        const type = Math.min(SPECIES_TYPE[this.pet.species] ?? 0, CARE_LENGTHS.length - 1);
+        const len = CARE_LENGTHS[type][CARE_ACTION_IDX[kind]] || 120;
+        this._care = { frame, ticks: 0, acc: 0, max: len };
     }
 
     // playheads dos sub-clips a ~24fps como o frameRate do SWF —
