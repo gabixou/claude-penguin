@@ -64,20 +64,25 @@ export const SPECIES_TYPE = {
 
 const IDENT = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
 const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
-// canvas 160x160px a SS=2 cobre 80x80 unidades de mundo — o puffle
+// canvas 1024x1024px a SS=2 cobre 512x512 unidades de mundo — o puffle
 // (~30x25 unidades no stage 50x50 do SWF) renderiza no tamanho real
-// (~1/3 do pinguim). A area generosa evita o clip das animacoes de
-// misc (play/dance movem o sprite ~20+ unidades — no canvas 96x96 a
-// animacao era cortada nas bordas).
-const FRAME_W = 160, FRAME_H = 160, SS = 2, WORLD_BOX = FRAME_W / SS;
+// (~1/3 do pinguim). As animacoes de misc (play/eat/bath) movem
+// sub-partes do sprite ~130+ unidades por playhead — medido por pixel:
+// ate 512px ainda clipava na borda durante o cuidado (play chega a
+// ~127 unidades a direita do centro). O tamanho na tela NAO muda:
+// displaySize = WORLD_BOX*PUFFLE_SCALE e o conteudo ocupa a mesma
+// fracao do canvas em qualquer tamanho.
+const FRAME_W = 1024, FRAME_H = 1024, SS = 2, WORLD_BOX = FRAME_W / SS;
 // Comparacao visual com original (Papirolo) e gopenguin (Rockhopper):
 // o puffle andando e MENOR que o sprite nativo do stage — ~0.75x.
 // Nativo (1.0) renderizava "tamanho de igloo", maior que o original.
 const PUFFLE_SCALE = 0.65;
 // img.y tal que a base da sombra (canvas y=(FRAME_H-10)/FRAME_H) caia na
-// mesma linha dos pes do pinguim. Com FRAME_H=160 a fracao e ~0.9375 —
-// o offset compensa para os pes continuarem em owner.y+20.
-const IMG_Y = -10;
+// mesma linha dos pes do pinguim. Como o displaySize cresce com
+// WORLD_BOX, o offset compensa: -10 (160px) -> -150 (1024px) mantem os
+// pes em owner.y+~13 (mesma posicao de antes — a fracao do canvas e a
+// mesma, so a escala absoluta mudou).
+const IMG_Y = -150;
 
 const _movieCache = new Map(); // dir -> Promise<MovieRoom|null>
 function puffleMovie(dir) {
@@ -108,7 +113,7 @@ const OWNER_EMOTE_FRAMES = { 25: 27, 26: 35 };
 // puffle_action_lengths[9][6] do gopenguin-3ds (gerado dos SWFs:
 // prepare-puffle-actions.py). Colunas na ordem dos frames
 // {play,rest,eat,cookie,gum,bath}; linhas na ordem de SPECIES_TYPE
-// (blue,pink,black,green,purple,red,yellow,white,orange). Os valores
+// (blue,pink,black,green,purple,red,yellow,white,orange,brown). Os valores
 // reais sao 60-397 ticks (2.5-16.5s) — os CARE_TICKS antigos (60-96)
 // cortavam a animacao do SWF no meio e o puffle voltava a andar
 // "no meio do brincar/comer", exatamente o bug reportado.
@@ -122,6 +127,7 @@ const CARE_LENGTHS = [
     [397, 210, 267, 222, 321, 223], // yellow
     [220, 287, 145, 149, 179, 253], // white
     [152, 147, 116, 99, 177, 182],  // orange
+    [220, 349, 168, 301, 208, 201], // brown (36 frames main — misc propio)
 ];
 const CARE_ACTION_IDX = { play: 0, rest: 1, eat: 2, cookie: 3, gum: 4, bath: 5 };
 
@@ -197,9 +203,15 @@ export default class PuffleView {
         this.movie = movie;
         this.clip = new Clip(movie);
         this._main = movie._mainTl;
-        // bounds do puffle inteiro (todos os frames) p/ centralizar no canvas
+        // bounds so dos frames de locomocao (stand 1-8, walk 9-16,
+        // walkhop 17-24) p/ centralizar no canvas. Se usar TODOS os
+        // frames, as animacoes misc de cuidado (play/eat/bath) tem
+        // excursões assimetricas ~60+ unidades (ex.: green chega a x=61)
+        // que deslocam o centro _cx e o sprite visivel fica ~15un fora
+        // do container.x — o puffle "cola" no pinguim (bug reportado).
+        // O canvas 512un ainda comporta todas as excursions de misc.
         let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-        for (const f of this._main.frames) {
+        for (const f of this._main.frames.slice(0, 24)) {
             const b = this.clip._boundsOf(f, IDENT, '');
             if (!b) continue;
             x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]);
@@ -244,12 +256,33 @@ export default class PuffleView {
     }
 
     // playheads dos sub-clips a ~24fps como o frameRate do SWF —
-    // chamar advance() todo frame (60fps) acelerava o ciclo de passos
+    // chamar advance() todo frame (60fps) acelerava o ciclo de passos.
+    // while (nao if): abaixo de 24fps de render o playhead atrasa em
+    // relacao ao relogio real do _care — o advance tem que recuperar o
+    // deficit (N frames por tick) senao a animacao de misc corta antes
+    // do cuidado acabar e o puffle "anda no meio do brincar/comer".
     _advanceAnims(dt) {
+        const c = this.clip;
+        // playheads so nascem no primeiro _drawListFrame (async) — se
+        // consumirmos o acumulador antes disso, os primeiros ~2-7
+        // advances se perdem e a sub-animacao termina ~3 frames antes
+        // do _care acabar (medido: black gum parava em 215/218). Tambem
+        // nao acumulamos dt enquanto vazio: senão o playhead nasceria
+        // "devendo" frames e saltaria 24+ de uma vez.
+        if (!c || !c.playheads?.size) return;
         this._animAcc += dt;
-        if (this._animAcc >= 1 / 24) {
-            this._animAcc %= 1 / 24;
-            this.clip?.advance?.();
+        let n = 0;
+        while (this._animAcc >= 1 / 24 && n < 24) {
+            this._animAcc -= 1 / 24;
+            n++;
+        }
+        if (n) {
+            // _draw e async e pode pular ticks (_drawing) — sem redraw o
+            // frameOf nao marca `seen` e o advance perdia frames, atrasando
+            // a sub-animacao em relacao ao relogio real do _care. O clip do
+            // puffle e minusculo: marca tudo como visto e avanca pelo tempo.
+            for (const ph of c.playheads.values()) ph.seen = true;
+            c.advance(n);
         }
     }
 

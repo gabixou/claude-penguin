@@ -383,6 +383,9 @@ export default class RoomScene extends Phaser.Scene {
                 this.createPlayerModal?.onServerResponse?.(false, data.message);
             } else if (data.code === 'RENAME_FAILED') {
                 this.nameChangeModal?.onServerResponse?.(false, data.message);
+            } else if (data.code === 'CARE_COOLDOWN') {
+                // cooldown de cuidado do pet: o PuffleCard mostra o aviso
+                // na propria interface — nao poluir o chat do pinguim
             } else {
                 // Erro genérico - mostra no chat ou alert
                 this.localPlayer?.showChat?.(`Erro: ${data.message || 'Erro de conexão'}`);
