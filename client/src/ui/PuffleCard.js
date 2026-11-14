@@ -78,8 +78,21 @@ export default class PuffleCard {
             fontSize: '14px', fontStyle: 'bold', color: '#000000',
         }).setOrigin(0.5);
         this.container.add(this.nameText);
+        // aviso de cooldown de cuidado — feedback na UI do card (o erro
+        // CARE_COOLDOWN nao vai mais pro chat do pinguim)
+        this.statusText = this.scene.add.text(0, 0, '', {
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '11px', fontStyle: 'bold',
+            color: '#ffffff', stroke: '#20304a', strokeThickness: 3,
+        }).setOrigin(0.5).setVisible(false);
+        this.container.add(this.statusText);
+        this._statusTimer = null;
         this._drag = null;
         this._dragZone = null;
+        this._onNetErr = (d) => {
+            if (d?.code === 'CARE_COOLDOWN' && this.pet) this._showStatus('Please wait a moment.');
+        };
+        this.scene.events.on('net-error', this._onNetErr);
     }
 
     // pet: linha de network.social.pets; species p/ frame do paper_mc
@@ -96,6 +109,8 @@ export default class PuffleCard {
     close() {
         this.pet = null;
         this.care = false;
+        if (this._statusTimer) { clearTimeout(this._statusTimer); this._statusTimer = null; }
+        this.statusText?.setVisible(false);
         this.container?.setVisible(false);
         this._gen++;
     }
@@ -155,6 +170,8 @@ export default class PuffleCard {
                 (nameBounds[0] + nameBounds[2]) / 2 + ox, (nameBounds[1] + nameBounds[3]) / 2 + oy);
         }
         this.nameText.setText(this.pet.name || '');
+        // status de cooldown: logo abaixo do card
+        this.statusText.setPosition(WORLD_W / 2, oy + this.cardBounds[3] + 14);
         this._syncZones(entries, ox, oy);
     }
 
@@ -211,7 +228,16 @@ export default class PuffleCard {
         if (!pet?.petRowId) return;
         this.scene.network?.petCare(pet.petRowId, action);
         // feedback: stats atualizam no proximo SOCIAL_UPDATE;
-        // erro de cooldown cai no handler global net-error (chat)
+        // erro de cooldown vira aviso na UI do card (_onNetErr)
+    }
+
+    _showStatus(msg) {
+        if (this._statusTimer) { clearTimeout(this._statusTimer); this._statusTimer = null; }
+        this.statusText.setText(msg).setVisible(true).setAlpha(1);
+        this._statusTimer = setTimeout(() => {
+            this.statusText.setVisible(false);
+            this._statusTimer = null;
+        }, 2500);
     }
 
     // zona invisivel sobre a arte do card que arrasta o container inteiro
@@ -248,6 +274,8 @@ export default class PuffleCard {
 
     destroy() {
         this._gen++;
+        if (this._statusTimer) { clearTimeout(this._statusTimer); this._statusTimer = null; }
+        if (this._onNetErr) { this.scene.events?.off('net-error', this._onNetErr); this._onNetErr = null; }
         this._dragZone?.destroy();
         this.container?.destroy(true);
         this.container = null;
