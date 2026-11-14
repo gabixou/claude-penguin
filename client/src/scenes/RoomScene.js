@@ -247,9 +247,11 @@ export default class RoomScene extends Phaser.Scene {
                 onYes: () => {},
             });
         });
-        // buddy/ignore mudaram -> atualiza os frames dos botoes do card aberto
+        // buddy/ignore/pet mudaram -> atualiza os frames do card aberto
+        // e repinta a doll (puffle equipado aparece/some no card)
         this.events.on('social-update', () => {
             this.playerCard?._syncSocialFrames?.();
+            this.playerCard?._refresh?.();
             this._syncLocalPet();
             this._syncIglooPets();
         });
