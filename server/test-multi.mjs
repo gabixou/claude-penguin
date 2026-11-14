@@ -2,7 +2,8 @@
 // Uso: node test-multi.mjs  (requer servidor ws://localhost:8090 + PENGUIN_DB temp)
 import WebSocket from 'ws';
 
-const URL = 'ws://localhost:8090';
+const SMOKE_PORT = new URL(process.env.SMOKE_WS_URL || 'ws://localhost:8090').port;
+const URL = `ws://localhost:${SMOKE_PORT}`;
 let failures = 0;
 const check = (n, c, x = '') => { if (c) console.log(`  PASS ${n}`); else { failures++; console.log(`  FAIL ${n} ${x}`); } };
 
@@ -47,8 +48,8 @@ async function onboard(c) {
 // ---- setup: dois clientes na mesma sala ----
 // localhost resolve ::1 (IPv6) e 127.0.0.1 e IPv4 — IPs distintos no servidor,
 // o que permite simular dois jogadores diferentes na mesma maquina
-const wsA = await connect('ws://localhost:8090'); const A = makeClient(wsA);
-const wsB = await connect('ws://127.0.0.1:8090'); const B = makeClient(wsB);
+const wsA = await connect(`ws://localhost:${SMOKE_PORT}`); const A = makeClient(wsA);
+const wsB = await connect(`ws://127.0.0.1:${SMOKE_PORT}`); const B = makeClient(wsB);
 
 console.log('== onboarding ==');
 const dA = await onboard(A);
