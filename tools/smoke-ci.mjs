@@ -39,7 +39,20 @@ async function waitHttp(url, tries = 60) {
 try {
     if (!(await waitHttp(`${BASE}/`))) { console.log('FAIL preview não subiu'); process.exit(1); }
 
-    const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    // GPU no headless: ANGLE/D3D11 + canvas 2D acelerado. A RTX do runner
+    // acelera o raster das layers do movie e o warmFrames do paperdoll.
+    // Se a GPU falhar, o Chrome cai pra software sozinho (sem quebrar).
+    const browser = await chromium.launch({
+        executablePath: CHROME,
+        headless: true,
+        args: [
+            '--enable-gpu',
+            '--enable-accelerated-2d-canvas',
+            '--enable-gpu-rasterization',
+            '--use-angle=d3d11',
+            '--ignore-gpu-blocklist',
+        ],
+    });
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
 
     const pageErrors = [], consoleErrors = [], badResponses = [], failedReqs = [];
@@ -54,15 +67,8 @@ try {
     // boot: sai do loading e o pacote da sala inicial renderiza
     await page.waitForFunction(() => window.__penguin?.scene?._movieReady === true, null, { timeout: 180000 });
     check('movieReady (sala inicial renderizou)', true);
-    // _warmDone e warm-up de performance (practice-render dos frames do
-    // paperdoll), nao corretude — em CI/headless sem GPU pode demorar
-    // varios minutos. Timeout vira WARN e o teste segue; os checks
-    // seguintes (andar, trocar de sala, erros) sao os que reprovam.
-    const warmDone = await page.waitForFunction(
-        () => window.__penguin?.scene?.localPlayer?.view?._warmDone === true,
-        null, { timeout: 90000 }).then(() => true).catch(() => false);
-    console.log(warmDone ? '  PASS paperdoll quente (_warmDone)'
-        : '  WARN _warmDone não concluiu em 90s — warm-up lento no CI, seguindo');
+    await page.waitForFunction(() => window.__penguin?.scene?.localPlayer?.view?._warmDone === true, null, { timeout: 300000 });
+    check('paperdoll quente (_warmDone)', true);
 
     const st = await page.evaluate(() => {
         const s = window.__penguin.scene;
