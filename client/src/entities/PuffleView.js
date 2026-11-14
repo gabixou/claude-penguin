@@ -64,19 +64,20 @@ export const SPECIES_TYPE = {
 
 const IDENT = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
 const IDENT_COLOR = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
-// canvas 96px a SS=2 cobre 48x48 unidades de mundo — o puffle (~30x25
-// unidades no stage 50x50 do SWF) renderiza no tamanho real (~1/3 do
-// pinguim). Antes eu escalava p/ preencher o canvas e o pet virava um
-// borrão maior que o pinguim.
-const FRAME_W = 96, FRAME_H = 96, SS = 2, WORLD_BOX = FRAME_W / SS;
+// canvas 160x160px a SS=2 cobre 80x80 unidades de mundo — o puffle
+// (~30x25 unidades no stage 50x50 do SWF) renderiza no tamanho real
+// (~1/3 do pinguim). A area generosa evita o clip das animacoes de
+// misc (play/dance movem o sprite ~20+ unidades — no canvas 96x96 a
+// animacao era cortada nas bordas).
+const FRAME_W = 160, FRAME_H = 160, SS = 2, WORLD_BOX = FRAME_W / SS;
 // Comparacao visual com original (Papirolo) e gopenguin (Rockhopper):
 // o puffle andando e MENOR que o sprite nativo do stage — ~0.75x.
 // Nativo (1.0) renderizava "tamanho de igloo", maior que o original.
 const PUFFLE_SCALE = 0.65;
-// img.y tal que a base da sombra (canvas y=84/96 = fracao ~0.875) caia em
-// owner.y+20 — mesma linha dos pes do pinguim (sprite bottom = y+20).
-// imgY = 12 - (0.875-0.5)*WORLD_BOX*PUFFLE_SCALE = 0.24 -> 0
-const IMG_Y = 0;
+// img.y tal que a base da sombra (canvas y=(FRAME_H-10)/FRAME_H) caia na
+// mesma linha dos pes do pinguim. Com FRAME_H=160 a fracao e ~0.9375 —
+// o offset compensa para os pes continuarem em owner.y+20.
+const IMG_Y = -10;
 
 const _movieCache = new Map(); // dir -> Promise<MovieRoom|null>
 function puffleMovie(dir) {

@@ -734,7 +734,7 @@ export default class RoomScene extends Phaser.Scene {
             .filter((p) => p && p.view && p._lib);
         let best = null, bestD = Infinity;
         for (const p of candidates) {
-            const b = p._lib.bounds;
+            const b = p._lib.hitBounds || p._lib.bounds;
             const hw = (b.x1 - b.x0) * 0.45, hh = (b.y1 - b.y0) * 0.55;
             const cx = p.x + (b.x0 + b.x1) / 2, cy = p.y + (b.y0 + b.y1) / 2;
             const dx = (wx - cx) / hw, dy = (wy - cy) / hh;
