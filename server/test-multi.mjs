@@ -2,7 +2,7 @@
 // Uso: node test-multi.mjs  (requer servidor ws://localhost:8090 + PENGUIN_DB temp)
 import WebSocket from 'ws';
 
-const SMOKE_PORT = new URL(process.env.SMOKE_WS_URL || 'ws://localhost:8090').port;
+const SMOKE_PORT = (process.env.SMOKE_WS_URL || 'ws://localhost:8090').split(':').pop();
 const URL = `ws://localhost:${SMOKE_PORT}`;
 let failures = 0;
 const check = (n, c, x = '') => { if (c) console.log(`  PASS ${n}`); else { failures++; console.log(`  FAIL ${n} ${x}`); } };
