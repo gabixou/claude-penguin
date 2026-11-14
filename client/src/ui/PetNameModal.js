@@ -5,7 +5,7 @@
 // text_input (mesmo esquema do NameChangeModal).
 import { MovieRoom } from '../movie/movie.js';
 import { WORLD_W, WORLD_H } from '../display.js';
-import { puffleIconTexture, SPECIES_SPRITE } from '../entities/PuffleView.js';
+import { SPECIES_SPRITE } from '../entities/PuffleView.js';
 
 const DEPTH = 30000000;
 const PROMPT_PATH = 'interface_mc.prompt_mc';
@@ -17,8 +17,19 @@ const matMul = (p, q) => ({
     c: p.a * q.c + p.c * q.d, d: p.b * q.c + p.d * q.d,
     x: p.a * q.x + p.c * q.y + p.x, y: p.b * q.x + p.d * q.y + p.y,
 });
-const matVec = (m, x, y) => ({ x: m.a * x + m.c * y + m.x, y: m.b * x + m.d * y + m.y });
 const arrMat = (m) => ({ a: m[0], b: m[1], c: m[2], d: m[3], x: m[4], y: m[5] });
+
+// cache de MovieRoom dos icones /assets/puffle-icons/<cor> — vetorial
+// (SVGs), desenhado direto no canvas do prompt em vez de rasterizar
+const _iconMovies = new Map();
+function puffleIconMovie(dir) {
+    if (!_iconMovies.has(dir)) {
+        _iconMovies.set(dir, MovieRoom.load(`/assets/puffle-icons/${dir}`)
+            .then((m) => { m.setScale?.(1); return m; })
+            .catch((e) => { console.warn('[petname] icon', dir, e); _iconMovies.delete(dir); return null; }));
+    }
+    return _iconMovies.get(dir);
+}
 
 // validacao identica ao gp: /^[A-Za-z0-9 ]{1,12}$/ no nome trimado
 const NAME_RE = /^[A-Za-z0-9 ]{1,12}$/;
@@ -40,8 +51,6 @@ export default class PetNameModal {
         this._continueZone = null;
         this._inputRect = null;
         this._texKey = null;
-        this._iconAnchor = null;
-        this._iconTexKey = null;
         this._layoutBound = null;
         this._onAdopted = null; // callback(name) apos SOCIAL_UPDATE confirmar
         this._errHandler = null;
@@ -93,13 +102,12 @@ export default class PetNameModal {
         this.nameInput = null;
         if (this._layoutBound) { this.scene.scale?.off('resize', this._layoutBound); this._layoutBound = null; }
         if (this.cont) { this.cont.destroy(true); this.cont = null; }
-        for (const k of [this._texKey, this._iconTexKey]) {
+        for (const k of [this._texKey]) {
             if (k && this.scene.textures.exists(k)) this.scene.textures.remove(k);
         }
-        this._texKey = this._iconTexKey = null;
+        this._texKey = null;
         this._continueZone = null;
         this._inputRect = null;
-        this._iconAnchor = null;
     }
 
     _cleanupSubmit() {
@@ -159,10 +167,36 @@ export default class PetNameModal {
             const h = movie._playhead(PROMPT_PATH, String(pEntry.id));
             const pFrame = h ? (h.tl.frames[h.frame - 1] || []) : [];
             await movie._drawEntries(ctx, pFrame, world, PROMPT_PATH, IDENT_COLOR, ss, 1);
-            const wlog = matMul(arrMat(imEntry.matrix || ID), arrMat(pEntry.matrix || ID));
-            // icone_mc do prompt: bounds reais do clip
-            const ib = movie.boundsFor(`${PROMPT_PATH}.icon_mc`);
-            this._iconAnchor = ib ? { x: (ib[0] + ib[2]) / 2, y: (ib[1] + ib[3]) / 2 } : matVec(wlog, 381.4, 150);
+        }
+        // icone do puffle VETORIZADO dentro do icon_mc: desenha os SVGs do
+        // pack /assets/puffle-icons/<cor> direto no canvas do prompt (ss=2)
+        // — antes era um raster 72px (puffleIconTexture) que ficava borrado.
+        // icon_mc e um container VAZIO (alvo de loadMovie no original):
+        // boundsFor retorna null — a ancora sai da matrix do node.
+        const iconDir = SPECIES_SPRITE[this.species];
+        const iconNode = movie._nodes?.get('interface_mc.prompt_mc.icon_mc');
+        if (iconDir && iconNode) {
+            const im = await puffleIconMovie(iconDir);
+            if (im && gen === this._gen) {
+                const ientries = im._mainTl?.frames?.[0] || [];
+                const bb = im._boundsOfEntries(ientries, ID, '');
+                if (bb) {
+                    // node.matrix ja e objeto {a,b,c,d,x,y} (matrix do pai);
+                    // entry.matrix e array — compoe pai*local = mundo do icon_mc
+                    const w = matMul(iconNode.matrix || ID,
+                        arrMat(iconNode.entry?.matrix || ID));
+                    const s = 52 / Math.max(1, bb[3] - bb[1]); // ~52 un de altura
+                    const W = {
+                        a: s, b: 0, c: 0, d: s,
+                        x: w.x - s * (bb[0] + bb[2]) / 2,
+                        y: w.y - s * (bb[1] + bb[3]) / 2,
+                    };
+                    ctx.save();
+                    ctx.setTransform(ss, 0, 0, ss, 0, 0); // canvas px = mundo*ss
+                    await im._drawEntries(ctx, ientries, W, '', IDENT_COLOR, ss * 2, 1);
+                    ctx.restore();
+                }
+            }
         }
         if (gen !== this._gen || !scene.sys.isActive()) return;
 
@@ -173,7 +207,6 @@ export default class PetNameModal {
         this.cont = cont;
         cont.add(this.scene.add.image(WORLD_W / 2, WORLD_H / 2, texKey)
             .setDisplaySize(WORLD_W, WORLD_H));
-        this._addPuffleIcon();
 
         const swallow = this.scene.add.zone(WORLD_W / 2, WORLD_H / 2, WORLD_W, WORLD_H)
             .setInteractive({ useHandCursor: false });
@@ -195,6 +228,15 @@ export default class PetNameModal {
         this._continueZone = mkBtn('continue_btn', () => this._submit());
         mkBtn('close_btn', () => this.close());
 
+        // instrucao acima do campo — message_txt do clip e editText
+        // multilinha que encosta na borda do campo branco; overlay Phaser
+        // como no NameChangeModal ("Enter your new name:")
+        this.infoText = this.scene.add.text(WORLD_W / 2, 214, 'Name your puffle:', {
+            fontFamily: "'gpf-195', Arial, sans-serif",
+            fontSize: '13px', fontStyle: 'bold', color: '#ffffff', align: 'center',
+        }).setOrigin(0.5);
+        cont.add(this.infoText);
+
         this.statusText = this.scene.add.text(WORLD_W / 2, 272, '', {
             fontFamily: "'gpf-195', Arial, sans-serif",
             fontSize: '11px', fontStyle: 'bold', color: '#ffffff', align: 'center',
@@ -204,20 +246,6 @@ export default class PetNameModal {
         this._inputRect = btns.text_input || null;
         this._buildInput();
         this._setInfo('');
-    }
-
-    // icon_mc do prompt: no gp recebe o icone do puffle via loadMovie —
-    // usamos o sprite original /assets/puffle-icons/<cor>
-    async _addPuffleIcon() {
-        const anchor = this._iconAnchor;
-        if (!anchor || !SPECIES_SPRITE[this.species]) return;
-        const key = await puffleIconTexture(this.scene, this.species, 72);
-        const gen = this._gen;
-        if (!key || !this.cont || gen !== this._gen) return;
-        this._iconTexKey = key;
-        const img = this.scene.add.image(anchor.x, anchor.y, key)
-            .setDisplaySize(72, 72);
-        this.cont.add(img);
     }
 
     _buildInput() {

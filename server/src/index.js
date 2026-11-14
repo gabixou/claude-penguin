@@ -210,7 +210,7 @@ function refreshCoins(ws, session) {
     return pd;
 }
 
-// cooldown de cuidado de pet: "playerId:petRowId" -> timestamp
+// cooldown de cuidado de pet: "playerId:petRowId" -> timestamp (5s)
 const petCareCooldown = new Map();
 
 // Jogos de mesa autoritativos (integracao PR): moedas pagas pelo servidor
@@ -1027,7 +1027,7 @@ function handlePacket(ws, req, packet) {
         }
 
         case 'PET_CARE': {
-            // {petRowId, action:'feed'|'play'} — restaura stats (cooldown 60s/pet)
+            // {petRowId, action:'feed'|'play'} — restaura stats (cooldown 5s/pet)
             const session = clientPlayerData.get(ws);
             if (!session || !session.playerId) return;
             const petRowId = Number(data.petRowId);
@@ -1042,7 +1042,7 @@ function handlePacket(ws, req, packet) {
             const key = `${session.playerId}:${petRowId}`;
             const last = petCareCooldown.get(key) || 0;
             const nowTs = Date.now();
-            if (nowTs - last < 60_000) {
+            if (nowTs - last < 5_000) {
                 sendError(ws, 'CARE_COOLDOWN', 'Aguarde um pouco antes de cuidar de novo');
                 return;
             }
