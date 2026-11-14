@@ -2,7 +2,7 @@
 // Uso: node test-e2e.mjs   (requer servidor com PENGUIN_DB temporario)
 import WebSocket from 'ws';
 
-const URL = 'ws://localhost:8090';
+const URL = process.env.SMOKE_WS_URL || 'ws://localhost:8090';
 let failures = 0;
 
 function check(name, cond, extra = '') {
