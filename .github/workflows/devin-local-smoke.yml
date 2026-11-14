@@ -43,22 +43,32 @@ jobs:
           node test-tables.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Start test server (ws://localhost:8090)
+      # Porta aleatoria por run: um servidor de teste antigo nao pode sobrar
+      # escutando numa porta fixa e fazer os testes rodarem contra o banco dele.
+      - name: Start test server (porta aleatoria)
         shell: powershell
         run: |
-          $env:PENGUIN_DB = Join-Path $env:TEMP "penguin-smoke-$PID.db"
-          $env:PORT = "8090"
+          $port = $null
+          foreach ($i in 1..30) {
+            $cand = 18000 + (Get-Random -Max 2000)
+            if (-not (Get-NetTCPConnection -LocalPort $cand -State Listen -ErrorAction SilentlyContinue)) { $port = $cand; break }
+          }
+          if (-not $port) { Write-Host "nenhuma porta livre"; exit 1 }
+          "SMOKE_PORT=$port" >> $env:GITHUB_ENV
+          "SMOKE_WS_URL=ws://localhost:$port" >> $env:GITHUB_ENV
+          $env:PENGUIN_DB = Join-Path $env:TEMP "penguin-smoke-$([guid]::NewGuid().ToString('N')).db"
+          $env:PORT = "$port"
           $p = Start-Process -FilePath "node" -ArgumentList "src/index.js" -WorkingDirectory "server" -PassThru -WindowStyle Hidden -RedirectStandardOutput "server-smoke.out.log" -RedirectStandardError "server-smoke.err.log"
           $p.Id | Out-File -Encoding ascii server-smoke.pid
           $ok = $false
           foreach ($i in 1..40) {
             try {
               $t = New-Object Net.Sockets.TcpClient
-              $t.Connect('127.0.0.1', 8090); $t.Close(); $ok = $true; break
+              $t.Connect('127.0.0.1', $port); $t.Close(); $ok = $true; break
             } catch { Start-Sleep -Milliseconds 500 }
           }
-          if (-not $ok) { Get-Content server-smoke.err.log -ErrorAction SilentlyContinue; exit 1 }
-          Write-Host "server pid=$($p.Id)"
+          if (-not $ok -or $p.HasExited) { Get-Content server-smoke.err.log -ErrorAction SilentlyContinue; exit 1 }
+          Write-Host "server pid=$($p.Id) porta=$port"
 
       - name: Server e2e + multiplayer tests
         shell: powershell
@@ -75,7 +85,7 @@ jobs:
           cd client
           npm ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:VITE_WS_URL = "ws://localhost:8090"
+          $env:VITE_WS_URL = "ws://localhost:$env:SMOKE_PORT"
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
