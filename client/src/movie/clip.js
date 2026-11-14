@@ -134,7 +134,18 @@ export class Clip {
                     }
                 }
             }
-            const cmds = Array.isArray(a) ? a : (a.commands ?? []);
+            let cmds = Array.isArray(a) ? a : (a.commands ?? []);
+            // actions {source:"stop();"} do SWF: sem isso os sub-clips de
+            // misc (eat/cookie/bath/play dos puffles) IGNORAVAM o stop e
+            // dava wrap 145->1 — a animacao reiniciava no meio do ciclo e
+            // parecia "interrompida" quando o cuidado acabava. Walk/stand
+            // nao tem actions (loop natural) — nao sao afetados.
+            // SO stop/play: gotoAnd*/nextFrame em `source` de clothing etc.
+            // nunca foram honrados — nao mudar esse comportamento aqui.
+            if (!cmds.length && typeof a?.source === 'string' && a.source.trim()) {
+                cmds = [...a.source.matchAll(/\b(stop|play)\s*\(\s*\)/g)]
+                    .map((m) => [m[1], null]);
+            }
             for (const c of cmds) {
                 const op = c[0], arg = c[1];
                 if (op === 'stop') ph.playing = false;
@@ -196,12 +207,18 @@ export class Clip {
     }
 
     // Avança playheads marcados como vistos (chamado ~frameRate por segundo).
-    advance() {
-        for (const ph of [...this.playheads.values()]) {
-            if (this.playheads.get(ph.path) !== ph || !ph.seen || !ph.playing) continue;
-            const tl = ph.timeline;
-            ph.frame = ph.frame >= (tl.frames?.length || 1) ? 1 : ph.frame + 1;
-            this._run(tl, ph);
+    // frames>1 = catch-up: avanca N frames numa so chamada sem resetar `seen`
+    // no meio — sem isso, render abaixo de 24fps degradava o advance para
+    // 1x por tick e a sub-animacao dos puffles nao acompanhava o relogio real
+    // do cuidado (o puffle andava no meio do comer/brincar).
+    advance(frames = 1) {
+        for (let i = 0; i < frames; i++) {
+            for (const ph of [...this.playheads.values()]) {
+                if (this.playheads.get(ph.path) !== ph || !ph.seen || !ph.playing) continue;
+                const tl = ph.timeline;
+                ph.frame = ph.frame >= (tl.frames?.length || 1) ? 1 : ph.frame + 1;
+                this._run(tl, ph);
+            }
         }
         for (const ph of this.playheads.values()) ph.seen = false;
     }

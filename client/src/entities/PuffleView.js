@@ -255,12 +255,25 @@ export default class PuffleView {
     }
 
     // playheads dos sub-clips a ~24fps como o frameRate do SWF —
-    // chamar advance() todo frame (60fps) acelerava o ciclo de passos
+    // chamar advance() todo frame (60fps) acelerava o ciclo de passos.
+    // while (nao if): abaixo de 24fps de render o playhead atrasa em
+    // relacao ao relogio real do _care — o advance tem que recuperar o
+    // deficit (N frames por tick) senao a animacao de misc corta antes
+    // do cuidado acabar e o puffle "anda no meio do brincar/comer".
     _advanceAnims(dt) {
         this._animAcc += dt;
-        if (this._animAcc >= 1 / 24) {
-            this._animAcc %= 1 / 24;
-            this.clip?.advance?.();
+        let n = 0;
+        while (this._animAcc >= 1 / 24 && n < 24) {
+            this._animAcc -= 1 / 24;
+            n++;
+        }
+        if (n && this.clip) {
+            // _draw e async e pode pular ticks (_drawing) — sem redraw o
+            // frameOf nao marca `seen` e o advance perdia frames, atrasando
+            // a sub-animacao em relacao ao relogio real do _care. O clip do
+            // puffle e minusculo: marca tudo como visto e avanca pelo tempo.
+            for (const ph of this.clip.playheads.values()) ph.seen = true;
+            this.clip.advance(n);
         }
     }
 
