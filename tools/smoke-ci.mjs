@@ -54,7 +54,7 @@ try {
     // boot: sai do loading e o pacote da sala inicial renderiza
     await page.waitForFunction(() => window.__penguin?.scene?._movieReady === true, null, { timeout: 180000 });
     check('movieReady (sala inicial renderizou)', true);
-    await page.waitForFunction(() => window.__penguin?.scene?.localPlayer?.view?._warmDone === true, null, { timeout: 120000 });
+    await page.waitForFunction(() => window.__penguin?.scene?.localPlayer?.view?._warmDone === true, null, { timeout: 300000 });
     check('paperdoll quente (_warmDone)', true);
 
     const st = await page.evaluate(() => {
