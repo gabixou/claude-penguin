@@ -570,7 +570,16 @@ export default class RoomScene extends Phaser.Scene {
     // cria/remove o PuffleView conforme penguin.pet
     _syncPetView(penguin) {
         if (!penguin?.playerId) return;
-        const existing = this.petViews.get(penguin.playerId);
+        let existing = this.petViews.get(penguin.playerId);
+        // trocou de pet (equipar outro desequipa o anterior no server):
+        // a view antiga continuava com o sprite da especie antiga —
+        // era o bug do "azul virou rosa" que so corrigia ao sair do iglu
+        if (existing && penguin.pet &&
+            existing.pet?.petRowId !== penguin.pet.petRowId) {
+            existing.destroy();
+            this.petViews.delete(penguin.playerId);
+            existing = null;
+        }
         if (penguin.pet && !existing) {
             this.petViews.set(penguin.playerId, new PuffleView(this, penguin.pet, penguin));
         } else if (!penguin.pet && existing) {
