@@ -358,13 +358,12 @@ export default class PlayerCard {
                         const ground = Math.min(
                             Math.max(dollB[3], feetB?.[3] ?? 0), b[3] - dollH * 0.05);
                         const right = Math.max(dollB[2], feetB?.[2] ?? 0);
-                        const s = (dollH * 0.4) / Math.max(1, pb[3] - pb[1]);
+                        const s = (dollH * 0.36) / Math.max(1, pb[3] - pb[1]);
                         const pW = (pb[2] - pb[0]) * s;
                         // a esquerda do puffle encosta na direita do doll com
-                        // ~35% de sobreposicao (como no original) — antes a
-                        // borda esquerda ficava em right+6 e o sprite
-                        // transbordava a borda direita do card (clipado)
-                        let left = right + 4 - pW * 0.35;
+                        // ~55% de sobreposicao — bem colado no pinguim como
+                        // no original, sem transbordar a borda do card
+                        let left = right + 2 - pW * 0.55;
                         // clamp: nunca sai dos bounds do card
                         left = Math.min(left, b[2] - 8 - pW);
                         left = Math.max(left, b[0] + 8);
