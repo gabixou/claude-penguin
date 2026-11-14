@@ -28,11 +28,19 @@ jobs:
           EVENT_BEFORE: ${{ github.event.before }}
         shell: powershell
         run: |
-          $runs = gh run list --repo $env:GITHUB_REPOSITORY --workflow devin-local-smoke.yml --branch master --status completed --limit 200 --json headSha,conclusion | ConvertFrom-Json
+          # gh pode falhar por timeout de rede transitorio — tenta 3x e
+          # sempre cai no EVENT_BEFORE; garante exit 0 para nao falhar o job
+          $runs = $null
+          foreach ($i in 1..3) {
+            $runs = gh run list --repo $env:GITHUB_REPOSITORY --workflow devin-local-smoke.yml --branch master --status completed --limit 200 --json headSha,conclusion 2>$null | ConvertFrom-Json
+            if ($LASTEXITCODE -eq 0 -and $runs) { break }
+            Start-Sleep -Seconds (5 * $i)
+          }
           $last = $runs | Where-Object { $_.conclusion -eq 'success' -or $_.conclusion -eq 'failure' } | Select-Object -First 1 -ExpandProperty headSha
           $before = if ($last) { $last } else { $env:EVENT_BEFORE }
           Add-Content -Path $env:GITHUB_ENV -Value "PUSH_BEFORE=$before"
           Write-Host "PUSH_BEFORE=$before PUSH_AFTER=$env:GITHUB_SHA"
+          exit 0
 
       - name: Server deps + unit tests
         shell: powershell
