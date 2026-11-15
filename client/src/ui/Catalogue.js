@@ -8,6 +8,7 @@
 import { MovieRoom } from '../movie/movie.js';
 import { PromptUI } from './Prompt.js';
 import { ADOPT_SPECIES } from '../entities/PuffleView.js';
+import { SS_FIXED } from '../display.js';
 
 const FRAME_RATE_MS = 1000 / 24;
 
@@ -67,7 +68,11 @@ export class CatalogueOverlay {
         // cache de paginas renderizadas (sig -> canvas): virar de pagina
         // vira blit instantaneo em vez de re-renderizar ~1300 shapes
         this._pageCache = new Map();
-        this._renderSs = 1.5;
+        // mesmo supersampling das salas (SS_FIXED): canvas 1710x1080 = 1:1
+        // com o game buffer — a 1.5x os sprites amplificados das paginas
+        // (pufflers do catalogo pets, k~3-6) rasterizavam abaixo de 1x e
+        // ficavam pixelados (issue #18)
+        this._renderSs = SS_FIXED;
         this._lastTickRender = 0;
     }
 
@@ -85,7 +90,8 @@ export class CatalogueOverlay {
             const movie = await MovieRoom.load(`/assets/catalogues/${key}`);
             if (this.movie || gen !== this._generation) return;
             this.movie = movie;
-            movie.artFlatScale = true; // raster fixo em ss — warm cobre tudo
+            // sem artFlatScale: eff = ss*k como nas salas — sprites
+            // ampliados rasterizam na densidade certa em vez de suavizar
             this._pageCache = new Map(); // paginas do movie anterior nao valem
             this.key = key;
             this.page = 1;
@@ -113,9 +119,9 @@ export class CatalogueOverlay {
     }
 
     _buildCanvas() {
-        // UI fullscreen: cap de ss — render a 3x triplica pixels sem ganho
-        // visivel (o gopenguin renderiza catalogo a 1x)
-        const ss = this._renderSs = Math.min(this._renderSs || 2, 2);
+        // supersampling igual ao das salas (SS_FIXED=2.25): canvas
+        // 1710x1080 — 1:1 texel:pixel com o game buffer 760x480@zoom2.25
+        const ss = this._renderSs = SS_FIXED;
         const cw = Math.round(760 * ss), ch = Math.round(480 * ss);
         this.canvas = document.createElement('canvas');
         this.canvas.width = cw; this.canvas.height = ch;
