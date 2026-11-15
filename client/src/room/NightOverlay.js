@@ -214,13 +214,15 @@ export default class NightOverlay {
         const bw = back.canvas.width, bh = back.canvas.height;
         const bdata = back.canvas.getContext('2d', { willReadFrequently: true })
             .getImageData(0, 0, bw, bh).data;
-        // pontos de luz: deteccao automatica (letreiros/doorways acesos) +
-        // MANUAL_LIGHTS por sala (janelas/lampioes apagados de dia)
-        const lights = [
-            ...detectLights(layers, ss),
-            ...detectWindows(layers, ss),
-            ...(MANUAL_LIGHTS[room] || []),
-        ];
+        // pontos de luz DESLIGADOS: deteccao automatica de janelas/letreiros
+        // errou muito (neve, displays de roupa, fachadas erradas). Codigo
+        // mantido para refinar — MANUAL_LIGHTS volta quando as coords forem
+        // medidas com precisao. ?lights=1 reabilita para testes.
+        const lightsOn = new URLSearchParams(location.search).get('lights') === '1';
+        const lights = lightsOn
+            ? [...detectLights(layers, ss), ...detectWindows(layers, ss),
+               ...(MANUAL_LIGHTS[room] || [])]
+            : [];
 
         // referencia de ceu: media da faixa superior (2%-6% da altura)
         let sr = 0, sg = 0, sb = 0, sn = 0;
