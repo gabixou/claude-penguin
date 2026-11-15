@@ -121,7 +121,12 @@ export class IceFishingGame {
         // play_btn, getWorm, getCoins, sendGameOver). Hit-test nos bounds
         // coletados por collectInteractive(); clique fora de botao = acao
         // de pesca (soltar anzol/acima do gelo = store).
-        this._btnCache = { frame: -1, at: 0, list: [] };
+        this._btnCache = { sig: null, list: [] };
+        // sprites que contem botoes em sua sub-arvore — o cache de _buttons()
+        // re-coleciona quando o playhead deles muda de frame (o painel de
+        // vitoria do frame 39 so aparece nos frames 202+ do sprite 444, sem
+        // nenhum goto/set no movie para invalidar o cache antigo).
+        this._btnSids = this._findButtonSids();
         this._stagePos = (e) => {
             const r = this.canvas.getBoundingClientRect();
             return [(e.clientX - r.left) / r.width * STAGE_W,
@@ -153,16 +158,58 @@ export class IceFishingGame {
 
     // ---------- botoes nativos do movie ----------
 
-    _invalidateButtons() { this._btnCache.frame = -1; }
+    _invalidateButtons() { this._btnCache.sig = null; }
+
+    // Sids de sprites cuja sub-arvore (transitiva) contem um botao —
+    // entrada com buttonActions ou character kind='button'.
+    _findButtonSids() {
+        const mv = this.movie;
+        const sprites = mv.sprites || {};
+        const memo = new Map();
+        const contains = (sid, seen) => {
+            if (memo.has(sid)) return memo.get(sid);
+            if (seen.has(sid)) return false;
+            seen.add(sid);
+            const tl = sprites[sid];
+            let yes = false;
+            for (const fr of tl?.frames || []) {
+                for (const e of fr || []) {
+                    const id = String(e.id);
+                    if (mv.data.buttonActions?.[id] || mv.characters?.[id]?.kind === 'button' ||
+                        (sprites[id] && contains(id, seen))) { yes = true; break; }
+                }
+                if (yes) break;
+            }
+            memo.set(sid, yes);
+            return yes;
+        };
+        const out = new Set();
+        for (const sid of Object.keys(sprites))
+            if (contains(sid, new Set())) out.add(sid);
+        return out;
+    }
+
+    // Assinatura do estado que afeta a lista de botoes: frame do main +
+    // frame dos playheads dos sprites-com-botoes (ancora de onde os
+    // interativos aparecem/somem — ex.: 443 dentro de 444 nos frames 202+).
+    _buttonSig() {
+        const parts = [String(this.movie?._mainFrame ?? -1)];
+        const ph = this.movie?._playheadAll;
+        if (ph && this._btnSids?.size) {
+            for (const h of ph.values())
+                if (this._btnSids.has(h.sid)) parts.push(h.path + ':' + h.frame);
+        }
+        return parts.join('|');
+    }
 
     _buttons() {
         const c = this._btnCache;
-        const frame = this.movie?._mainFrame ?? -1;
-        // re-coleta so quando invalidado (frame do main muda ou qualquer
-        // goto/play/set — ex.: prompt/gameOver_mc aparecem sem trocar frame).
+        const sig = this._buttonSig();
+        // re-coleta quando a assinatura muda: frame do main, playhead de
+        // sprite-com-botao, ou qualquer goto/play/stop/set (invalidate).
         // collectInteractive percorre a arvore inteira: nada de timer.
-        if (c.frame !== frame) {
-            c.frame = frame;
+        if (c.sig !== sig) {
+            c.sig = sig;
             c.list = [];
             try {
                 const { entries } = this.movie.collectInteractive();
@@ -727,8 +774,10 @@ export class IceFishingGame {
         const m = this.model;
         if (m.won) return;
         m.running = false; m.over = m.won = true;
-        this._scoreText('gameOver_mc'); // C usa root#2#32; gameOver_mc cobre os dois
-        this._visible('gameOver_mc', true);
+        // C usa root#2#32: painel de vitoria DENTRO do sprite 444 (main frame
+        // 39), que so aparece nos frames 202-212 da celebracao. gameOver_mc
+        // nao existe no frame 39 — escrever nele nao renderiza nada.
+        this._scoreText('#2#32');
     }
 
     _now() { return this.model.ticks * (1000 / RATE); }
