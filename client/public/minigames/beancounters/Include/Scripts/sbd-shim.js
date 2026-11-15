@@ -13,6 +13,34 @@
         if (x.status >= 200 && x.status < 300) (0, eval)(x.responseText);
     };
 
+    // Relogio de passo fixo: o jogo foi feito para frames de duracao
+    // constante; setTimeout/setInterval auto-agendados disparam em
+    // intervalos variaveis conforme a carga da maquina, o que deixava o
+    // jogo "as vezes acelerado". Um rAF acumula o tempo real decorrido e
+    // dispara cada stepper na sua grade exata (ms), com catch-up limitado.
+    var _fxSteps = new Map(), _fxId = 1, _fxLast = 0, _fxRaf = 0;
+    function _fxTick(ts) {
+        _fxRaf = 0;
+        if (!_fxSteps.size) return;
+        if (!_fxLast) _fxLast = ts;
+        var dt = Math.min(ts - _fxLast, 250); // aba em bg: nao simula segundos
+        _fxLast = ts;
+        _fxSteps.forEach(function (s) {
+            s.acc += dt;
+            var n = Math.floor(s.acc / s.ms);
+            if (n > 4) n = 4; // catch-up limitado: sem rajada ao voltar do bg
+            if (n > 0) {
+                s.acc -= n * s.ms;
+                if (s.acc > s.ms) s.acc = s.ms; // descarta atraso acumulado
+                for (var i = 0; i < n; i++) s.fn();
+            }
+        });
+        _fxRaf = requestAnimationFrame(_fxTick);
+    }
+    function _fxEnsure() {
+        if (!_fxRaf) _fxRaf = requestAnimationFrame(_fxTick);
+    }
+
     // app: maquina de estados + loop principal
     var state = 'Loading';
     var loops = [];
@@ -23,9 +51,21 @@
         },
         setState: function (s) { state = s; },
         currentState: function () { return state; },
+        // passo fixo deterministico — equivalente ao mainLoop do sbd.js
+        // original (rAF + gate de tempo decorrido), so que sem jitter.
+        fixedInterval: function (fn, ms) {
+            var id = _fxId++;
+            _fxSteps.set(id, { fn: fn, ms: ms, acc: 0 });
+            _fxEnsure();
+            return id;
+        },
+        clearFixedInterval: function (id) {
+            _fxSteps.delete(id);
+            if (!_fxSteps.size && _fxRaf) { cancelAnimationFrame(_fxRaf); _fxRaf = 0; }
+        },
         mainLoop: function (fn, opt) {
             var fps = (opt && opt.fps) || 30;
-            loops.push(setInterval(fn, 1000 / fps));
+            loops.push(app.fixedInterval(fn, 1000 / fps));
         }
     };
 

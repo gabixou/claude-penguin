@@ -5,17 +5,18 @@ const now = () => Date.now();
 
 // ---------- PETS: catalogo server-side (preco autoritativo) ----------
 // Especies de pet "soltas" — puffles e mascotes classicos do EPF.
+// Todas custam 800 coins (issue #15 — antes escalonavam 1200-3000).
 export const PET_SPECIES = [
-    { id: 'puffle_blue',   name: 'Blue Puffle',   cost: 1200 },
-    { id: 'puffle_pink',   name: 'Pink Puffle',   cost: 1400 },
-    { id: 'puffle_black',  name: 'Black Puffle',  cost: 1600 },
-    { id: 'puffle_green',  name: 'Green Puffle',  cost: 1800 },
-    { id: 'puffle_purple', name: 'Purple Puffle', cost: 2000 },
-    { id: 'puffle_red',    name: 'Red Puffle',    cost: 2200 },
-    { id: 'puffle_yellow', name: 'Yellow Puffle', cost: 2400 },
-    { id: 'puffle_white',  name: 'White Puffle',  cost: 2600 },
-    { id: 'puffle_orange', name: 'Orange Puffle', cost: 2800 },
-    { id: 'puffle_brown',  name: 'Brown Puffle',  cost: 3000 },
+    { id: 'puffle_blue',   name: 'Blue Puffle',   cost: 800 },
+    { id: 'puffle_pink',   name: 'Pink Puffle',   cost: 800 },
+    { id: 'puffle_black',  name: 'Black Puffle',  cost: 800 },
+    { id: 'puffle_green',  name: 'Green Puffle',  cost: 800 },
+    { id: 'puffle_purple', name: 'Purple Puffle', cost: 800 },
+    { id: 'puffle_red',    name: 'Red Puffle',    cost: 800 },
+    { id: 'puffle_yellow', name: 'Yellow Puffle', cost: 800 },
+    { id: 'puffle_white',  name: 'White Puffle',  cost: 800 },
+    { id: 'puffle_orange', name: 'Orange Puffle', cost: 800 },
+    { id: 'puffle_brown',  name: 'Brown Puffle',  cost: 800 },
     // lounge_lizard/cave_croc removidos: sao pets de habitat do EPF,
     // nao pets soltos — e nao tem sprites de follow no cliente
 ];

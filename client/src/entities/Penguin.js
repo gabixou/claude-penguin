@@ -190,6 +190,11 @@ export default class Penguin extends Phaser.GameObjects.Container {
             }
             if (scene.textures.exists(this._texKey)) scene.textures.get(this._texKey).refresh();
         }
+        // animationReady do original: enquanto o frame de animacao nao
+        // terminou de decodificar (corpo + roupas), mantem a ultima
+        // textura — desenhar agora mostraria camadas parciais/desalinhadas
+        // (bug das primeiras dances apos o login).
+        if (!this.view.frameReady()) return;
         this._rendering = true;
         const ctx = this._canvas.getContext('2d');
         const b = this._lib.bounds;

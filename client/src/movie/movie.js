@@ -246,7 +246,7 @@ export class MovieRoom {
 
         return {
             tl, packs, files, exits, interactions: tmp.interactions,
-            svgCache: new Map(), imgCache: new Map(),
+            svgCache: new Map(), imgCache: new Map(), imgReady: new Set(),
             artCache: new Map(), tintCache: new Map(), fontCache: new Map(),
             svgOverrides: new Map(),
         };
@@ -293,6 +293,7 @@ export class MovieRoom {
         room.files = s.files;
         room._svgCache = s.svgCache;
         room._imgCache = s.imgCache;
+        room._imgReady = s.imgReady;
         room._artCache = s.artCache;
         room._tintCache = s.tintCache;
         room._fontCache = s.fontCache;
@@ -466,11 +467,15 @@ export class MovieRoom {
         let p = this._imgCache.get(file);
         if (p) return p;
         const svg = this._svgText(file);
-        if (!svg) { this._imgCache.set(file, Promise.resolve(null)); return this._imgCache.get(file); }
+        if (!svg) {
+            this._imgReady?.add(file);
+            this._imgCache.set(file, Promise.resolve(null));
+            return this._imgCache.get(file);
+        }
         p = new Promise((resolve) => {
             const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = () => resolve(null);
+            img.onload = () => { this._imgReady?.add(file); resolve(img); };
+            img.onerror = () => { this._imgReady?.add(file); resolve(null); };
             img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
         });
         // backlog global de decode: o browser decodifica Images em fila
@@ -550,12 +555,11 @@ export class MovieRoom {
         this._scheduleDecode(files, chunk);
     }
 
-    // Prefetch priorizado: decodifica so os SVGs alcancaveis pelos frames
-    // informados da timeline principal (entries -> sprites -> seus frames ->
-    // characters.file). Usado pelo pinguim para garantir que walk/idle/sit
-    // com as roupas equipadas estejam prontos antes do primeiro uso —
-    // sem isso o primeiro andar "deslizava" esperando decodes de SVG.
-    prefetchFrames(frameNums, chunk = 12, immediate = false, scale = null, bg = true) {
+    // Conjunto de arquivos SVG alcancaveis por uma lista de frames do
+    // main: entries -> sprites (todos os frames, recursivo) ->
+    // characters.file. Compartilhado por prefetchFrames e frameReady —
+    // os dois precisam concordar sobre o que "pronto" significa.
+    _frameFiles(frameNums) {
         const files = new Set();
         const arts = new Map(); // file -> char (para warm de artCanvas)
         const seenSprites = new Set();
@@ -582,6 +586,38 @@ export class MovieRoom {
             const f = Math.max(1, Math.min(len, Math.round(n) || 1));
             walk(main?.frames?.[f - 1]);
         }
+        return { files, arts };
+    }
+
+    // frameReady(frame): true quando TODOS os SVGs que o frame (ja
+    // clampado ao range do main, como no draw) pode desenhar terminaram
+    // de decodificar. Equivale ao animationReady(s) do cliente original —
+    // sem isso as primeiras poses apos o login renderizavam com camadas
+    // faltando/parciais (roupas desalinhadas nas dances).
+    frameReady(frame) {
+        const ready = this._imgReady, cache = this._imgCache;
+        if (!ready || !cache) return true; // sem tracking: nao bloqueia
+        const main = this.data?.main;
+        const len = main?.frames?.length || 1;
+        const f = Math.max(1, Math.min(len, Math.round(frame) || 1));
+        if (!this._ffCache) this._ffCache = new Map();
+        let files = this._ffCache.get(f);
+        if (!files) {
+            files = this._frameFiles([f]).files;
+            this._ffCache.set(f, files);
+        }
+        for (const file of files)
+            if (!cache.has(file) || !ready.has(file)) return false;
+        return true;
+    }
+
+    // Prefetch priorizado: decodifica so os SVGs alcancaveis pelos frames
+    // informados da timeline principal (entries -> sprites -> seus frames ->
+    // characters.file). Usado pelo pinguim para garantir que walk/idle/sit
+    // com as roupas equipadas estejam prontos antes do primeiro uso —
+    // sem isso o primeiro andar "deslizava" esperando decodes de SVG.
+    prefetchFrames(frameNums, chunk = 12, immediate = false, scale = null, bg = true) {
+        const { files, arts } = this._frameFiles(frameNums);
         // immediate: dispara todos os _svgImage de uma vez (decode paralelo
         // do browser) — usado pelo catalogo, onde a pagina alvo nao pode
         // esperar o requestIdleCallback (que morre de fome durante renders)
