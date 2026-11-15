@@ -135,7 +135,8 @@ export class CatalogueOverlay {
         if (this.scene.textures.exists(this.texKey)) this.scene.textures.remove(this.texKey);
         this._tex = this.scene.textures.addCanvas(this.texKey, this.canvas);
         this.img = this.scene.add.image(380, 240, this.texKey)
-            .setDisplaySize(760, 480).setDepth(999999);
+            // acima do overlay noturno (8M) e dos segmentos, abaixo do HUD (10M)
+            .setDisplaySize(760, 480).setDepth(9000000);
     }
 
     // ---------- render + controles (port do xo.render) ----------
