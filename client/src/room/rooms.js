@@ -24,7 +24,7 @@ export function initialRoom() {
 // Exploracao dia/noite: salas externas com pack noturno (Halloween 2008,
 // decorações HP ainda presentes em algumas). So usado no preview :3100.
 export const NIGHT_ROOM_MAP = {
-    town: 'hp2008-hptown', plaza: 'hp2008-hpplaza', dock: 'hp2008-hpdock',
+    town: 'town-night', plaza: 'hp2008-hpplaza', dock: 'hp2008-hpdock',
     beach: 'hp2008-hpbeach', cove: 'hp2008-hpcove', forest: 'hp2008-hpforest',
     dojo: 'hp2008-hpdojo', berg: 'hp2008-hpiceberg', mtn: 'hp2008-hpskihill',
     village: 'hp2008-hpskivillage', forts: 'hp2008-hpsnowforts',
