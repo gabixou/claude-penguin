@@ -92,8 +92,9 @@ export class MinigameOverlay {
                 this._native = new IceFishingGame(this.scene, this.frame, {
                     onExit: () => this.scene._closeMinigame?.(),
                     onCoins: (n) => {
-                        // Servidor calcula a recompensa — cliente só manda jogo/nível
-                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, game: 'icefishing' });
+                        // Servidor calcula a recompensa — cliente manda o
+                        // score da rodada em `amount` (cap 500 no server)
+                        if (n > 0) this.scene.network?.send('MINIGAME_REWARD', { level: 1, game: 'icefishing', amount: n });
                         if (n > 0) this._toast(`+${n} coins`);
                     },
                     penguinColor: this.scene.localPlayer?.penguinColor,

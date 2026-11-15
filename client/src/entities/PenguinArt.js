@@ -355,6 +355,36 @@ export class PenguinView {
         return this.lib.animationFrame(this.look, this.frame);
     }
 
+    // Gate do animationReady do cliente original: so e "pronto" quando o
+    // corpo e TODAS as camadas de roupa equipadas terminaram de decodificar
+    // os SVGs do frame de animacao atual. Sem isso as primeiras poses apos
+    // o login (dance/wave) renderizavam com partes faltando/desalinhadas.
+    // No primeiro frame nao-pronto dispara prefetchFrames de cada movie —
+    // o decode comeca ali mesmo em vez de esperar o warm generico.
+    frameReady() {
+        const af = this.animationFrame;
+        const clips = [this.art, ...this.items.values()];
+        let ok = true;
+        for (const c of clips) {
+            if (c.m?.frameReady?.(af)) continue;
+            ok = false;
+            // kick por movie+frame: uma roupa que termina de carregar no
+            // meio da pose precisa do seu proprio warm — keyed so por af
+            // o kick nunca re-disparava para os itens novos.
+            if (!this._kicked) this._kicked = new Map(); // af -> Set<movie>
+            let set = this._kicked.get(af);
+            if (!set) { set = new Set(); this._kicked.set(af, set); }
+            if (set.has(c.m)) continue;
+            set.add(c.m);
+            // immediate+!bg: burst direto de _svgImage (como o prefetchLook
+            // das hot frames) — o frame esta NA TELA agora, decodificar a
+            // conta-gotas pelo _scheduleDecode deixava o gate fechado por
+            // dezenas de segundos no primeiro uso de cada pose.
+            c.m?.prefetchFrames?.([af], 12, true, null, false);
+        }
+        return ok;
+    }
+
     // avanca sub-playheads (chamar ~24fps)
     advance() {
         this.art.advance();
