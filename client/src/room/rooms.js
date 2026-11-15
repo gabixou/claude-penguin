@@ -21,6 +21,21 @@ export function initialRoom() {
     catch { return 'town'; }
 }
 
+// Exploracao dia/noite: salas externas com pack noturno (Halloween 2008,
+// decorações HP ainda presentes em algumas). So usado no preview :3100.
+export const NIGHT_ROOM_MAP = {
+    town: 'hp2008-hptown', plaza: 'hp2008-hpplaza', dock: 'hp2008-hpdock',
+    beach: 'hp2008-hpbeach', cove: 'hp2008-hpcove', forest: 'hp2008-hpforest',
+    dojo: 'hp2008-hpdojo', berg: 'hp2008-hpiceberg', mtn: 'hp2008-hpskihill',
+    village: 'hp2008-hpskivillage', forts: 'hp2008-hpsnowforts',
+};
+
+// Preview de testes na porta 3100 mostra sempre a versao noturna das
+// salas externas mapeadas; qualquer outra porta/ambiente segue o normal.
+function nightMode() {
+    try { return location.port === '3100'; } catch { return false; }
+}
+
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
 // mandar package alternativo (assets/movies-party/<id>/<pack>). A URL
 // diferente ja versiona os caches (packs e layers) por festa.
@@ -29,5 +44,13 @@ export function movieBaseFor(roomKey, party = null) {
     if (!pack) return null;
     const sub = party?.substitutions?.byRoom?.[roomKey];
     if (sub?.package) return `/assets/movies-party/${party.id}/${sub.package}`;
+    // debug/exploracao: ?moviepack=<dir> forca um pacote de movie qualquer
+    try {
+        const mp = new URLSearchParams(location.search).get('moviepack');
+        if (mp) return `/assets/movies/${mp}`;
+    } catch {}
+    if (nightMode() && NIGHT_ROOM_MAP[roomKey]) {
+        return `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`;
+    }
     return `/assets/movies/${pack}`;
 }
