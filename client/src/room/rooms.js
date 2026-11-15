@@ -21,13 +21,14 @@ export function initialRoom() {
     catch { return 'town'; }
 }
 
-// Exploracao dia/noite: salas externas com pack noturno (Halloween 2008,
-// decorações HP ainda presentes em algumas). So usado no preview :3100.
+// Exploracao dia/noite: salas externas com pack noturno gerado por remap
+// de paleta a partir das versoes Halloween 2008 (geometria do pack dia,
+// zero decoracao). So usado no preview :3100.
 export const NIGHT_ROOM_MAP = {
-    town: 'town-night', plaza: 'hp2008-hpplaza', dock: 'hp2008-hpdock',
-    beach: 'hp2008-hpbeach', cove: 'hp2008-hpcove', forest: 'hp2008-hpforest',
-    dojo: 'hp2008-hpdojo', berg: 'hp2008-hpiceberg', mtn: 'hp2008-hpskihill',
-    village: 'hp2008-hpskivillage', forts: 'hp2008-hpsnowforts',
+    town: 'town-night', plaza: 'plaza-night', dock: 'dock-night',
+    beach: 'beach-night', cove: 'cove-night', forest: 'forest-night',
+    berg: 'berg-night', mtn: 'mtn-night',
+    village: 'village-night', forts: 'forts-night',
 };
 
 // Preview de testes na porta 3100 mostra sempre a versao noturna das
