@@ -24,6 +24,14 @@ export const NIGHT_ROOMS = new Set([
     'mine', 'rink',
 ]);
 
+// Luzes manuais por sala — janelas/lampiões NÃO são detectaveis no arte
+// diurna (janela apagada nao e amarela; lampiao e um poste escuro). coords
+// em mundo 760x480 medidas nos screenshots. A deteccao automatica cobre
+// letreiros/doorways ja acesos; aqui entram os pontos que so acendem a noite.
+export const MANUAL_LIGHTS = {
+    // town: janelas detectadas via detectWindows (vidro claro nas fachadas)
+};
+
 // Curva dia/noite: [hora SP, fator 0=dia .. 1=noite fechada], linear entre pontos.
 const CURVE = [
     [0, 1], [5, 1],      // madrugada
@@ -43,6 +51,28 @@ export function nightFactor(spHour) {
         }
     }
     return 1;
+}
+
+// Crepusculo: brilho quente nos horarios de sol baixo (amanhecer/entardecer).
+const WARM_CURVE = [
+    [0, 0], [5.5, 0], [6.6, 0.9], [8, 0],
+    [16.5, 0], [18.3, 1], [20, 0], [24, 0],
+];
+
+function curveAt(keys, h) {
+    const t = ((h % 24) + 24) % 24;
+    for (let i = 1; i < keys.length; i++) {
+        const [h1, f1] = keys[i - 1], [h2, f2] = keys[i];
+        if (t <= h2) {
+            const k = (t - h1) / (h2 - h1 || 1);
+            return f1 + (f2 - f1) * Math.min(1, Math.max(0, k));
+        }
+    }
+    return keys[keys.length - 1][1];
+}
+
+export function warmFactor(spHour) {
+    return curveAt(WARM_CURVE, spHour);
 }
 
 // Hora atual em Sao Paulo (UTC-3 fixo). ?tod=HH[:MM] sobrescreve p/ QA.
@@ -73,17 +103,24 @@ export default class NightOverlay {
         this.enabled = new URLSearchParams(location.search).get('night') !== '0';
         this.container = scene.add.container(0, 0).setDepth(8000000);
 
-        // 1) multiply azul-escuro: escurece e joga o ciano do crepusculo
-        this.tint = scene.add.rectangle(380, 240, 760, 480, 0x4a5f9e)
+        // 1) multiply azul-escuro: escurece PROPORCIONALMENTE — sombras
+        //    continuam mais escuras que areas claras (contraste preservado)
+        this.tint = scene.add.rectangle(380, 240, 760, 480, 0x39507e)
             .setBlendMode(Phaser.BlendModes.MULTIPLY);
-        // 2) veu normal quase-preto: profundidade extra de madrugada
+        // 2) veu quente do crepusculo (laranja suave, so no amanhecer/entardecer)
+        this.warm = scene.add.rectangle(380, 240, 760, 480, 0xff8c42);
+        // 3) veu normal quase-preto: SO um fundo extra — alpha baixo para
+        //    nao achatar o contraste que o multiply preserva
         this.veil = scene.add.rectangle(380, 240, 760, 480, 0x05070f);
-        // 3) ceu mascarado: estrelas + lua so onde ha ceu de verdade
+        // 4) ceu mascarado: estrelas + lua so onde ha ceu de verdade
         this.sky = scene.add.image(0, 0, '__MISSING').setOrigin(0, 0).setVisible(false);
+        // 5) pontos de luz (janelas/lampioes detectados no backdrop)
+        this.lights = scene.add.container(0, 0);
 
-        this.container.add([this.tint, this.veil, this.sky]);
+        this.container.add([this.tint, this.warm, this.veil, this.sky, this.lights]);
         this.container.setVisible(false);
-        this._skyCache = new Map(); // room -> Promise<texKey|null>
+        this._skyCache = new Map(); // room -> Promise<{key, lights}|null>
+        this._lightsFor = null;
         this._room = null;
         this.update();
         // fator muda devagar — 1 checagem/min basta (transicao imperceptivel)
@@ -92,21 +129,51 @@ export default class NightOverlay {
 
     update() {
         const room = this.scene.currentRoom;
-        const f = this.enabled && NIGHT_ROOMS.has(room) ? nightFactor(spHourNow()) : 0;
-        const show = f > 0.02;
+        const h = spHourNow();
+        const f = this.enabled && NIGHT_ROOMS.has(room) ? nightFactor(h) : 0;
+        const w = this.enabled && NIGHT_ROOMS.has(room) ? warmFactor(h) : 0;
+        const show = f > 0.02 || w > 0.05;
         this.container.setVisible(show);
         this._room = room;
-        if (!show) { this.sky.setVisible(false); return; }
-        this.tint.setAlpha(Math.min(1, f * 1.15));
-        this.veil.setAlpha(f * f * 0.55);          // quadratico: noite fechada pesa mais
+        if (!show) {
+            this.sky.setVisible(false);
+            this.lights.removeAll(true);
+            this._lightsFor = null;
+            return;
+        }
+        this.tint.setAlpha(Math.min(1, f * 1.3));
+        this.warm.setAlpha(w * 0.42);                // crepusculo: lavado quente
+        this.veil.setAlpha(f * f * 0.28);           // leve: nao achata contraste
         // estrelas/lua aparecem junto com a noite (alpha do fator);
         // esconde antes: a textura e por sala e a proxima mascara e async
         this.sky.setVisible(false);
-        this._ensureSky(room).then((key) => {
-            if (!key || this._room !== room || !this.container.visible) return;
+        this._ensureSky(room).then((assets) => {
+            if (!assets || this._room !== room || !this.container.visible) return;
+            const { key, lights } = assets;
             this.sky.setTexture(key).setAlpha(Math.min(1, f * 1.3));
             this.sky.setVisible(true);
+            this._placeLights(lights, Math.max(f, w * 0.85));
         });
+    }
+
+    // Glows dos pontos de luz da sala (detectados no backdrop). Recria so
+    // quando a sala muda; alpha acompanha o fator atual da noite/crepusculo.
+    _placeLights(lights, alpha) {
+        if (this._lightsFor === this._room && this.lights.length) {
+            this.lights.each((img) => img.setAlpha(alpha));
+            return;
+        }
+        this.lights.removeAll(true);
+        if (!lights?.length) { this._lightsFor = this._room; return; }
+        const tex = NightOverlay.glowTexture(this.scene);
+        for (const p of lights) {
+            this.lights.add(this.scene.add.image(p.x, p.y, tex)
+                .setDisplaySize(p.r * 2, p.r * 2)
+                .setBlendMode(Phaser.BlendModes.ADD)
+                .setTint(0xffc873)
+                .setAlpha(alpha));
+        }
+        this._lightsFor = this._room;
     }
 
     // Textura de ceu DA SALA (mascarada). Cache por sala+SS — a mascara
@@ -116,11 +183,11 @@ export default class NightOverlay {
         const cacheKey = `${room}|${ss}`;
         let p = this._skyCache.get(cacheKey);
         if (!p) {
-            p = this._buildSkyTexture(room, ss).then((key) => {
+            p = this._buildSkyTexture(room, ss).then((assets) => {
                 // sala ainda nao rasterizou (movieLayers vazio) ou falhou:
                 // NAO cacheia — o proximo update (ex.: reveal) tenta de novo
-                if (!key) this._skyCache.delete(cacheKey);
-                return key;
+                if (!assets) this._skyCache.delete(cacheKey);
+                return assets;
             }).catch(() => { this._skyCache.delete(cacheKey); return null; });
             this._skyCache.set(cacheKey, p);
         }
@@ -147,6 +214,14 @@ export default class NightOverlay {
         const bw = back.canvas.width, bh = back.canvas.height;
         const bdata = back.canvas.getContext('2d', { willReadFrequently: true })
             .getImageData(0, 0, bw, bh).data;
+        // pontos de luz: deteccao automatica (letreiros/doorways acesos) +
+        // MANUAL_LIGHTS por sala (janelas/lampioes apagados de dia)
+        const lights = [
+            ...detectLights(layers, ss),
+            ...detectWindows(layers, ss),
+            ...(MANUAL_LIGHTS[room] || []),
+        ];
+
         // referencia de ceu: media da faixa superior (2%-6% da altura)
         let sr = 0, sg = 0, sb = 0, sn = 0;
         for (let cy = Math.floor(bh * 0.02); cy < bh * 0.06; cy += 4) {
@@ -223,6 +298,104 @@ export default class NightOverlay {
         const key = `night_sky_${room}_${ss}`;
         if (scene.textures.exists(key)) scene.textures.remove(key);
         scene.textures.addCanvas(key, c);
+        return { key, lights };
+    }
+
+    // Glow radial quente compartilhado pelos pontos de luz (ADD + tint).
+    static glowTexture(scene) {
+        const key = 'night_glow';
+        if (scene.textures.exists(key)) return key;
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+        grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+        grad.addColorStop(0.4, 'rgba(255,255,255,0.32)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 128, 128);
+        scene.textures.addCanvas(key, c);
         return key;
     }
+}
+
+// Janelas apagadas no arte diurno sao vidro claro: quase-branco/cinza-claro
+// de baixa saturacao, em regioes altas (facades). Neve e ceu ficam de fora
+// (neve = saturacao zero mas esta na metade inferior; ceu e azulado).
+// Mesma agregacao em clusters do detectLights.
+function detectWindows(layers, ss) {
+    const cells = new Map();
+    const CELL = 26;
+    for (const l of layers) {
+        const cv = l.canvas;
+        if (!cv || !cv.width || !cv.height) continue;
+        const w = cv.width, h = cv.height;
+        const data = cv.getContext('2d', { willReadFrequently: true })
+            .getImageData(0, 0, w, h).data;
+        for (let cy = 0; cy < h; cy += 3) {
+            for (let cx = 0; cx < w; cx += 3) {
+                const i = (cy * w + cx) * 4;
+                if (data[i + 3] < 200) continue;
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+                if (mx > 195 && mx - mn < 45) {
+                    const wx = ((l.ox || 0) + cx) / ss, wy = ((l.oy || 0) + cy) / ss;
+                    if (wy > 340) continue; // so fachadas (metade superior)
+                    const k = `${Math.floor(wx / CELL)},${Math.floor(wy / CELL)}`;
+                    let c = cells.get(k);
+                    if (!c) cells.set(k, c = { n: 0, sx: 0, sy: 0 });
+                    c.n++; c.sx += wx; c.sy += wy;
+                }
+            }
+        }
+    }
+    return [...cells.values()]
+        .filter((c) => c.n >= 4 && c.n <= 90)
+        .sort((a, b) => b.n - a.n)
+        .slice(0, 10)
+        .map((c) => ({
+            x: c.sx / c.n, y: c.sy / c.n,
+            r: Math.min(22, 10 + c.n * 0.4),
+        }));
+}
+
+// Varre TODOS os segmentos da sala atras de pixels "luz acesa" (amarelo/
+// laranja quente: janelas, lampioes, letreiros). Agrupa em clusters de
+// ~26px de mundo e devolve [{x,y,r}] em coords de mundo. Teto de 16/sala.
+function detectLights(layers, ss) {
+    const cells = new Map(); // "cx,cy" -> {n,sx,sy}
+    const CELL = 26; // px de mundo
+    for (const l of layers) {
+        const cv = l.canvas;
+        if (!cv || !cv.width || !cv.height) continue;
+        const w = cv.width, h = cv.height;
+        const data = cv.getContext('2d', { willReadFrequently: true })
+            .getImageData(0, 0, w, h).data;
+        for (let cy = 0; cy < h; cy += 3) {
+            for (let cx = 0; cx < w; cx += 3) {
+                const i = (cy * w + cx) * 4;
+                if (data[i + 3] < 200) continue;
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                // so o que JA e luz no arte diurno: neon/letreiro/doorway
+                // aceso (quase branco-quente). Janelas apagadas e mercadoria
+                // colorida ficam de fora — janelas vao em MANUAL_LIGHTS.
+                if (r > 225 && g > 195 && b < 160 && r - b > 90) {
+                    const wx = ((l.ox || 0) + cx) / ss, wy = ((l.oy || 0) + cy) / ss;
+                    const k = `${Math.floor(wx / CELL)},${Math.floor(wy / CELL)}`;
+                    let c = cells.get(k);
+                    if (!c) cells.set(k, c = { n: 0, sx: 0, sy: 0 });
+                    c.n++; c.sx += wx; c.sy += wy;
+                }
+            }
+        }
+    }
+    return [...cells.values()]
+        // n>=3 e n<=140: janelas sao compactas; areas grandes = parede/telhado
+        .filter((c) => c.n >= 3 && c.n <= 140)
+        .sort((a, b) => b.n - a.n)
+        .slice(0, 8)
+        .map((c) => ({
+            x: c.sx / c.n, y: c.sy / c.n,
+            r: Math.min(24, 12 + c.n * 0.5),
+        }));
 }
