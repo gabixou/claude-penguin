@@ -236,8 +236,13 @@ export default class PuffleView {
         }
         // sempre 1 camada atras do dono — o offset +8 em y fazia o pet
         // pular de faixa de depth e renderizar NA FRENTE do pinguim
-        // (parecia um borrão colado nos pes)
-        this.container.setDepth((this.owner?.depth ?? 0) - 1);
+        // (parecia um borrão colado nos pes).
+        // EXCECAO (issue #14): durante cuidado/emote do dono a animacao
+        // misc do puffle se estende ~130un e cruzava o pinguim por tras —
+        // visualmente o puffle esta "na vista" do pinguim, entao sobe
+        // p/ uma camada ACIMA do dono enquanto a animacao durar.
+        const lift = (this._care || this._emoteActive) ? 0.5 : -1;
+        this.container.setDepth((this.owner?.depth ?? 0) + lift);
     }
 
     // reacao de cuidado vinda do card (PLAYER_PET_CARE -> 'player-pet-care')
