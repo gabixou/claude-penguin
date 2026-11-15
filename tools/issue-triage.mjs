@@ -138,10 +138,11 @@ const ensureLabel = async (name, color, desc) => {
     }
 };
 await ensureLabel('triaged', '0e8a16', 'Issue passou pela triagem automatica');
+await ensureLabel('na-fila', '5319e7', 'Pronto para a automacao Devin resolver');
 if (hasVisual) await ensureLabel('visual', 'd93f0b', 'Issue envolve problema visual com screenshot');
 try {
     const cur = new Set((issue.labels || []).map((l) => l.name));
-    const add = ['triaged', ...(hasVisual ? ['visual'] : [])].filter((l) => !cur.has(l));
+    const add = ['triaged', 'na-fila', ...(hasVisual ? ['visual'] : [])].filter((l) => !cur.has(l));
     if (add.length) await gh('POST', `/issues/${NUM}/labels`, { labels: add });
 } catch (e) { console.log(`labels: ${e}`); }
 
