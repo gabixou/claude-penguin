@@ -1174,6 +1174,8 @@ export default class RoomScene extends Phaser.Scene {
                     for (const layer of this.movieLayers) layer.img.setVisible(true);
                     mark(`room-ready:${roomKey}${cacheHit ? ':cache' : ''}`);
                     this._movieReady = true;
+                    // camadas prontas: mascara do ceu noturno pode ser gerada
+                    this.nightOverlay?.update();
                     this._booting = false;
                     const finish = () => {
                         this.loadingScreen?.hide();
@@ -1574,9 +1576,11 @@ export default class RoomScene extends Phaser.Scene {
         // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
         if (this.tableGames?.isOpen && this.tableGames.st?.room) this.tableGames.close();
         this.currentRoom = newRoomKey;
-        this.nightOverlay?.update();
         this._clearMovie();
         this._initMovie(newRoomKey);
+        // depois do clear: movieLayers null -> mascara nao cacheia errada;
+        // o update() do reveal() gera a mascara com as canvases novas
+        this.nightOverlay?.update();
         this._playMusic(newRoomKey);
 
         // guarda a posição desejada; o safe spawn é aplicado quando o movie carregar
