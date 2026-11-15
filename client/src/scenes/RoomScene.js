@@ -37,6 +37,7 @@ import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
 import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
+import NightOverlay from '../room/NightOverlay.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
     planRoom, segmentRect, dynRect, drawSegment,
@@ -214,6 +215,8 @@ export default class RoomScene extends Phaser.Scene {
             onAction: (name) => this.handleAction(name)
         });
         this.catalogue = new CatalogueOverlay(this);
+        // ciclo dia/noite (dev3): overlay noturno sobre sala+pinguins, abaixo do HUD
+        this.nightOverlay = new NightOverlay(this);
 
         // 6c. Player card (clique no pinguim abre perfil)
         this.playerCard = new PlayerCard(this);
@@ -1571,6 +1574,7 @@ export default class RoomScene extends Phaser.Scene {
         // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
         if (this.tableGames?.isOpen && this.tableGames.st?.room) this.tableGames.close();
         this.currentRoom = newRoomKey;
+        this.nightOverlay?.update();
         this._clearMovie();
         this._initMovie(newRoomKey);
         this._playMusic(newRoomKey);
