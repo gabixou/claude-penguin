@@ -93,25 +93,37 @@ function newHazard() {
 		var hx = parseFloat(getComputedStyle(hel).left) || 0
 		var hb = parseFloat(getComputedStyle(hel).bottom) || 0
 		var hx0 = hx, hb0 = hb
+		// Movimento no relogio fixo de 30fps (app.fixedInterval): a chain
+		// original de setTimeout(12) disparava ~83x/s com jitter de
+		// wall-clock — o jogo ficava "as vezes acelerado". Os deltas eram
+		// calibrados por passo de ~12ms; K converte para passo de 33.3ms
+		// preservando a velocidade em px/seg. `fall` (pausa no topo, em
+		// ticks de 12ms) vira limiar equivalente: fall*12ms / 33.3ms.
+		var K = (1000 / 30) / 12
+		var fallT = fall * 12 / (1000 / 30)
+		var moveId = 0, alive = true
 		var move = function() {
 			if(!$h.length || $h.hasClass("broken") || $h.attr("gone")) {
+				alive = false
+				if(moveId > 0 && app.clearFixedInterval) app.clearFixedInterval(moveId)
+				moveId = 0
 				return
 			}
 			if(hx > launchTo) {
-				hx -= 10
+				hx -= 10 * K
 			}
 			else if(launchTo < 470) {
-				hx -= 5
+				hx -= 5 * K
 			}
 			else {
-				hx -= 1.85
+				hx -= 1.85 * K
 			}
 			var fin = $h.attr("fallin")
 			if(hb < maxHeight && !fin) {
-				hb += 4.5
+				hb += 4.5 * K
 			}
 			else if(fin) {
-				if(fin == fall) {
+				if(fin >= fallT) {
 					if(hb <= 70) {
 						$h.addClass("broken")
 						if(hazard.name != "Life") {
@@ -130,10 +142,10 @@ function newHazard() {
 						}
 					}
 					else if(launchTo < 470) {
-						hb -= 10
+						hb -= 10 * K
 					}
 					else {
-						hb -= 13.6
+						hb -= 13.6 * K
 					}
 				}
 				else {
@@ -145,14 +157,18 @@ function newHazard() {
 			}
 			// um unico write compositor por tick (left+bottom via translate)
 			hel.style.transform = "translate("+(hx-hx0)+"px,"+(hb0-hb)+"px)"
-			setTimeout(function() {
-				move()
-			}, 12)
 		}
 		
-		// Wait a few ms before launching
+		// Wait a few ms before launching, depois anda no relogio fixo
 		setTimeout(function() {
-			move()
+			if (app.fixedInterval) {
+				moveId = app.fixedInterval(move, 1000 / 30)
+			}
+			else {
+				// fallback sem relogio fixo: chain classica de 12ms
+				var chain = function() { if (alive) { move(); setTimeout(chain, 12) } }
+				chain()
+			}
 		}, 8)
 		
 		// If the hazard is a bag, animate it
