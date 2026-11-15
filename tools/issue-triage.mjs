@@ -120,12 +120,19 @@ ${body.slice(0, 12000) || '(vazio)'}`;
 
 // ---------- 4. comentario + labels ----------
 const hasVisual = imgs.length > 0;
+// na-fila so para autores confiaveis (dono/membros/colaboradores) —
+// repo e publico e a automacao gasta ACU por run
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const trusted = TRUSTED.has(issue.author_association);
+const footer = trusted
+    ? `Para resolver automaticamente, a issue ja esta na fila da automacao Devin. Para priorizar, peca ao Devin: <code>resolve issue #${NUM}</code>`
+    : `Autor sem permissao de colaborador — triagem registrada, mas a automacao Devin NAO vai resolver automaticamente. Um mantenedor pode adicionar a label <code>na-fila</code> manualmente se quiser.`;
 const comment = `## 🤖 Triagem automática
 
 ${analysis}
 
 ---
-<sub>Análise gerada automaticamente por Gemini${hasVisual ? ' com análise visual das imagens anexadas' : ''}. Para resolver, peça ao Devin: <code>resolve issue #${NUM}</code></sub>`;
+<sub>Análise gerada automaticamente por Gemini${hasVisual ? ' com análise visual das imagens anexadas' : ''}. ${footer}</sub>`;
 
 await gh('POST', `/issues/${NUM}/comments`, { body: comment });
 console.log('comentario postado');
@@ -138,11 +145,11 @@ const ensureLabel = async (name, color, desc) => {
     }
 };
 await ensureLabel('triaged', '0e8a16', 'Issue passou pela triagem automatica');
-await ensureLabel('na-fila', '5319e7', 'Pronto para a automacao Devin resolver');
+if (trusted) await ensureLabel('na-fila', '5319e7', 'Pronto para a automacao Devin resolver');
 if (hasVisual) await ensureLabel('visual', 'd93f0b', 'Issue envolve problema visual com screenshot');
 try {
     const cur = new Set((issue.labels || []).map((l) => l.name));
-    const add = ['triaged', 'na-fila', ...(hasVisual ? ['visual'] : [])].filter((l) => !cur.has(l));
+    const add = ['triaged', ...(trusted ? ['na-fila'] : []), ...(hasVisual ? ['visual'] : [])].filter((l) => !cur.has(l));
     if (add.length) await gh('POST', `/issues/${NUM}/labels`, { labels: add });
 } catch (e) { console.log(`labels: ${e}`); }
 
