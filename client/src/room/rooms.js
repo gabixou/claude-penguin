@@ -30,6 +30,7 @@ export const NIGHT_ROOM_MAP = {
     beach: 'beach-night', cove: 'cove-night', forest: 'forest-night',
     berg: 'berg-night', mtn: 'mtn-night',
     village: 'village-night', forts: 'forts-night', dojoext: 'dojoext-night',
+    shack: 'shack-night', // Mine Shack: sem versao HP2008, mesma receita de paleta
 };
 
 // Base do pack noturno alternativo da sala (null = sala nao participa
