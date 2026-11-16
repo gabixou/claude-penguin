@@ -40,13 +40,21 @@ export function nightBaseFor(roomKey) {
     return pack ? `/assets/movies/${pack}` : null;
 }
 
-// Fase forçada por URL para testes: ?daynight=day|night. Sem override,
-// a fase vem do servidor (relogio America/Sao_Paulo). Na porta 3100 o
-// default continua sendo noite (preview).
-export function phaseOverride() {
+// Pack de crepusculo ("avermelhado", nascer/pôr do sol) — derivado do
+// pack dia por transform de paleta. Mesmo conjunto de salas do ciclo.
+export function twilightBaseFor(roomKey) {
+    const pack = MOVIE_ROOM_MAP[roomKey];
+    return NIGHT_ROOM_MAP[roomKey] ? `/assets/movies/${pack}-twilight` : null;
+}
+
+// Fase/zona forçada por URL para testes: ?daynight=day|night|dawn|dusk.
+// Sem override, a zona vem do relogio local (America/Sao_Paulo, mesma
+// tabela do servidor). Na porta 3100 o default e 'night'.
+export function zoneOverride() {
     try {
         const v = new URLSearchParams(location.search).get('daynight');
-        if (v === 'day' || v === 'night') return v;
+        if (v === 'day' || v === 'night' || v === 'dawn' || v === 'dusk') return v;
+        if (v === 'daynight') return 'dusk';
     } catch {}
     try {
         if (location.port === '3100') return 'night';
@@ -57,9 +65,12 @@ export function phaseOverride() {
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
 // mandar package alternativo (assets/movies-party/<id>/<pack>). A URL
 // diferente ja versiona os caches (packs e layers) por festa.
-// Fase do ciclo dia/noite ('day'|'night'|null). null = sem ciclo
-// (party substitution / ?moviepack= / sala interna tratam por si).
-export function movieBaseFor(roomKey, party = null, phase = null) {
+// Zona do ciclo ('day'|'dawn'|'dusk'|'night'|null). null = sem ciclo.
+// O pack PRIMARIO segue a zona do momento do load: de dia = pack dia,
+// janelas de transicao = pack twilight, de noite = pack -night — quem
+// entra 21h ja nasce na sala noturna, sem flash. Os outros packs viram
+// planos alternativos e o crossfade e por peso do relogio.
+export function movieBaseFor(roomKey, party = null, zone = null) {
     const pack = MOVIE_ROOM_MAP[roomKey];
     if (!pack) return null;
     const sub = party?.substitutions?.byRoom?.[roomKey];
@@ -69,11 +80,11 @@ export function movieBaseFor(roomKey, party = null, phase = null) {
         const mp = new URLSearchParams(location.search).get('moviepack');
         if (mp) return `/assets/movies/${mp}`;
     } catch {}
-    // ciclo: o pack primario e o da fase ATUAL — quem entra 21h ja carrega
-    // a sala noturna direto, sem flash do pack dia. O pack oposto vira o
-    // plano alternativo do crossfade.
-    if (phase === 'night' && NIGHT_ROOM_MAP[roomKey]) {
+    if (zone === 'night' && NIGHT_ROOM_MAP[roomKey]) {
         return `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`;
+    }
+    if ((zone === 'dawn' || zone === 'dusk') && NIGHT_ROOM_MAP[roomKey]) {
+        return `/assets/movies/${pack}-twilight`;
     }
     return `/assets/movies/${pack}`;
 }
