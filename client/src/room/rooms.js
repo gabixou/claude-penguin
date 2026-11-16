@@ -56,7 +56,9 @@ export function phaseOverride() {
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
 // mandar package alternativo (assets/movies-party/<id>/<pack>). A URL
 // diferente ja versiona os caches (packs e layers) por festa.
-export function movieBaseFor(roomKey, party = null) {
+// Fase do ciclo dia/noite ('day'|'night'|null). null = sem ciclo
+// (party substitution / ?moviepack= / sala interna tratam por si).
+export function movieBaseFor(roomKey, party = null, phase = null) {
     const pack = MOVIE_ROOM_MAP[roomKey];
     if (!pack) return null;
     const sub = party?.substitutions?.byRoom?.[roomKey];
@@ -66,5 +68,11 @@ export function movieBaseFor(roomKey, party = null) {
         const mp = new URLSearchParams(location.search).get('moviepack');
         if (mp) return `/assets/movies/${mp}`;
     } catch {}
+    // ciclo: o pack primario e o da fase ATUAL — quem entra 21h ja carrega
+    // a sala noturna direto, sem flash do pack dia. O pack oposto vira o
+    // plano alternativo do crossfade.
+    if (phase === 'night' && NIGHT_ROOM_MAP[roomKey]) {
+        return `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`;
+    }
     return `/assets/movies/${pack}`;
 }

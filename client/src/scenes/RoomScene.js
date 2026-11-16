@@ -65,6 +65,10 @@ export default class RoomScene extends Phaser.Scene {
         this.mapOpen = false;
         this.clothesOpen = false;
         this._ss = 2; // fator de supersampling inicial (ajustado por applySupersampling)
+        // fase do ciclo dia/noite — precisa existir ANTES do primeiro
+        // _initMovie (linha ~88) para o pack primario ja nascer na fase
+        // certa; o servidor confirma/refina via evento 'daynight'
+        this._phase = phaseOverride() || 'day';
     }
 
     create() {
@@ -348,7 +352,6 @@ export default class RoomScene extends Phaser.Scene {
         });
 
         // ciclo dia/noite (relogio SP no servidor): fase + crossfade
-        this._phase = phaseOverride() || 'day';
         this.events.on('daynight', (d) => {
             const p = phaseOverride() || d?.phase;
             if (p && p !== this._phase) this._setPhase(p);
@@ -1060,7 +1063,7 @@ export default class RoomScene extends Phaser.Scene {
     // pode mandar package alternativo (assets/movies-party/<id>/<pack>).
     // A URL diferente já versiona o cache IndexedDB por festa.
     _movieBaseFor(roomKey) {
-        return movieBaseFor(roomKey, this.network?.party);
+        return movieBaseFor(roomKey, this.network?.party, this._phase);
     }
 
     // Música da sala — substituição de festa (global ou por sala) aponta
@@ -1114,6 +1117,10 @@ export default class RoomScene extends Phaser.Scene {
                 mark(`room-pack:${roomKey}`);
                 this.movie = movie;
                 this.movie.setScale(this._ss);
+                // fase do plano primario (pacote dia ou noite conforme a
+                // fase no momento do load — o alternativo cobre a outra)
+                this._primaryBase = movie.base;
+                this._primaryPhase = movie.base === nightBaseFor(roomKey) ? 'night' : 'day';
                 // Cache de layers (IDB) consultado JA — em paralelo com o
                 // setup abaixo. Hit = sala sem rasterizar nada.
                 const cacheKey = layerCacheKey(base, this._ss, movie);
@@ -1203,7 +1210,7 @@ export default class RoomScene extends Phaser.Scene {
                         // iglu: puffles vagando (a location ja foi aguardada)
                         if (roomKey === 'igloo') this._syncIglooPets();
                         };
-                        if (this._phase === 'night' && this._altReadyP) {
+                        if (this._phase !== this._primaryPhase && this._altReadyP) {
                             Promise.race([
                                 this._altReadyP,
                                 new Promise((r) => setTimeout(r, 25000)),
@@ -1561,12 +1568,14 @@ export default class RoomScene extends Phaser.Scene {
 
     _initAltMovie(roomKey) {
         this._clearAltMovie();
-        const base = nightBaseFor(roomKey);
-        if (!base) return;
-        // so faz sentido com o pack padrao do dia carregado (sem party
-        // substitution nem ?moviepack=)
+        const nightBase = nightBaseFor(roomKey);
+        if (!nightBase) return;
+        // so faz sentido com um dos packs do ciclo carregado (sem party
+        // substitution nem ?moviepack=); o alternativo e o pack oposto
         const dayBase = `/assets/movies/${MOVIE_ROOM_MAP[roomKey]}`;
-        if (this.movie?.base !== dayBase) return;
+        const primaryBase = this.movie?.base;
+        if (!primaryBase || (primaryBase !== dayBase && primaryBase !== nightBase)) return;
+        const base = primaryBase === nightBase ? dayBase : nightBase;
         const ss = this._ss;
         this._altReadyP = (async () => {
             try {
@@ -1576,7 +1585,7 @@ export default class RoomScene extends Phaser.Scene {
                 // segmentos estaticos (canvas cropado + imagem Phaser)
                 const segImgs = [];
                 for (const seg of segments) {
-                    if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                    if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
                     const r = segmentRect(movie, seg, ss);
                     if (!r) continue;
                     const { x0, y0, w, h } = r;
@@ -1598,7 +1607,7 @@ export default class RoomScene extends Phaser.Scene {
                 // overlays dinamicos
                 const dynImgs = [];
                 for (const d of dyns) {
-                    if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                    if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
                     const r = dynRect(movie, d, ss);
                     if (!r) continue;
                     const { x0, y0, w, h } = r;
@@ -1617,7 +1626,7 @@ export default class RoomScene extends Phaser.Scene {
                     tex.refresh();
                     await new Promise((r2) => setTimeout(r2, 0));
                 }
-                if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
                 this._alt = { movie, segs: segImgs, dyns: dynImgs };
                 // timer de animacao do plano noturno — so trabalha visivel
                 this._altTimer = this.time.addEvent({
@@ -1633,7 +1642,9 @@ export default class RoomScene extends Phaser.Scene {
 
     _altTick() {
         const a = this._alt;
-        if (!a || this._phase !== 'night') return;
+        // so anima quando o plano alternativo e o visivel (fase oposta a
+        // do pack primario)
+        if (!a || this._phase === this._primaryPhase) return;
         a.movie.tick();
         const dp = a.movie._dirtyPaths || new Set();
         const fp = a.movie._dirtyForcedPaths || new Set();
@@ -1690,19 +1701,21 @@ export default class RoomScene extends Phaser.Scene {
     _syncPhase(animate = true) {
         const a = this._alt;
         if (!a || !this._movieReady) return;
-        const night = this._phase === 'night';
+        // plano primario visivel quando a fase bate com a do pack dele;
+        // o alternativo cobre a fase oposta
+        const primaryOn = this._phase === this._primaryPhase;
         const dur = animate ? 12000 : 0;
         if (this._phaseTween) { this._phaseTween.forEach((t) => t.stop()); this._phaseTween = null; }
         const tweens = [];
         for (const img of this._primaryImgs()) {
             tweens.push(this.tweens.add({
-                targets: img, alpha: night ? 0 : 1, duration: dur,
+                targets: img, alpha: primaryOn ? 1 : 0, duration: dur,
                 ease: 'Sine.easeInOut',
             }));
         }
         for (const img of this._altImgs()) {
             tweens.push(this.tweens.add({
-                targets: img, alpha: night ? 1 : 0, duration: dur,
+                targets: img, alpha: primaryOn ? 0 : 1, duration: dur,
                 ease: 'Sine.easeInOut',
             }));
         }
@@ -1746,6 +1759,8 @@ export default class RoomScene extends Phaser.Scene {
         }
         this._segments = null;
         this.movie = null;
+        this._primaryPhase = null;
+        this._primaryBase = null;
         this._interactions?.destroy?.();
         this._interactions = null;
         this._locationImg?.destroy();
