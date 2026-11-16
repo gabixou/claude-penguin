@@ -321,6 +321,10 @@ export class MovieRoom {
         room.scalingGrids = tl.scalingGrids || {};
         room.exits = s.exits;
         room.interactions = s.interactions;
+        // movies sem pack/chunks (penguin-actions soltos) servem cada SVG
+        // como arquivo individual em <base>/chars/<file> — equivale ao
+        // fallback `return this.base + e` do Ih.source do original
+        room._looseChars = s.packs.length === 0;
         return room;
     }
 
@@ -470,6 +474,31 @@ export class MovieRoom {
         if (p) return p;
         const svg = this._svgText(file);
         if (!svg) {
+            if (this._looseChars) {
+                // arquivo solto: busca chars/<file> (IDB primeiro — os
+                // nomes nao tem hash, entao a chave inclui o source do tl)
+                const url = `${this.base}/chars/${file}`;
+                const key = `${url}@${this.data?.source || ''}`;
+                p = packGet(key)
+                    .then((buf) => buf || fetch(url).then((r) => {
+                        if (!r.ok) return null;
+                        return r.arrayBuffer().then((b) => { packPut(key, b); return b; });
+                    }))
+                    .then((buf) => {
+                        if (!buf) { this._imgReady?.add(file); this._imgCache.set(file, Promise.resolve(null)); return null; }
+                        this._svgCache.set(file, new TextDecoder().decode(buf));
+                        // sem o delete a recursao acha a PRÓPRIA promise
+                        // pendente no cache e retorna ela mesma — circular,
+                        // o decode nunca acontece (frameReady nunca fecha)
+                        this._imgCache.delete(file);
+                        return this._svgImage(file);
+                    })
+                    .catch(() => { this._imgReady?.add(file); this._imgCache.set(file, Promise.resolve(null)); return null; });
+                _pendingImages++;
+                p.finally(() => { _pendingImages--; });
+                this._imgCache.set(file, p);
+                return p;
+            }
             this._imgReady?.add(file);
             this._imgCache.set(file, Promise.resolve(null));
             return this._imgCache.get(file);
