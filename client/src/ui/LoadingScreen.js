@@ -164,10 +164,15 @@ export default class LoadingScreen extends Phaser.GameObjects.Container {
         if (Math.abs(this._progress - this._bootDisp) < 0.004) this._bootDisp = this._progress;
         this._bootFill.clear();
         const w = Math.max(4, (this._bootTrackW - 4) * this._bootDisp);
+        const x = this._bootTrackX + 2, y = this._bootBarY, h = this._bootBarH;
         this._bootFill.fillStyle(0xffc93c, 1);
-        this._bootFill.fillRoundedRect(this._bootTrackX + 2, this._bootBarY, w, this._bootBarH, this._bootBarH / 2);
-        this._bootFill.fillStyle(0xffdf7e, 0.55);
-        this._bootFill.fillRoundedRect(this._bootTrackX + 2, this._bootBarY, w, this._bootBarH / 2.6, this._bootBarH / 2);
+        this._bootFill.fillRoundedRect(x, y, w, h, Math.min(h, w) / 2);
+        // brilho recuado nas pontas pra ficar dentro do arredondado (ver BootScene)
+        const hh = h / 2.6, inset = (h - hh) / 2;
+        if (w - 2 * inset >= hh) {
+            this._bootFill.fillStyle(0xffdf7e, 0.55);
+            this._bootFill.fillRoundedRect(x + inset, y, w - 2 * inset, hh, hh / 2);
+        }
     }
 
     _ensureBootTick() {
