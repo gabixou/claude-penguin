@@ -72,6 +72,19 @@ export function zoneProgressOverride() {
     return null;
 }
 
+// ?dayauto=<segundosPorZona> — loop de QA do ciclo completo:
+// dia -> dusk -> noite -> dawn -> dia, tempo igual por zona.
+// Ex.: ?dayauto=20 faz um ciclo de ~80s com os fades visiveis.
+// Tem precedencia sobre ?daynight/?zprog.
+export function dayAutoSeconds() {
+    try {
+        const v = parseFloat(new URLSearchParams(location.search).get('dayauto'));
+        if (Number.isFinite(v) && v > 0) return v;
+        if (new URLSearchParams(location.search).has('dayauto')) return 20;
+    } catch {}
+    return null;
+}
+
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
 // mandar package alternativo (assets/movies-party/<id>/<pack>). A URL
 // diferente ja versiona os caches (packs e layers) por festa.
