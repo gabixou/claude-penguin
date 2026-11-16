@@ -142,22 +142,30 @@ export class RoomInteractions {
         return null;
     }
 
+    // Movie do plano visivel no momento (ciclo dia/noite troca o plano
+    // sem recarregar a sala — as definicoes de botao sao identicas nos
+    // 3 packs, so o estado visual precisa ir pro pack na tela)
+    _movie() {
+        return this.scene._visibleMovie?.() || this.movie;
+    }
+
     // Chamado a cada pointermove — aplica states up/over e hover actions.
     hoverAt(x, y) {
-        if (!this.movie || !this.buttons.length) return;
+        const mv = this._movie();
+        if (!mv || !this.buttons.length) return;
         const b = this.buttonAt(x, y);
         const path = b ? b.path : null;
         if (path === this.hovered) return;
         if (this.hovered) {
             const old = this.buttons.find((o) => o.path === this.hovered);
-            this.movie.setButtonState(this.hovered, 'up');
-            for (const a of old?.hover || []) this.movie.gotoPath(a.path, a.out, false);
+            mv.setButtonState(this.hovered, 'up');
+            for (const a of old?.hover || []) mv.gotoPath(a.path, a.out, false);
         }
         if (b) {
-            this.movie.setButtonState(b.path, 'over');
+            mv.setButtonState(b.path, 'over');
             // hover actions seguram o frame 'over' (gotoAndStop) — como no
             // gp, o estado fica ate o hover-out. playOver toca a animacao.
-            for (const a of b.hover) this.movie.gotoPath(a.path, a.over, !!a.playOver);
+            for (const a of b.hover) mv.gotoPath(a.path, a.over, !!a.playOver);
             if (b.sfxHover !== undefined) playRoomSfx(this.roomKey, b.sfxHover);
         }
         this.hovered = path;
@@ -190,7 +198,7 @@ export class RoomInteractions {
         if (b.game) return { game: b.game };
         // centroide da zona de trigger — resolvido no clique porque o
         // buildCollision pode nao ter terminado quando build() rodou
-        const tw = b.triggerName && this.movie.triggerCenter?.(b.triggerName);
+        const tw = b.triggerName && this._movie()?.triggerCenter?.(b.triggerName);
         const [tx, ty] = tw || b.walk;
         return { x: tx, y: ty };
     }
