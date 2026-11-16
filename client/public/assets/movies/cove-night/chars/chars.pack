@@ -775,7 +775,7 @@
     <path d="M-276.2 74.95 L-315.4 74.95 -315.4 24.05 Q-305.95 17.05 -294.1 16.4 -292.1 16.05 -290.7 14.85 -288.65 13.15 -286.05 12.8 L-274.4 12.3 Q-272.25 12.1 -271.05 10.25 -269.0 7.1 -265.7 5.45 -263.35 4.2 -262.5 1.55 L-261.8 2.25 Q-263.8 7.25 -265.0 12.65 -265.4 14.65 -265.05 16.7 L-264.15 20.7 -281.5 15.65 -287.65 15.8 -288.1 17.65 Q-282.85 21.7 -277.2 25.05 L-275.95 26.45 -270.75 36.05 Q-269.7 38.05 -267.55 37.6 L-266.9 37.45 Q-275.65 44.15 -277.2 55.0 -278.65 65.15 -276.2 74.95" fill="#656b86" fill-rule="evenodd" stroke="none"/>
     <path d="M-255.0 16.8 Q-257.35 18.05 -260.3 18.05 L-263.45 17.55 -264.05 15.85 Q-264.7 13.9 -263.9 12.15 -259.2 10.95 -253.9 10.4 L-255.0 16.8" fill="#100f12" fill-rule="evenodd" stroke="none"/>
     <path d="M-315.4 24.05 L-315.4 17.8 Q-312.65 17.05 -310.0 16.0 -304.75 14.15 -299.35 13.0 -297.95 12.6 -296.7 11.9 -288.05 7.55 -278.5 6.0 -275.8 5.75 -273.3 4.9 -267.95 2.9 -262.5 1.55 -263.35 4.2 -265.7 5.45 -269.0 7.1 -271.05 10.25 -272.25 12.1 -274.4 12.3 L-286.05 12.8 Q-288.65 13.15 -290.7 14.85 -292.1 16.05 -294.1 16.4 -305.95 17.05 -315.4 24.05" fill="url(#gradient4)" fill-rule="evenodd" stroke="none"/>
-    <path d="M35.4 -47.1 L36.3 -47.25" ffdec:has-small-stroke="true" ffdec:original-stroke-width="0.25" fill="none" stroke="#5f5f4e" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.25"/>
+    <path d="M35.4 -47.1 L36.3 -47.25" ffdec:has-small-stroke="true" ffdec:original-stroke-width="0.25" fill="none" stroke="#56544c" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.25"/>
   </g>
   <defs>
     <linearGradient gradientTransform="matrix(-0.0041, 0.0174, -0.0162, -0.0038, -250.55, -2.7)" gradientUnits="userSpaceOnUse" id="gradient0" spreadMethod="pad" x1="-819.2" x2="819.2">
