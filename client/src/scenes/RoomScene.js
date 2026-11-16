@@ -1612,7 +1612,7 @@ export default class RoomScene extends Phaser.Scene {
         // pack primario 100% visivel
         if (!this._cycleEnabled || !this._primaryKind) {
             const k = this._primaryKind || 'day';
-            return { day: 0, twilight: 0, night: 0, [k]: 1 };
+            return { day: 0, twilight: 0, night: 0, [k]: 1, bottom: k, top: null };
         }
         const ov = zoneOverride();
         const zone = ov || this._zone;
@@ -1638,15 +1638,29 @@ export default class RoomScene extends Phaser.Scene {
 
     // aplica os pesos do relogio direto no alpha das imagens — sem tween:
     // o progresso muda devagar (janelas de 1h), entao setAlpha por segundo
-    // ja e suave e evita corrida de tweens
+    // ja e suave e evita corrida de tweens.
+    // Alem do alpha, aplica um viés de depth por plano (bottom=0,
+    // top=+EPS, ocultos=-EPS): os 3 packs tem profundidades identicas
+    // (mesma geometria), entao sem o viés a ordem de composicao seria
+    // a ordem de criacao — o plano que esta subindo precisa ficar
+    // ACIMA do opaco embaixo pro crossfade nao ficar "fantasma".
+    // EPS=0.002 e muito menor que o menor gap entre segmentos e que o
+    // passo de depth dos atores (0.01), entao nao quebra o y-sort.
     _applyZoneWeights() {
         if (!this._movieReady || !this._primaryKind) return;
         const w = this._zoneWeightsNow();
-        for (const img of this._primaryImgs()) img.setAlpha(w[this._primaryKind] ?? 0);
+        const EPS = 0.002;
+        const biasFor = (k) => (k === w.bottom ? 0 : k === w.top ? EPS : -EPS);
+        const paint = (img, kind) => {
+            if (!img) return;
+            if (img._dnBase === undefined) img._dnBase = img.depth;
+            img.setDepth(img._dnBase + biasFor(kind));
+            img.setAlpha(w[kind] ?? 0);
+        };
+        for (const img of this._primaryImgs()) paint(img, this._primaryKind);
         for (const [kind, plane] of Object.entries(this._planes)) {
-            const a = w[kind] ?? 0;
-            for (const s of plane.segs) if (s.img) s.img.setAlpha(a);
-            for (const d of plane.dyns) if (d.img) d.img.setAlpha(a);
+            for (const s of plane.segs) paint(s.img, kind);
+            for (const d of plane.dyns) paint(d.img, kind);
         }
     }
 

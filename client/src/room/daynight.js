@@ -57,28 +57,32 @@ export function zoneProgressFor(zone, now = Date.now()) {
     return 0;
 }
 
-// Pesos dos 3 planos (alpha) para uma zona+progresso.
-// Janelas de transicao: primeira metade = pack "de" sai enquanto
-// twilight entra; segunda metade = twilight sai enquanto "para" entra.
-// Pico de twilight = 1 no meio da janela; fora delas um plano = 1.
+// Estado do fade para uma zona+progresso — crossfade classico em 2
+// etapas por janela (sem "fantasma": nunca dois planos translucidos
+// sobre fundo vazio):
+//   1a metade da janela: plano "de" fica OPACO embaixo, twilight
+//     sobe por cima com alpha 0 -> 1
+//   2a metade: twilight fica opaco embaixo, plano "para" sobe por cima
+//   No ponto medio o twilight esta puro (alpha 1, sozinho)
+// Retorna alpha por plano + quem e bottom/top (RoomScene usa isso
+// pra dar um leve viés de depth e garantir a ordem de composicao).
 export function zoneWeights(zone, progress = 0) {
     const p = Math.min(1, Math.max(0, progress));
-    const tri = 1 - Math.abs(2 * p - 1);
+    const w = { day: 0, twilight: 0, night: 0, bottom: null, top: null };
+    const fade = (b, t, a) => { w[b] = 1; w[t] = a; w.bottom = b; w.top = t; };
     if (zone === 'dawn') {
-        return {
-            night: Math.max(0, 1 - 2 * p),
-            twilight: tri,
-            day: Math.max(0, 2 * p - 1),
-        };
+        // 06:00-06:30 noite->crepusculo | 06:30-07:00 crepusculo->dia
+        if (p < 0.5) fade('night', 'twilight', 2 * p);
+        else fade('twilight', 'day', 2 * p - 1);
+        return w;
     }
     if (zone === 'dusk') {
-        return {
-            day: Math.max(0, 1 - 2 * p),
-            twilight: tri,
-            night: Math.max(0, 2 * p - 1),
-        };
+        // 17:30-18:00 dia->crepusculo | 18:00-18:30 crepusculo->noite
+        if (p < 0.5) fade('day', 'twilight', 2 * p);
+        else fade('twilight', 'night', 2 * p - 1);
+        return w;
     }
-    const w = { day: 0, twilight: 0, night: 0 };
     w[zone] = 1;
+    w.bottom = zone;
     return w;
 }
