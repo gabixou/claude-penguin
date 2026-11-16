@@ -12,8 +12,8 @@
   </g>
   <defs>
     <linearGradient gradientTransform="matrix(0.0, 0.1019, -0.4765, 0.0, 380.95, 66.5)" gradientUnits="userSpaceOnUse" id="gradient0" spreadMethod="pad" x1="-819.2" x2="819.2">
-      <stop offset="0.0" stop-color="#4a2b81"/>
-      <stop offset="1.0" stop-color="#5c35a0"/>
+      <stop offset="0.0" stop-color="#254781"/>
+      <stop offset="1.0" stop-color="#2d569c"/>
     </linearGradient>
   </defs>
 </svg>
