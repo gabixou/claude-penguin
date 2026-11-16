@@ -320,6 +320,9 @@ export default class NetworkClient {
                 this.party = data?.party || null;
                 this.scene.events.emit('party-update', data);
                 break;
+            case 'DAY_NIGHT':
+                this.scene.events.emit('daynight', data);
+                break;
             case 'ERROR':
                 // feedback de moderacao: toast generico (nunca expoe a palavra)
                 if (['CHAT_FILTERED', 'CHAT_RATE_LIMITED', 'NAME_FILTERED', 'CARE_COOLDOWN'].includes(data?.code)) {
