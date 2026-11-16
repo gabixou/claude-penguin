@@ -13,7 +13,7 @@ const ZONES = [
     { from: 360, to: 420, zone: 'dawn' },
     { from: 420, to: 1050, zone: 'day' },
     { from: 1050, to: 1110, zone: 'dusk' },
-    { from: 1110, to: 360 + 1440, zone: 'night' },
+    { from: 1110, to: 360, zone: 'night' },
 ];
 
 const spFmt = new Intl.DateTimeFormat('en-US', {
