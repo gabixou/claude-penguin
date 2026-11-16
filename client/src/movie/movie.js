@@ -183,8 +183,10 @@ export class MovieRoom {
     // _font). Revisita de sala/sprite pula fetch+parse+decode — so o estado
     // de playback (playheads, botoes, dirty sets) e recriado por instancia.
     // LRU por base; catalogos/roupas sao entries pequenas, salas ficam quentes.
+    // 160: os 65 movies penguin-actions + salas + catalogos + roupas nao
+    // podem ficar se evictando durante uma sessao (thrash de load na dance).
     static _sharedAssets = new Map(); // base -> Promise<SharedAssets>
-    static _SHARED_MAX = 24;
+    static _SHARED_MAX = 160;
 
     static async load(base) {
         let entry = MovieRoom._sharedAssets.get(base);

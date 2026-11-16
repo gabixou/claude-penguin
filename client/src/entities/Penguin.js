@@ -85,7 +85,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
         this.view = new PenguinView(lib, color);
         this.view.setLook(this.gpaOutfit || {}, this._viewScale());
         // anel de selecao azul (#3399ff) so no jogador local — como no original
-        if (this.isLocal) this.view.art.set('ring', { visible: true });
+        this.view.setRing(this.isLocal);
 
         const b = lib.bounds;
         const w = lib.viewW, h = lib.viewH;
