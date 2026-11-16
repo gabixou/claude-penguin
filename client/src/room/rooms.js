@@ -62,6 +62,16 @@ export function zoneOverride() {
     return null;
 }
 
+// ?zprog=0..1 — trava o progresso dentro da zona forçada (QA do fade:
+// ex. ?daynight=dusk&zprog=0.5 mostra o pack twilight puro).
+export function zoneProgressOverride() {
+    try {
+        const v = parseFloat(new URLSearchParams(location.search).get('zprog'));
+        if (Number.isFinite(v)) return Math.min(1, Math.max(0, v));
+    } catch {}
+    return null;
+}
+
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
 // mandar package alternativo (assets/movies-party/<id>/<pack>). A URL
 // diferente ja versiona os caches (packs e layers) por festa.

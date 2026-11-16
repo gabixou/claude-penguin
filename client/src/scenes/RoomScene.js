@@ -36,7 +36,7 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride } from '../room/rooms.js';
 import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
@@ -1131,6 +1131,12 @@ export default class RoomScene extends Phaser.Scene {
                 // o relogio no momento do load — os outros viram alternativos)
                 this._primaryBase = movie.base;
                 this._primaryKind = this._kindForBase(roomKey, movie.base);
+                // ciclo so existe se o pack carregado e um dos 3 do ciclo
+                // (sem party substitution nem ?moviepack= fora dele) —
+                // senao a sala fica 100% no pack carregado, qualquer que
+                // seja a zona
+                const cb = this._cycleBases(roomKey);
+                this._cycleEnabled = !!cb && Object.values(cb).includes(movie.base);
                 // Cache de layers (IDB) consultado JA — em paralelo com o
                 // setup abaixo. Hit = sala sem rasterizar nada.
                 const cacheKey = layerCacheKey(base, this._ss, movie);
@@ -1602,18 +1608,23 @@ export default class RoomScene extends Phaser.Scene {
     }
 
     _zoneWeightsNow() {
-        // sala fora do ciclo (interna, sem pack -night): sempre dia
-        if (!this._cycleBases(this.currentRoom)) return { day: 1, twilight: 0, night: 0 };
+        // sala fora do ciclo (interna, pack forçado, party): sempre o
+        // pack primario 100% visivel
+        if (!this._cycleEnabled || !this._primaryKind) {
+            const k = this._primaryKind || 'day';
+            return { day: 0, twilight: 0, night: 0, [k]: 1 };
+        }
         const ov = zoneOverride();
         const zone = ov || this._zone;
-        const progress = ov ? zoneProgressFor(ov) : this._zoneP;
+        const zp = zoneProgressOverride();
+        const progress = zp ?? (ov ? zoneProgressFor(ov) : this._zoneP);
         return zoneWeights(zone, progress);
     }
 
     _tickZone() {
         const ov = zoneOverride();
         if (ov) {
-            const p = zoneProgressFor(ov);
+            const p = zoneProgressOverride() ?? zoneProgressFor(ov);
             if (p !== this._zoneP) { this._zoneP = p; this._applyZoneWeights(); }
             return;
         }
@@ -1806,6 +1817,7 @@ export default class RoomScene extends Phaser.Scene {
         this.movie = null;
         this._primaryKind = null;
         this._primaryBase = null;
+        this._cycleEnabled = false;
         this._interactions?.destroy?.();
         this._interactions = null;
         this._locationImg?.destroy();
