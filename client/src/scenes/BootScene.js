@@ -122,10 +122,16 @@ export default class BootScene extends Phaser.Scene {
                 if (p <= 0) return;
                 const w = Math.max(10, (trackW - 4) * p);
                 // gradiente amarelo->laranja do fill original
+                const fh = capH - 14;
                 fill.fillStyle(0xffc93c, 1);
-                fill.fillRoundedRect(trackX + 2, by + 7, w, capH - 14, (capH - 14) / 2);
-                fill.fillStyle(0xffdf7e, 0.55);
-                fill.fillRoundedRect(trackX + 2, by + 7, w, (capH - 14) / 2.6, (capH - 14) / 2);
+                fill.fillRoundedRect(trackX + 2, by + 7, w, fh, Math.min(fh, w) / 2);
+                // brilho: capsula menor recuada nas pontas — raio maior que a
+                // metade da altura faz o Phaser desenhar cantos "vazando"
+                const hh = fh / 2.6, inset = (fh - hh) / 2;
+                if (w - 2 * inset >= hh) {
+                    fill.fillStyle(0xffdf7e, 0.55);
+                    fill.fillRoundedRect(trackX + 2 + inset, by + 7, w - 2 * inset, hh, hh / 2);
+                }
                 if (p >= 1) this.time.removeAllEvents();
             }
         });
