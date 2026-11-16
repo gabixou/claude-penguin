@@ -36,7 +36,7 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride, dayAutoSeconds } from '../room/rooms.js';
 import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
@@ -1614,6 +1614,18 @@ export default class RoomScene extends Phaser.Scene {
         };
     }
 
+    // ?dayauto — loop de QA: cicla dia -> dusk -> noite -> dawn -> dia
+    // com tempo igual por zona (ver dayAutoSeconds em rooms.js)
+    _dayAutoInfo() {
+        const secs = dayAutoSeconds();
+        if (!secs) return null;
+        if (!this._autoT0) this._autoT0 = Date.now();
+        const ORDER = ['day', 'dusk', 'night', 'dawn'];
+        const pos = ((Date.now() - this._autoT0) / 1000 / secs);
+        const idx = Math.floor(pos) % ORDER.length;
+        return { zone: ORDER[idx], progress: pos % 1 };
+    }
+
     _zoneWeightsNow() {
         // sala fora do ciclo (interna, pack forçado, party): sempre o
         // pack primario 100% visivel
@@ -1621,6 +1633,8 @@ export default class RoomScene extends Phaser.Scene {
             const k = this._primaryKind || 'day';
             return { day: 0, twilight: 0, night: 0, [k]: 1, dim: 0, bottom: k, top: null };
         }
+        const auto = this._dayAutoInfo();
+        if (auto) return zoneWeights(auto.zone, auto.progress);
         const ov = zoneOverride();
         const zone = ov || this._zone;
         const zp = zoneProgressOverride();
@@ -1629,6 +1643,15 @@ export default class RoomScene extends Phaser.Scene {
     }
 
     _tickZone() {
+        const auto = this._dayAutoInfo();
+        if (auto) {
+            if (auto.zone !== this._zone || Math.abs(auto.progress - this._zoneP) > 0.004) {
+                this._zone = auto.zone;
+                this._zoneP = auto.progress;
+                this._applyZoneWeights();
+            }
+            return;
+        }
         const ov = zoneOverride();
         if (ov) {
             const p = zoneProgressOverride() ?? zoneProgressFor(ov);
