@@ -820,6 +820,13 @@ export default class RoomScene extends Phaser.Scene {
         this.gpHud = new VectorHud(this).setDepth(10000000); // acima dos segmentos SWL (max ~900001)
         this.gpHud.onButton((id) => this.handleHudButton(id));
 
+        // overlay do "fade through dark" do ciclo dia/noite: cobre sala
+        // e atores (depth abaixo do HUD), alpha vem de zoneWeights().dim
+        this._dimOverlay = this.add.rectangle(
+            this.scale.width / 2, this.scale.height / 2,
+            this.scale.width + 8, this.scale.height + 8, 0x0a0f1e, 0)
+            .setScrollFactor(0).setDepth(999999).setVisible(false);
+
         // remove inputs de chat de scenes anteriores (restart vaza elementos DOM)
         document.querySelectorAll('input.cp-chat-input').forEach((el) => el.remove());
         // Input de chat DOM sobre o pill central do dock
@@ -1612,7 +1619,7 @@ export default class RoomScene extends Phaser.Scene {
         // pack primario 100% visivel
         if (!this._cycleEnabled || !this._primaryKind) {
             const k = this._primaryKind || 'day';
-            return { day: 0, twilight: 0, night: 0, [k]: 1, bottom: k, top: null };
+            return { day: 0, twilight: 0, night: 0, [k]: 1, dim: 0, bottom: k, top: null };
         }
         const ov = zoneOverride();
         const zone = ov || this._zone;
@@ -1661,6 +1668,12 @@ export default class RoomScene extends Phaser.Scene {
         for (const [kind, plane] of Object.entries(this._planes)) {
             for (const s of plane.segs) paint(s.img, kind);
             for (const d of plane.dyns) paint(d.img, kind);
+        }
+        // fade through dark: escurece a cena inteira na troca de pack
+        const dim = w.dim ?? 0;
+        if (this._dimOverlay) {
+            this._dimOverlay.setAlpha(dim);
+            this._dimOverlay.setVisible(dim > 0.01);
         }
     }
 
