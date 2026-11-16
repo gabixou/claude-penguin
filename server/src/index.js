@@ -15,6 +15,7 @@ import { checkText, allowChat, hashTerm } from './chatFilter.js';
 import * as social from './socialStore.js';
 import * as tables from './tables.js';
 import * as parties from './parties.js';
+import * as daynight from './daynight.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -95,6 +96,16 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     ws.send(JSON.stringify({
         op: 'PLAYER_DATA',
         data
+    }));
+    // ciclo dia/noite: fase atual (relogio America/Sao_Paulo) + ms ate a
+    // proxima virada — o cliente agenda o crossfade
+    ws.send(JSON.stringify({
+        op: 'DAY_NIGHT',
+        data: {
+            phase: daynight.phase(),
+            msUntilFlip: daynight.msUntilFlip(),
+            spTime: daynight.spTimeLabel(),
+        }
     }));
 }
 
@@ -239,6 +250,22 @@ setInterval(() => {
         if (sws.readyState === WebSocket.OPEN) sws.send(payload);
     }
 }, 60 * 1000).unref?.();
+
+// ciclo dia/noite: broadcast na virada de fase (06h/18h SP)
+let lastDayPhase = daynight.phase();
+setInterval(() => {
+    const p = daynight.phase();
+    if (p === lastDayPhase) return;
+    lastDayPhase = p;
+    const payload = JSON.stringify({
+        op: 'DAY_NIGHT',
+        data: { phase: p, msUntilFlip: daynight.msUntilFlip(), spTime: daynight.spTimeLabel() },
+    });
+    for (const [sws] of clientPlayerData) {
+        if (sws.readyState === WebSocket.OPEN) sws.send(payload);
+    }
+    console.log(`[daynight] virada para ${p} (SP ${daynight.spTimeLabel()})`);
+}, 15000).unref?.();
 
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);

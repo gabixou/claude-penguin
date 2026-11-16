@@ -36,7 +36,7 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, movieBaseFor, nightBaseFor, phaseOverride } from '../room/rooms.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
     planRoom, segmentRect, dynRect, drawSegment,
@@ -345,6 +345,13 @@ export default class RoomScene extends Phaser.Scene {
             if (!this.currentRoom || !this._playerReady) return;
             this._initMovie(this.currentRoom);
             this._playMusic(this.currentRoom);
+        });
+
+        // ciclo dia/noite (relogio SP no servidor): fase + crossfade
+        this._phase = phaseOverride() || 'day';
+        this.events.on('daynight', (d) => {
+            const p = phaseOverride() || d?.phase;
+            if (p && p !== this._phase) this._setPhase(p);
         });
 
         // Dados do jogador recebidos - criar pinguim local ou atualizar
@@ -1173,10 +1180,15 @@ export default class RoomScene extends Phaser.Scene {
                     this._movieReady = true;
                     this._booting = false;
                     const finish = () => {
-                        this.loadingScreen?.hide();
-                        // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
-                        // (ficou na fila durante o load para nao competir)
-                        PenguinLibrary.startWarm?.();
+                        // plano noturno alternativo: build em background;
+                        // se a fase atual ja e noite, segura o loader ate
+                        // ele ficar pronto para nao piscar a versao dia
+                        this._initAltMovie(roomKey);
+                        const hide = () => {
+                            this.loadingScreen?.hide();
+                            // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
+                            // (ficou na fila durante o load para nao competir)
+                            PenguinLibrary.startWarm?.();
                         // cache hit: decodifica os SVGs da sala aos poucos, em
                         // idle — prontos quando os overlays animarem
                         if (cacheHit) movie.prefetchSvgs(4);
@@ -1190,6 +1202,13 @@ export default class RoomScene extends Phaser.Scene {
                         this._applySafeSpawn();
                         // iglu: puffles vagando (a location ja foi aguardada)
                         if (roomKey === 'igloo') this._syncIglooPets();
+                        };
+                        if (this._phase === 'night' && this._altReadyP) {
+                            Promise.race([
+                                this._altReadyP,
+                                new Promise((r) => setTimeout(r, 25000)),
+                            ]).finally(hide);
+                        } else hide();
                     };
                     // iglu: segura o loader ate a location (fundo) estar
                     // desenhada — sem isso aparecia fundo preto por segundos
@@ -1535,7 +1554,180 @@ export default class RoomScene extends Phaser.Scene {
         }
     }
 
+    // ---------- Ciclo dia/noite (plano alternativo + crossfade) ----------
+    // O pack primario da sala e sempre o de DIA (dinamicas, interacoes e
+    // colisao intactos). O pack noturno (*-night) vira um segundo plano
+    // construindo em background; a fase decide qual plano esta visivel.
+
+    _initAltMovie(roomKey) {
+        this._clearAltMovie();
+        const base = nightBaseFor(roomKey);
+        if (!base) return;
+        // so faz sentido com o pack padrao do dia carregado (sem party
+        // substitution nem ?moviepack=)
+        const dayBase = `/assets/movies/${MOVIE_ROOM_MAP[roomKey]}`;
+        if (this.movie?.base !== dayBase) return;
+        const ss = this._ss;
+        this._altReadyP = (async () => {
+            try {
+                const movie = await MovieRoom.load(base);
+                movie.warmPlayheads();
+                const { dyns, segments } = planRoom(movie, ss);
+                // segmentos estaticos (canvas cropado + imagem Phaser)
+                const segImgs = [];
+                for (const seg of segments) {
+                    if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                    const r = segmentRect(movie, seg, ss);
+                    if (!r) continue;
+                    const { x0, y0, w, h } = r;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    seg.canvas = canvas; seg.ox = x0; seg.oy = y0;
+                    const texKey = `alt_seg_${roomKey}_${segImgs.length}`;
+                    if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                    const tex = this.textures.addCanvas(texKey, canvas);
+                    const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                        .setDisplaySize(w / ss, h / ss)
+                        .setDepth(seg.depth).setAlpha(0);
+                    seg.tex = tex; seg.img = img; seg.texKey = texKey;
+                    segImgs.push(seg);
+                    await drawSegment(movie, seg, ss);
+                    tex.refresh();
+                    await new Promise((r2) => setTimeout(r2, 0));
+                }
+                // overlays dinamicos
+                const dynImgs = [];
+                for (const d of dyns) {
+                    if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                    const r = dynRect(movie, d, ss);
+                    if (!r) continue;
+                    const { x0, y0, w, h } = r;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    d.canvas = canvas; d.ox = x0; d.oy = y0;
+                    const texKey = `alt_dyn_${roomKey}_${dynImgs.length}`;
+                    if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                    const tex = this.textures.addCanvas(texKey, canvas);
+                    const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                        .setDisplaySize(w / ss, h / ss)
+                        .setDepth(d.depth).setAlpha(0);
+                    d.tex = tex; d.img = img; d.texKey = texKey;
+                    dynImgs.push(d);
+                    try { await movie.renderSpriteDynamic(d, ss); } catch {}
+                    tex.refresh();
+                    await new Promise((r2) => setTimeout(r2, 0));
+                }
+                if (this.currentRoom !== roomKey || this.movie?.base !== dayBase) return;
+                this._alt = { movie, segs: segImgs, dyns: dynImgs };
+                // timer de animacao do plano noturno — so trabalha visivel
+                this._altTimer = this.time.addEvent({
+                    delay: 1000 / (movie.rate || 24), loop: true,
+                    callback: () => this._altTick(),
+                });
+                this._syncPhase(false); // fase atual sem fade (ex.: entrou de noite)
+            } catch (e) {
+                console.warn('[daynight] alt pack', roomKey, e);
+            }
+        })();
+    }
+
+    _altTick() {
+        const a = this._alt;
+        if (!a || this._phase !== 'night') return;
+        a.movie.tick();
+        const dp = a.movie._dirtyPaths || new Set();
+        const fp = a.movie._dirtyForcedPaths || new Set();
+        if (!dp.size && !fp.size) return;
+        const hit = (p, base) => p === base || p.startsWith(base + '.') || p.startsWith(base + '#');
+        for (const d of a.dyns) {
+            if (d._busy || !d.canvas) continue;
+            let dirty = false;
+            for (const p of dp) if (hit(p, d.path)) { dirty = true; break; }
+            if (!dirty) for (const p of fp) if (hit(p, d.path)) { dirty = true; break; }
+            if (!dirty) continue;
+            d._busy = true;
+            a.movie.renderSpriteDynamic(d, this._ss)
+                .then(() => d.tex?.refresh())
+                .catch(() => {})
+                .finally(() => { d._busy = false; });
+        }
+        // segmentos sujos (conteudo animado fora de overlays)
+        for (const seg of a.segs) {
+            if (seg._busy || !seg.paths?.size) continue;
+            let dirty = false;
+            for (const p of dp) if (seg.paths.has(p)) { dirty = true; break; }
+            if (!dirty) for (const p of fp) if (seg.paths.has(p)) { dirty = true; break; }
+            if (!dirty) continue;
+            seg._busy = true;
+            drawSegment(a.movie, seg, this._ss)
+                .then(() => seg.tex?.refresh())
+                .catch(() => {})
+                .finally(() => { seg._busy = false; });
+        }
+    }
+
+    _primaryImgs() {
+        const imgs = [];
+        for (const l of this.movieLayers || []) if (l.img) imgs.push(l.img);
+        for (const d of this._dynList || []) if (d.img) imgs.push(d.img);
+        return imgs;
+    }
+
+    _altImgs() {
+        const a = this._alt;
+        if (!a) return [];
+        const imgs = [];
+        for (const s of a.segs) if (s.img) imgs.push(s.img);
+        for (const d of a.dyns) if (d.img) imgs.push(d.img);
+        return imgs;
+    }
+
+    _setPhase(p) {
+        this._phase = p;
+        this._syncPhase(true);
+    }
+
+    _syncPhase(animate = true) {
+        const a = this._alt;
+        if (!a || !this._movieReady) return;
+        const night = this._phase === 'night';
+        const dur = animate ? 12000 : 0;
+        if (this._phaseTween) { this._phaseTween.forEach((t) => t.stop()); this._phaseTween = null; }
+        const tweens = [];
+        for (const img of this._primaryImgs()) {
+            tweens.push(this.tweens.add({
+                targets: img, alpha: night ? 0 : 1, duration: dur,
+                ease: 'Sine.easeInOut',
+            }));
+        }
+        for (const img of this._altImgs()) {
+            tweens.push(this.tweens.add({
+                targets: img, alpha: night ? 1 : 0, duration: dur,
+                ease: 'Sine.easeInOut',
+            }));
+        }
+        this._phaseTween = tweens;
+    }
+
+    _clearAltMovie() {
+        if (this._altTimer) { this._altTimer.remove(); this._altTimer = null; }
+        const a = this._alt;
+        if (a) {
+            for (const s of a.segs) {
+                s.img?.destroy();
+                if (s.texKey && this.textures.exists(s.texKey)) this.textures.remove(s.texKey);
+            }
+            for (const d of a.dyns) {
+                d.img?.destroy();
+                if (d.texKey && this.textures.exists(d.texKey)) this.textures.remove(d.texKey);
+            }
+        }
+        this._alt = null;
+        this._altReadyP = null;
+    }
+
     _clearMovie() {
+        this._clearAltMovie();
         this.catalogue?.close();
         if (this.movieTimer) { this.movieTimer.remove(); this.movieTimer = null; }
         if (this.movieLayers) {

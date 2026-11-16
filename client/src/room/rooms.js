@@ -21,9 +21,10 @@ export function initialRoom() {
     catch { return 'town'; }
 }
 
-// Exploracao dia/noite: salas externas com pack noturno gerado por remap
-// de paleta a partir das versoes Halloween 2008 (geometria do pack dia,
-// zero decoracao). So usado no preview :3100.
+// Ciclo dia/noite: salas externas com pack noturno (*-night) gerado por
+// remap de paleta a partir das versoes Halloween 2008 — geometria do pack
+// dia, zero decoracao. O plano noturno e o ALTERNADO (crossfade); o pack
+// primario da sala continua sendo o de dia.
 export const NIGHT_ROOM_MAP = {
     town: 'town-night', plaza: 'plaza-night', dock: 'dock-night',
     beach: 'beach-night', cove: 'cove-night', forest: 'forest-night',
@@ -31,10 +32,25 @@ export const NIGHT_ROOM_MAP = {
     village: 'village-night', forts: 'forts-night', dojoext: 'dojoext-night',
 };
 
-// Preview de testes na porta 3100 mostra sempre a versao noturna das
-// salas externas mapeadas; qualquer outra porta/ambiente segue o normal.
-function nightMode() {
-    try { return location.port === '3100'; } catch { return false; }
+// Base do pack noturno alternativo da sala (null = sala nao participa
+// do ciclo — internas e salas sem pack -night).
+export function nightBaseFor(roomKey) {
+    const pack = NIGHT_ROOM_MAP[roomKey];
+    return pack ? `/assets/movies/${pack}` : null;
+}
+
+// Fase forçada por URL para testes: ?daynight=day|night. Sem override,
+// a fase vem do servidor (relogio America/Sao_Paulo). Na porta 3100 o
+// default continua sendo noite (preview).
+export function phaseOverride() {
+    try {
+        const v = new URLSearchParams(location.search).get('daynight');
+        if (v === 'day' || v === 'night') return v;
+    } catch {}
+    try {
+        if (location.port === '3100') return 'night';
+    } catch {}
+    return null;
 }
 
 // Base do pacote vetorial da sala — durante uma festa, o servidor pode
@@ -50,8 +66,5 @@ export function movieBaseFor(roomKey, party = null) {
         const mp = new URLSearchParams(location.search).get('moviepack');
         if (mp) return `/assets/movies/${mp}`;
     } catch {}
-    if (nightMode() && NIGHT_ROOM_MAP[roomKey]) {
-        return `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`;
-    }
     return `/assets/movies/${pack}`;
 }
