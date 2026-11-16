@@ -1822,6 +1822,20 @@ export default class RoomScene extends Phaser.Scene {
         }
     }
 
+    // Movie do plano VISIVEL no momento — as interacoes (hover/click)
+    // precisam agir no pack que esta na tela, nao no primario do load:
+    // quem entrou de noite (primary=*-night) e depois o relogio virou
+    // dia ve o plano 'day' alternativo, e o hover no primario ficava
+    // invisivel. Fade-through-dark: um pack por vez -> w.bottom.
+    _visibleMovie() {
+        if (!this.movie) return null;
+        if (!this._cycleEnabled || !this._primaryKind) return this.movie;
+        const w = this._zoneWeightsNow();
+        const kind = w.bottom || this._primaryKind;
+        if (kind === this._primaryKind) return this.movie;
+        return this._planes?.[kind]?.movie || this.movie;
+    }
+
     _primaryImgs() {
         const imgs = [];
         for (const l of this.movieLayers || []) if (l.img) imgs.push(l.img);
