@@ -42,6 +42,10 @@ const rooms = new Map();
 const clientSessions = new Map();
 // Mapeamento de socket para dados persistentes do jogador (playerData)
 const clientPlayerData = new Map();
+// "Room ball" (disco do Hockey Rink): estado do puck por sala.
+// { roomId: { x, y, vx, vy } } — coords LOCAIS ao game_mc do pack,
+// igual ao protocolo z/gz + z/m do SWF original.
+const roomBalls = new Map();
 
 const PAPERDOLL_SLOTS = ['feet', 'body', 'neck', 'hand', 'face', 'head'];
 // flag/photo = cosméticos do player card (pin/bandeira e fundo) — persistem
@@ -701,6 +705,36 @@ function handlePacket(ws, req, packet) {
                     targetX: cx,
                     targetY: cy
                 }
+            }, ws);
+            break;
+        }
+
+        case 'PUCK_GET': {
+            // z/gz do original: responde o estado atual do disco da sala
+            const session = clientSessions.get(ws);
+            if (!session) return;
+            const ball = roomBalls.get(session.roomId) || { x: 0, y: 0, vx: 0, vy: 0 };
+            ws.send(JSON.stringify({ op: 'PUCK_STATE', data: { ...ball } }));
+            break;
+        }
+
+        case 'PUCK_HIT': {
+            // z/m do original: um jogador "chutou" o disco — guarda e
+            // retransmite para a sala (cada cliente roda a mesma fisica)
+            const session = clientSessions.get(ws);
+            if (!session) return;
+            const num = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? Math.max(-2000, Math.min(2000, n)) : 0;
+            };
+            const ball = {
+                x: num(data.x), y: num(data.y),
+                vx: num(data.vx), vy: num(data.vy),
+            };
+            roomBalls.set(session.roomId, ball);
+            broadcastToRoom(session.roomId, {
+                op: 'PUCK_HIT',
+                data: { playerId: session.playerId, ...ball }
             }, ws);
             break;
         }

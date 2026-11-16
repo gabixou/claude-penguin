@@ -12,7 +12,9 @@ export const MOVIE_ROOM_MAP = {
     // destinos do mapa da ilha (map.swf)
     mtn: 'mtn', cove: 'cove', shack: 'shack', berg: 'berg',
     // iglu proprio do jogador (Fase 3) — pack igloos/1.swf do wand
-    igloo: 'igloo'
+    igloo: 'igloo',
+    // sala School (porta direita do rink — Stadium.as sendJoinRoom("school"))
+    school: 'school'
 };
 
 // Sala inicial (?room=<id>), mesma regra do RoomScene
@@ -46,6 +48,31 @@ export function twilightBaseFor(roomKey) {
     const pack = MOVIE_ROOM_MAP[roomKey];
     return NIGHT_ROOM_MAP[roomKey] ? `/assets/movies/${pack}-twilight` : null;
 }
+
+// Entradas de debug/collision do SWF que o original esconde via AS
+// (BaseRoom: block_mc/triggers_mc; HockeyGame/BallGroup: boundingBox,
+// netBlocks e os marcadores p0..p11 — todos _visible=false). Sem isso o
+// rink mostra o retangulo vermelho do bounding box e os pontinhos verdes
+// do rink. Paths dot-notation do stage -> movie.set(path,{visible:false}).
+export const HIDDEN_ROOM_PATHS = {
+    rink: [
+        'game_mc.boundingBox_mc',
+        'game_mc.netBlockLeft_mc', 'game_mc.netBlockRight_mc',
+        'game_mc.puck_mc', // disco vira sprite proprio (RinkPuck) p/ se mover
+        ...Array.from({ length: 12 }, (_, i) => `game_mc.p${i}`),
+    ],
+};
+
+// Clipes de clima do rink (WeatherEffectsManager do AS3): nuvens, relampago,
+// sombras e "tie" so animam durante dancas de ninja elemental — o default e
+// 'off'. Sem o pino o tick linear cicla enter/on/leave = nuvens e luzes
+// "muito rapidas". paths relativos a background_mc (sufixo p/ gotoPath).
+export const RINK_PINNED_CLIPS = [
+    'weatherEffects_mc.cloudsEffect.cloudsEffectColor',
+    'weatherEffects_mc.lightningEffect',
+    'weatherEffects_mc.shadowEffect',
+    'weatherEffects_mc.tieEffect',
+];
 
 // Fase/zona forçada por URL para testes: ?daynight=day|night|dawn|dusk.
 // Sem override, a zona vem do relogio local (America/Sao_Paulo, mesma

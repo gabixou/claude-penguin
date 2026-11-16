@@ -36,8 +36,9 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride, dayAutoSeconds } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, HIDDEN_ROOM_PATHS, RINK_PINNED_CLIPS, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride, dayAutoSeconds } from '../room/rooms.js';
 import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
+import RinkPuck from '../room/RinkPuck.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
     planRoom, segmentRect, dynRect, drawSegment,
@@ -459,6 +460,11 @@ export default class RoomScene extends Phaser.Scene {
     setupNetworkEvents() {
         this.events.on('room-state', (data) => {
             if (!data || !data.players) return;
+            // room ball: o JOIN_ROOM pode ter saido antes do pack carregar —
+            // (re) pede o estado do disco quando a sala confirma a entrada
+            if (this.currentRoom === 'rink' && this.rinkPuck && !this.rinkPuck._gotState) {
+                this.rinkPuck.requestState();
+            }
             this.clearRemotePlayers();
             data.players.forEach(p => {
                 if (p.playerId === this.network.playerId) {
@@ -502,6 +508,19 @@ export default class RoomScene extends Phaser.Scene {
         this.events.on('player-joined', (data) => {
             if (!data || data.playerId === this.network.playerId) return;
             this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username, data.action, data.pet);
+        });
+
+        // room ball (Hockey Rink): estado inicial (PUCK_STATE) e chute
+        // de outro jogador (PUCK_HIT — o proprio ja aplicou localmente)
+        this.events.on('puck-state', (data) => {
+            if (!data || !this.rinkPuck) return;
+            this.rinkPuck._gotState = true;
+            this.rinkPuck.hitPuck(data.x || 0, data.y || 0, 0, 0);
+        });
+        this.events.on('puck-hit', (data) => {
+            if (!data || !this.rinkPuck) return;
+            if (data.playerId === this.network.playerId) return;
+            this.rinkPuck.hitPuck(data.x || 0, data.y || 0, data.vx || 0, data.vy || 0);
         });
 
         // pet de outro jogador equipou/desequipou na sala
@@ -759,6 +778,7 @@ export default class RoomScene extends Phaser.Scene {
         if (this.iglooPetViews?.size) {
             for (const v of this.iglooPetViews.values()) v.tick(dt);
         }
+        this.rinkPuck?.update(delta);
     }
 
     // Retorna o pinguim (local ou remoto) sob o ponto, ou null.
@@ -961,6 +981,7 @@ export default class RoomScene extends Phaser.Scene {
     // Mapa da ilha: painel vetorial map.swf (IslandMap) — substitui o grid antigo
     createMapModal() {
         this.islandMap = new IslandMap(this);
+        this.islandMap.preload(); // pack do mapa fica pronto antes do 1o clique
     }
 
     toggleMap() {
@@ -1134,6 +1155,14 @@ export default class RoomScene extends Phaser.Scene {
                 mark(`room-pack:${roomKey}`);
                 this.movie = movie;
                 this.movie.setScale(this._ss);
+                // debug/collision do SWF que o AS original escondia (_visible=false)
+                for (const p of HIDDEN_ROOM_PATHS[roomKey] || []) movie.set(p, { visible: false });
+                // room ball do Hockey Rink (z/gz + z/m do original)
+                if (roomKey === 'rink') {
+                    this.rinkPuck?.destroy();
+                    this.rinkPuck = new RinkPuck(this, movie);
+                    this.rinkPuck.requestState();
+                }
                 // plano do pack da zona atual (dia/noite/twilight conforme
                 // o relogio no momento do load — os outros viram alternativos)
                 this._primaryBase = movie.base;
@@ -1151,6 +1180,11 @@ export default class RoomScene extends Phaser.Scene {
                 // cria playheads sem rasterizar — sem isso, rooms vindos do
                 // cache IndexedDB ficavam com animacao congelada
                 movie.warmPlayheads();
+                // clipes de clima do rink ficam em 'off' (default do
+                // WeatherEffectsManager — so animam em danca elemental)
+                if (roomKey === 'rink') {
+                    for (const p of RINK_PINNED_CLIPS) movie.gotoPath(p, 'off', false);
+                }
                 // sprites animados viram overlays proprios: as layers ficam
                 // estaticas (1 render + 0 uploads por frame) e so os
                 // overlays pequenos atualizam por tick
@@ -1879,6 +1913,8 @@ export default class RoomScene extends Phaser.Scene {
         }
         this._segments = null;
         this.movie = null;
+        this.rinkPuck?.destroy();
+        this.rinkPuck = null;
         this._primaryKind = null;
         this._primaryBase = null;
         this._cycleEnabled = false;

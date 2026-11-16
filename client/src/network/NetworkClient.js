@@ -279,6 +279,13 @@ export default class NetworkClient {
         this.send('PLAYER_ACTION', { action: action || null });
     }
 
+    // Room ball (Hockey Rink): pede o estado atual do disco (z/gz original)
+    // e avisa quando o jogador local "chuta" o disco (z/m original).
+    sendPuckGet() { this.send('PUCK_GET', {}); }
+    sendPuckHit(x, y, vx, vy) {
+        this.send('PUCK_HIT', { x, y, vx, vy });
+    }
+
     // ---------- Social (fase 1) ----------
 
     getSocial() {
@@ -385,6 +392,12 @@ export default class NetworkClient {
                 break;
             case 'PLAYER_PET_CARE':
                 this.scene.events.emit('player-pet-care', data);
+                break;
+            case 'PUCK_STATE':
+                this.scene.events.emit('puck-state', data);
+                break;
+            case 'PUCK_HIT':
+                this.scene.events.emit('puck-hit', data);
                 break;
             default:
                 this.scene.events.emit('packet-' + op, data);

@@ -914,10 +914,24 @@ export class MovieRoom {
         if (!h) {
             h = { tl, frame: 1, stopped: false, path, sid: tlId };
             // clips de idioma (letreiros): frames segmentados por idioma,
-            // o script original faz gotoAndStop(language) — fixamos o frame
-            const langs = ['english', 'portuguese', 'french', 'spanish'];
-            if (langs.some((l) => tl.labels?.[l] !== undefined)) {
-                h.frame = tl.labels[this.language] ?? tl.labels.english ?? 1;
+            // o script original faz gotoAndStop(language) — fixamos o frame.
+            // SWFs antigos usam rotulos de 2 letras (en/pt/fr/es/de/ru —
+            // ex.: fishdog_mc, boxseats_mc, sports_mc do rink), os novos
+            // usam nome completo (english/portuguese/... do map.swf).
+            const LANG_KEYS = {
+                english: ['english', 'en'], portuguese: ['portuguese', 'pt'],
+                french: ['french', 'fr'], spanish: ['spanish', 'es'],
+                german: ['german', 'de'], russian: ['russian', 'ru'],
+            };
+            const allLangKeys = Object.values(LANG_KEYS).flat();
+            if (allLangKeys.some((l) => tl.labels?.[l] !== undefined)) {
+                const keys = [...(LANG_KEYS[this.language] || [this.language]), 'english', 'en'];
+                let lf = null;
+                for (const k of keys) {
+                    const v = tl.labels?.[k];
+                    if (typeof v === 'number') { lf = v; break; }
+                }
+                h.frame = lf ?? 1;
                 h.stopped = true;
                 this._playheadAll.set(key, h);
                 this._playheads.set(path, h);
