@@ -153,6 +153,48 @@ CREATE TABLE IF NOT EXISTS player_party (
     FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE,
     FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
 );
+
+-- Igloo pessoal (fase 3): um iglu por jogador. type = igloo_id do
+-- catalogo (exterior/interior base), location = tema (1-8 do wand),
+-- floor = igloo_floor_id, music = faixa do igloo_music_tracks.
+CREATE TABLE IF NOT EXISTS igloos (
+    player_id TEXT PRIMARY KEY,
+    igloo_type INTEGER NOT NULL DEFAULT 1,
+    location INTEGER NOT NULL DEFAULT 1,
+    floor INTEGER NOT NULL DEFAULT 0,
+    music INTEGER NOT NULL DEFAULT 0,
+    password TEXT,
+    friends_only INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+-- Mobília posicionada no iglu (grade do editor). slot = indice estavel
+-- para reorder/remove; x/y em celulas do grid, rotation/frame opcionais.
+CREATE TABLE IF NOT EXISTS igloo_items (
+    player_id TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    x INTEGER NOT NULL,
+    y INTEGER NOT NULL,
+    rotation INTEGER NOT NULL DEFAULT 0,
+    frame INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (player_id, slot),
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_igloo_items_player ON igloo_items(player_id);
+
+-- Inventario de mobília/pisos/tipos de iglu comprados (separado do
+-- inventario de roupas — ids de furniture colidem com ids de items.json).
+CREATE TABLE IF NOT EXISTS igloo_inventory (
+    player_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (player_id, kind, item_id),
+    FOREIGN KEY (player_id) REFERENCES players(player_id) ON DELETE CASCADE
+);
 `;
 
 // Executa o schema

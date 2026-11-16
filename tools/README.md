@@ -13,6 +13,7 @@ originais do Club Penguin (timelines.json + SVGs packed + packs
 | `set-edition.mjs` | Grava `validFrom`/`validTo` em itens do `items.json` para rodar edições de catálogo por data. `--clear` remove a vigência. |
 | `make-state-pins.mjs` | Gera os pins das bandeiras dos 26 estados + DF (itens `9500`–`9526`, 20 moedas): ícones em `icons/<id>/`, entradas no `items.json`/`icons/index.json` e a variante `catalogues/clothing-br` (páginas 19–20 do catálogo de roupas com os estados; reaproveita os packs do original). O jogador alterna "Países / Estados do Brasil" no topo dessas páginas. Idempotente; depois de rodar, reinicie o servidor. Conferência visual: `catalogues/clothing-br/preview.html`. |
 | `swf2movie.mjs` | Converte um `.swf` (AS2) para o formato movie do cliente (`timelines.json` + `chars/*.pack`) usando o JPEXS FFDec. Precisa do Java portátil e do FFDec em `C:devswf-tools` (ou `--java`/`--ffdec`). Ex.: `node tools/swf2movie.mjs C:devswf-toolsswfMancala.swf client/public/assets/movies/games/mancala`. |
+| `fetch-swf.mjs` | Baixa SWFs **originais** do Club Penguin do Wayback Machine (o repo `d3spi/Club-Penguin-SWF-Archive` não hospeda os arquivos — só documenta o acervo). Resolve o snapshot mais recente via CDX e salva em `tools/swfs/<host>/<path>`. Ex.: `node tools/fetch-swf.mjs interface.swf`, `node tools/fetch-swf.mjs artwork/maps/15.swf`, `node tools/fetch-swf.mjs --search "catalogue/clothing"`, `--flat` para basename, `--ts` para snapshot fixo. |
 
 Exemplos:
 

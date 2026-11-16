@@ -682,8 +682,11 @@ export default class PlayerCard {
                 }
                 break;
             }
-            case 'report':
             case 'home':
+                // "home" do card = visitar o iglu do jogador (proprio ou buddy)
+                if (this.penguin?.playerId) scene.visitIgloo?.(this.penguin.playerId);
+                break;
+            case 'report':
             case 'mail':
             case 'stamps':
                 // acoes ainda sem backend — so feedback

@@ -234,7 +234,7 @@ export default class NetworkClient {
 
     // ---------- Ações do Jogador ----------
 
-    joinRoom(roomId = 'town', x = 400, y = 300) {
+    joinRoom(roomId = 'town', x = 400, y = 300, password) {
         if (!this.playerId) {
             console.warn('[NetworkClient] Tentativa de entrar na sala antes de autenticar');
             return;
@@ -242,7 +242,8 @@ export default class NetworkClient {
         this.send('JOIN_ROOM', {
             roomId,
             x,
-            y
+            y,
+            password: password || undefined
         });
     }
 
@@ -285,6 +286,15 @@ export default class NetworkClient {
     sendPuckHit(x, y, vx, vy) {
         this.send('PUCK_HIT', { x, y, vx, vy });
     }
+
+    // ---------- igloo (fase 3) ----------
+    sendIglooGet(ownerId, password) {
+        this.send('IGLOO_GET', { ownerId, password: password || undefined });
+    }
+    sendIglooSave(patch) { this.send('IGLOO_SAVE', patch); }
+    sendIglooPerms(patch) { this.send('IGLOO_PERMS', patch); }
+    sendIglooBuy(kind, itemId) { this.send('IGLOO_BUY', { kind, itemId }); }
+    sendIglooInventory() { this.send('IGLOO_INVENTORY', {}); }
 
     // ---------- Social (fase 1) ----------
 
@@ -398,6 +408,12 @@ export default class NetworkClient {
                 break;
             case 'PUCK_HIT':
                 this.scene.events.emit('puck-hit', data);
+                break;
+            case 'IGLOO_STATE':
+                this.scene.events.emit('igloo-state', data);
+                break;
+            case 'IGLOO_INVENTORY':
+                this.scene.events.emit('igloo-inventory', data?.inventory || []);
                 break;
             default:
                 this.scene.events.emit('packet-' + op, data);

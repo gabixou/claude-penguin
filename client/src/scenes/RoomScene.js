@@ -38,6 +38,7 @@ import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
 import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, HIDDEN_ROOM_PATHS, RINK_PINNED_CLIPS, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride, dayAutoSeconds } from '../room/rooms.js';
 import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
+import { IglooManager } from '../igloo/IglooManager.js';
 import RinkPuck from '../room/RinkPuck.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
@@ -145,6 +146,9 @@ export default class RoomScene extends Phaser.Scene {
             // catalogo aberto: cliques vao para ele, nao para a sala
             if (this.catalogue?.isOpen) { this.catalogue.clickAt(wx, wy); return; }
 
+            // editor de iglu aberto: cliques vao para a grade/palette
+            if (this._iglooEditing) return;
+
             // botoes de conteudo do cenario (ex.: clothing_btn da Gift Shop)
             // ficam na faixa inferior junto ao HUD — resolvem antes do
             // bloqueio de clique na area do dock, senao nunca abrem
@@ -236,6 +240,11 @@ export default class RoomScene extends Phaser.Scene {
         this.petViews = new Map(); // ownerPlayerId -> PuffleView
         this.iglooPetViews = new Map(); // petRowId -> PuffleView (wander no iglu)
         this._iglooReturn = null; // sala de origem ao entrar no iglu
+        this._iglooVisit = null;  // playerId do iglu visitado (null = proprio)
+        this._iglooPassword = null;
+        this.igloo = new IglooManager(this);
+        // boot direto em ?room=igloo nao passa por changeRoom — entra aqui
+        if (this.currentRoom === 'igloo') this.igloo.enter(this._netRoomId('igloo'));
         // 6e. Prompt autenticico (interface_mc.prompt_mc) — requests de buddy
         this.promptUI = new PromptUI(this);
         this.events.on('buddy-request', (d) => {
@@ -407,6 +416,19 @@ export default class RoomScene extends Phaser.Scene {
             } else if (data.code === 'CARE_COOLDOWN') {
                 // cooldown de cuidado do pet: o PuffleCard mostra o aviso
                 // na propria interface — nao poluir o chat do pinguim
+            } else if (data.code === 'IGLOO_PASSWORD') {
+                // iglu com senha: pede e tenta o JOIN_ROOM de novo
+                const pw = prompt('Este igloo tem senha:');
+                if (pw) {
+                    this._iglooPassword = pw;
+                    this.network.joinRoom(this._netRoomId(this.currentRoom),
+                        this.localPlayer?.x ?? 380, this.localPlayer?.y ?? 320, pw);
+                } else {
+                    this._leaveIgloo();
+                }
+            } else if (data.code === 'IGLOO_FRIENDS' || data.code === 'IGLOO_NOT_FOUND' || data.code === 'IGLOO_LOCKED') {
+                this.localPlayer?.showChat?.(`(${data.message || 'Igloo restrito'})`);
+                this._leaveIgloo();
             } else {
                 // Erro genérico - mostra no chat ou alert
                 this.localPlayer?.showChat?.(`Erro: ${data.message || 'Erro de conexão'}`);
@@ -690,7 +712,7 @@ export default class RoomScene extends Phaser.Scene {
     // fica para depois — o id igloo-<playerId> passa no regex do server)
     _netRoomId(roomKey) {
         return roomKey === 'igloo' && this.network?.playerId
-            ? `igloo-${this.network.playerId}`
+            ? `igloo-${this._iglooVisit || this.network.playerId}`
             : roomKey;
     }
 
@@ -698,7 +720,20 @@ export default class RoomScene extends Phaser.Scene {
         if (this.currentRoom === 'igloo') return;
         if (!this._playerReady || !this.localPlayer) return;
         this._iglooReturn = this.currentRoom;
+        this._iglooVisit = null;
+        this._iglooPassword = null;
         // spawn do AS do igloo (start_x/start_y); a safe spawn ajusta
+        this.changeRoom('igloo', 380, 320);
+    }
+
+    // visita o iglu de outro jogador (player card "home" / buddy list)
+    visitIgloo(ownerId, password = null) {
+        if (!ownerId || !this._playerReady || !this.localPlayer) return;
+        if (ownerId === this.network?.playerId) { this._enterIgloo(); return; }
+        if (this.currentRoom === 'igloo' && this._iglooVisit === ownerId) return;
+        this._iglooReturn = this.currentRoom;
+        this._iglooVisit = ownerId;
+        this._iglooPassword = password;
         this.changeRoom('igloo', 380, 320);
     }
 
@@ -892,6 +927,7 @@ export default class RoomScene extends Phaser.Scene {
         // o rect real do chat_mc so existe depois do build async do VectorHud
         this.events.on('vectorhud:ready', () => { mark('hud-ready'); this._layoutChatInput(); });
         this.events.once('shutdown', () => chatInput.remove());
+        this.events.once('shutdown', () => this.igloo?.leave());
         this.events.once('shutdown', () => musicPlayer.stop());
         this.events.once('shutdown', () => this._minigame?.close());
     }
@@ -1929,7 +1965,10 @@ export default class RoomScene extends Phaser.Scene {
         if (this.currentRoom === newRoomKey) return;
         if (!this._playerReady || !this.localPlayer) return;
         // saida do iglu por outra via (mapa da ilha etc.) limpa o retorno
-        if (newRoomKey !== 'igloo') this._iglooReturn = null;
+        if (newRoomKey !== 'igloo') {
+            this._iglooReturn = null; this._iglooVisit = null; this._iglooPassword = null;
+            this.igloo?.leave();
+        } else this.igloo?.enter(this._netRoomId('igloo'));
         this.playerCard?.close();
         this._closeMinigame();
         // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
@@ -1947,7 +1986,8 @@ export default class RoomScene extends Phaser.Scene {
         this.localPlayer.updateDepth();
 
         this.clearRemotePlayers();
-        this.network.joinRoom(this._netRoomId(newRoomKey), startX, startY);
+        this.network.joinRoom(this._netRoomId(newRoomKey), startX, startY,
+            newRoomKey === 'igloo' ? this._iglooPassword : null);
 
         if (this.mapOpen) {
             this.toggleMap();

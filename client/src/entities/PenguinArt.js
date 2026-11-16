@@ -455,10 +455,10 @@ export class PenguinView {
         // roupa ainda carregando: segura o frame anterior — quando o ultimo
         // item chega, _resetLayers zera os playheads de corpo+roupas juntos
         // e a animacao recomeça sincronizada do frame 1
-        if ((this._pendingItems || 0) > 0) return false;
+        if ((this._pendingItems || 0) > 0) return this._frameWait();
         const af = this.animationFrame;
         const body = this._bodyFor(af);
-        if (!body) return false; // movie de acao ainda carregando
+        if (!body) return this._frameWait(); // movie de acao ainda carregando
         const items = [...this.items.values()];
         let ok = body.clip.m?.frameReady?.(body.frame) ?? true;
         for (const it of items) {
@@ -469,8 +469,9 @@ export class PenguinView {
         }
         if (!ok) {
             this._kick(body.clip.m, body.frame);
-            return false;
+            return this._frameWait();
         }
+        this._frzSince = 0;
         if (this.drawnFrame !== af || this._resetLayers) {
             body.clip.resetPlayback();
             for (const it of items) it.resetPlayback();
@@ -478,6 +479,17 @@ export class PenguinView {
         }
         this.drawnFrame = af;
         this._activeAction = body.clip === this.art ? null : body.clip;
+        return true;
+    }
+
+    // Se o frame demorar demais para ficar pronto (decode de SVG pode
+    // estagnar atras da fila de imagens), libera o desenho parcial —
+    // melhor uma pose incompleta do que o pinguim congelado para sempre.
+    _frameWait() {
+        const now = performance.now();
+        if (!this._frzSince) { this._frzSince = now; return false; }
+        if (now - this._frzSince < 4000) return false;
+        this._frzSince = 0;
         return true;
     }
 

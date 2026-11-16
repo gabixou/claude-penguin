@@ -34,7 +34,11 @@ if (!swfPath || !outDir) { console.error('uso: node tools/swf2movie.mjs <arquivo
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'swf2movie-'));
 const xmlPath = path.join(work, 'swf.xml');
 const exp = path.join(work, 'export');
-const ffdec = (...a) => execFileSync(JAVA, ['-jar', FFDEC, ...a], { stdio: ['ignore', 'ignore', 'inherit'], maxBuffer: 1 << 28 });
+// FFDEC pode ser o .jar (chamado via java) ou o ffdec-cli.exe autocontido
+const ffdecExe = FFDEC.toLowerCase().endsWith('.exe');
+const ffdec = (...a) => ffdecExe
+    ? execFileSync(FFDEC, a, { stdio: ['ignore', 'ignore', 'inherit'], maxBuffer: 1 << 28 })
+    : execFileSync(JAVA, ['-jar', FFDEC, ...a], { stdio: ['ignore', 'ignore', 'inherit'], maxBuffer: 1 << 28 });
 console.log('[swf2movie] FFDec: XML...');
 ffdec('-swf2xml', swfPath, xmlPath);
 console.log('[swf2movie] FFDec: shapes, textos, fontes e scripts...');

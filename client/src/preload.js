@@ -7,7 +7,7 @@
 //   - WebSocket             -> adotado pelo NetworkClient (ja autenticado)
 // Importado PRIMEIRO pelo main.js.
 import { MovieRoom } from './movie/movie.js';
-import { PenguinLibrary } from './entities/PenguinArt.js';
+import { PenguinLibrary, ACTION_FRAMES } from './entities/PenguinArt.js';
 import NetworkClient from './network/NetworkClient.js';
 import { initialRoom, movieBaseFor } from './room/rooms.js';
 import { mark } from './perf.js';
@@ -35,3 +35,24 @@ MovieRoom.load('/assets/movies/interface').catch(() => {});
 
 export const earlyPenguinLibrary = PenguinLibrary.load();
 earlyPenguinLibrary.catch(() => {});
+
+// Dancas/emotes: baixa os packs dos penguin-actions para o IDB em idle —
+// a primeira pose de acao de cada look nao espera fetch+parse de pack.
+// Sequencial e pausado quando a main thread esta ocupada; IDB deduplica
+// no proximo load, entao e custo unico por sessao/navegador.
+earlyPenguinLibrary.then(() => {
+    const ids = [...ACTION_FRAMES];
+    let i = 0;
+    const step = () => {
+        if (i >= ids.length) return;
+        MovieRoom.prefetchRoom(`/assets/movies/penguin-actions/${ids[i++]}`)
+            .catch(() => {}).finally(() => {
+                if (typeof requestIdleCallback === 'function')
+                    requestIdleCallback(step, { timeout: 3000 });
+                else setTimeout(step, 200);
+            });
+    };
+    if (typeof requestIdleCallback === 'function')
+        requestIdleCallback(step, { timeout: 3000 });
+    else setTimeout(step, 500);
+}).catch(() => {});
