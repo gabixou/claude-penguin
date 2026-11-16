@@ -28,7 +28,7 @@ export const NIGHT_ROOM_MAP = {
     town: 'town-night', plaza: 'plaza-night', dock: 'dock-night',
     beach: 'beach-night', cove: 'cove-night', forest: 'forest-night',
     berg: 'berg-night', mtn: 'mtn-night',
-    village: 'village-night', forts: 'forts-night',
+    village: 'village-night', forts: 'forts-night', dojoext: 'dojoext-night',
 };
 
 // Preview de testes na porta 3100 mostra sempre a versao noturna das
