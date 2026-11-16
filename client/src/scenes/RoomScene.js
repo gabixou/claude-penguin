@@ -36,7 +36,8 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, movieBaseFor, nightBaseFor, phaseOverride } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride } from '../room/rooms.js';
+import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
     planRoom, segmentRect, dynRect, drawSegment,
@@ -65,10 +66,13 @@ export default class RoomScene extends Phaser.Scene {
         this.mapOpen = false;
         this.clothesOpen = false;
         this._ss = 2; // fator de supersampling inicial (ajustado por applySupersampling)
-        // fase do ciclo dia/noite — precisa existir ANTES do primeiro
-        // _initMovie (linha ~88) para o pack primario ja nascer na fase
-        // certa; o servidor confirma/refina via evento 'daynight'
-        this._phase = phaseOverride() || 'day';
+        // zona do ciclo dia/note/crepusculo — precisa existir ANTES do
+        // primeiro _initMovie (linha ~88) para o pack primario ja nascer
+        // na zona certa; o relogio local interpola e o servidor confirma
+        this._zone = zoneOverride() || zoneInfo().zone;
+        this._zoneP = zoneOverride() ? zoneProgressFor(this._zone) : zoneInfo().progress;
+        this._planes = {}; // planos alternativos {kind: {movie,segs,dyns,timer}}
+        this._planeReadyP = null;
     }
 
     create() {
@@ -351,11 +355,17 @@ export default class RoomScene extends Phaser.Scene {
             this._playMusic(this.currentRoom);
         });
 
-        // ciclo dia/noite (relogio SP no servidor): fase + crossfade
+        // ciclo dia/noite (relogio SP no servidor): o cliente interpola
+        // pelo relogio local; o servidor so re-sincroniza (drift/offset)
         this.events.on('daynight', (d) => {
-            const p = phaseOverride() || d?.phase;
-            if (p && p !== this._phase) this._setPhase(p);
+            if (zoneOverride() || !d?.zone) return;
+            this._zone = d.zone;
+            this._zoneP = typeof d.progress === 'number' ? d.progress : this._zoneP;
+            this._applyZoneWeights();
         });
+        // ticker do relogio local — progress avanca continuamente durante
+        // as janelas de transicao (06-07h e 17h30-18h30)
+        this.time.addEvent({ delay: 1000, loop: true, callback: () => this._tickZone() });
 
         // Dados do jogador recebidos - criar pinguim local ou atualizar
         this.events.on('player-data', (data) => {
@@ -1063,7 +1073,7 @@ export default class RoomScene extends Phaser.Scene {
     // pode mandar package alternativo (assets/movies-party/<id>/<pack>).
     // A URL diferente já versiona o cache IndexedDB por festa.
     _movieBaseFor(roomKey) {
-        return movieBaseFor(roomKey, this.network?.party, this._phase);
+        return movieBaseFor(roomKey, this.network?.party, this._zone);
     }
 
     // Música da sala — substituição de festa (global ou por sala) aponta
@@ -1117,10 +1127,10 @@ export default class RoomScene extends Phaser.Scene {
                 mark(`room-pack:${roomKey}`);
                 this.movie = movie;
                 this.movie.setScale(this._ss);
-                // fase do plano primario (pacote dia ou noite conforme a
-                // fase no momento do load — o alternativo cobre a outra)
+                // plano do pack da zona atual (dia/noite/twilight conforme
+                // o relogio no momento do load — os outros viram alternativos)
                 this._primaryBase = movie.base;
-                this._primaryPhase = movie.base === nightBaseFor(roomKey) ? 'night' : 'day';
+                this._primaryKind = this._kindForBase(roomKey, movie.base);
                 // Cache de layers (IDB) consultado JA — em paralelo com o
                 // setup abaixo. Hit = sala sem rasterizar nada.
                 const cacheKey = layerCacheKey(base, this._ss, movie);
@@ -1187,10 +1197,11 @@ export default class RoomScene extends Phaser.Scene {
                     this._movieReady = true;
                     this._booting = false;
                     const finish = () => {
-                        // plano noturno alternativo: build em background;
-                        // se a fase atual ja e noite, segura o loader ate
-                        // ele ficar pronto para nao piscar a versao dia
-                        this._initAltMovie(roomKey);
+                        // planos alternativos do ciclo: build em background;
+                        // se o peso do plano primario ja nao e 1 (ex.: entrou
+                        // de noite ou no meio do crepusculo), segura o loader
+                        // ate eles ficarem prontos para nao piscar
+                        this._initAltPlanes(roomKey);
                         const hide = () => {
                             this.loadingScreen?.hide();
                             // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
@@ -1210,9 +1221,10 @@ export default class RoomScene extends Phaser.Scene {
                         // iglu: puffles vagando (a location ja foi aguardada)
                         if (roomKey === 'igloo') this._syncIglooPets();
                         };
-                        if (this._phase !== this._primaryPhase && this._altReadyP) {
+                        const w = this._zoneWeightsNow();
+                        if (this._primaryKind && (w[this._primaryKind] ?? 1) < 0.99 && this._planeReadyP) {
                             Promise.race([
-                                this._altReadyP,
+                                this._planeReadyP,
                                 new Promise((r) => setTimeout(r, 25000)),
                             ]).finally(hide);
                         } else hide();
@@ -1561,119 +1573,191 @@ export default class RoomScene extends Phaser.Scene {
         }
     }
 
-    // ---------- Ciclo dia/noite (plano alternativo + crossfade) ----------
-    // O pack primario da sala e sempre o de DIA (dinamicas, interacoes e
-    // colisao intactos). O pack noturno (*-night) vira um segundo plano
-    // construindo em background; a fase decide qual plano esta visivel.
+    // ---------- Ciclo dia/noite/crepusculo (3 planos + pesos do relogio) ----------
+    // O pack PRIMARIO segue a zona do load (dia -> *-twilight nas janelas
+    // -> *-night). Os outros packs do ciclo viram planos alternativos
+    // construidos em background; o relogio define o alpha de cada um —
+    // transicao continua durante 06-07h e 17h30-18h30 (server/src/daynight.js).
 
-    _initAltMovie(roomKey) {
-        this._clearAltMovie();
-        const nightBase = nightBaseFor(roomKey);
-        if (!nightBase) return;
-        // so faz sentido com um dos packs do ciclo carregado (sem party
-        // substitution nem ?moviepack=); o alternativo e o pack oposto
-        const dayBase = `/assets/movies/${MOVIE_ROOM_MAP[roomKey]}`;
-        const primaryBase = this.movie?.base;
-        if (!primaryBase || (primaryBase !== dayBase && primaryBase !== nightBase)) return;
-        const base = primaryBase === nightBase ? dayBase : nightBase;
-        const ss = this._ss;
-        this._altReadyP = (async () => {
-            try {
-                const movie = await MovieRoom.load(base);
-                movie.warmPlayheads();
-                const { dyns, segments } = planRoom(movie, ss);
-                // segmentos estaticos (canvas cropado + imagem Phaser)
-                const segImgs = [];
-                for (const seg of segments) {
-                    if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
-                    const r = segmentRect(movie, seg, ss);
-                    if (!r) continue;
-                    const { x0, y0, w, h } = r;
-                    const canvas = document.createElement('canvas');
-                    canvas.width = w; canvas.height = h;
-                    seg.canvas = canvas; seg.ox = x0; seg.oy = y0;
-                    const texKey = `alt_seg_${roomKey}_${segImgs.length}`;
-                    if (this.textures.exists(texKey)) this.textures.remove(texKey);
-                    const tex = this.textures.addCanvas(texKey, canvas);
-                    const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
-                        .setDisplaySize(w / ss, h / ss)
-                        .setDepth(seg.depth).setAlpha(0);
-                    seg.tex = tex; seg.img = img; seg.texKey = texKey;
-                    segImgs.push(seg);
-                    await drawSegment(movie, seg, ss);
-                    tex.refresh();
-                    await new Promise((r2) => setTimeout(r2, 0));
-                }
-                // overlays dinamicos
-                const dynImgs = [];
-                for (const d of dyns) {
-                    if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
-                    const r = dynRect(movie, d, ss);
-                    if (!r) continue;
-                    const { x0, y0, w, h } = r;
-                    const canvas = document.createElement('canvas');
-                    canvas.width = w; canvas.height = h;
-                    d.canvas = canvas; d.ox = x0; d.oy = y0;
-                    const texKey = `alt_dyn_${roomKey}_${dynImgs.length}`;
-                    if (this.textures.exists(texKey)) this.textures.remove(texKey);
-                    const tex = this.textures.addCanvas(texKey, canvas);
-                    const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
-                        .setDisplaySize(w / ss, h / ss)
-                        .setDepth(d.depth).setAlpha(0);
-                    d.tex = tex; d.img = img; d.texKey = texKey;
-                    dynImgs.push(d);
-                    try { await movie.renderSpriteDynamic(d, ss); } catch {}
-                    tex.refresh();
-                    await new Promise((r2) => setTimeout(r2, 0));
-                }
-                if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
-                this._alt = { movie, segs: segImgs, dyns: dynImgs };
-                // timer de animacao do plano noturno — so trabalha visivel
-                this._altTimer = this.time.addEvent({
-                    delay: 1000 / (movie.rate || 24), loop: true,
-                    callback: () => this._altTick(),
-                });
-                this._syncPhase(false); // fase atual sem fade (ex.: entrou de noite)
-            } catch (e) {
-                console.warn('[daynight] alt pack', roomKey, e);
-            }
-        })();
+    // 'day' | 'night' | 'twilight' | null (pack fora do ciclo / party)
+    _kindForBase(roomKey, base) {
+        if (!base) return null;
+        const pack = MOVIE_ROOM_MAP[roomKey];
+        if (!pack || !NIGHT_ROOM_MAP[roomKey]) return 'day'; // interna: sempre 'day'
+        if (base === `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`) return 'night';
+        if (base === `/assets/movies/${pack}-twilight`) return 'twilight';
+        return 'day';
     }
 
-    _altTick() {
-        const a = this._alt;
-        // so anima quando o plano alternativo e o visivel (fase oposta a
-        // do pack primario)
-        if (!a || this._phase === this._primaryPhase) return;
-        a.movie.tick();
-        const dp = a.movie._dirtyPaths || new Set();
-        const fp = a.movie._dirtyForcedPaths || new Set();
-        if (!dp.size && !fp.size) return;
-        const hit = (p, base) => p === base || p.startsWith(base + '.') || p.startsWith(base + '#');
-        for (const d of a.dyns) {
-            if (d._busy || !d.canvas) continue;
-            let dirty = false;
-            for (const p of dp) if (hit(p, d.path)) { dirty = true; break; }
-            if (!dirty) for (const p of fp) if (hit(p, d.path)) { dirty = true; break; }
-            if (!dirty) continue;
-            d._busy = true;
-            a.movie.renderSpriteDynamic(d, this._ss)
-                .then(() => d.tex?.refresh())
-                .catch(() => {})
-                .finally(() => { d._busy = false; });
+    // bases dos 3 planos do ciclo para a sala (null se nao participa)
+    _cycleBases(roomKey) {
+        const pack = MOVIE_ROOM_MAP[roomKey];
+        const night = nightBaseFor(roomKey);
+        if (!pack || !night) return null;
+        return {
+            day: `/assets/movies/${pack}`,
+            twilight: twilightBaseFor(roomKey),
+            night,
+        };
+    }
+
+    _zoneWeightsNow() {
+        // sala fora do ciclo (interna, sem pack -night): sempre dia
+        if (!this._cycleBases(this.currentRoom)) return { day: 1, twilight: 0, night: 0 };
+        const ov = zoneOverride();
+        const zone = ov || this._zone;
+        const progress = ov ? zoneProgressFor(ov) : this._zoneP;
+        return zoneWeights(zone, progress);
+    }
+
+    _tickZone() {
+        const ov = zoneOverride();
+        if (ov) {
+            const p = zoneProgressFor(ov);
+            if (p !== this._zoneP) { this._zoneP = p; this._applyZoneWeights(); }
+            return;
         }
-        // segmentos sujos (conteudo animado fora de overlays)
-        for (const seg of a.segs) {
-            if (seg._busy || !seg.paths?.size) continue;
-            let dirty = false;
-            for (const p of dp) if (seg.paths.has(p)) { dirty = true; break; }
-            if (!dirty) for (const p of fp) if (seg.paths.has(p)) { dirty = true; break; }
-            if (!dirty) continue;
-            seg._busy = true;
-            drawSegment(a.movie, seg, this._ss)
-                .then(() => seg.tex?.refresh())
-                .catch(() => {})
-                .finally(() => { seg._busy = false; });
+        const zi = zoneInfo();
+        if (zi.zone !== this._zone || Math.abs(zi.progress - this._zoneP) > 0.002) {
+            this._zone = zi.zone;
+            this._zoneP = zi.progress;
+            this._applyZoneWeights();
+        }
+    }
+
+    // aplica os pesos do relogio direto no alpha das imagens — sem tween:
+    // o progresso muda devagar (janelas de 1h), entao setAlpha por segundo
+    // ja e suave e evita corrida de tweens
+    _applyZoneWeights() {
+        if (!this._movieReady || !this._primaryKind) return;
+        const w = this._zoneWeightsNow();
+        for (const img of this._primaryImgs()) img.setAlpha(w[this._primaryKind] ?? 0);
+        for (const [kind, plane] of Object.entries(this._planes)) {
+            const a = w[kind] ?? 0;
+            for (const s of plane.segs) if (s.img) s.img.setAlpha(a);
+            for (const d of plane.dyns) if (d.img) d.img.setAlpha(a);
+        }
+    }
+
+    _initAltPlanes(roomKey) {
+        this._clearAltPlanes();
+        const bases = this._cycleBases(roomKey);
+        const primaryBase = this.movie?.base;
+        if (!bases || !primaryBase) return;
+        // so faz sentido com um dos packs do ciclo carregado (sem party
+        // substitution nem ?moviepack=)
+        const kinds = ['day', 'twilight', 'night'].filter((k) => bases[k] && bases[k] !== primaryBase);
+        const allowed = new Set(Object.values(bases));
+        if (!allowed.has(primaryBase)) return;
+        const ss = this._ss;
+        this._planeReadyP = (async () => {
+            for (const kind of kinds) {
+                if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
+                const plane = await this._buildPlane(roomKey, kind, bases[kind], ss);
+                if (!plane) continue;
+                this._planes[kind] = plane;
+                plane.timer = this.time.addEvent({
+                    delay: 1000 / (plane.movie.rate || 24), loop: true,
+                    callback: () => this._planesTick(),
+                });
+            }
+            if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
+            this._applyZoneWeights();
+        })().catch((e) => console.warn('[daynight] alt planes', roomKey, e));
+    }
+
+    // constroi um plano alternativo: MovieRoom.load + raster estatico dos
+    // segmentos + overlays dinamicos (mesma receita do _initAltMovie antiga)
+    async _buildPlane(roomKey, kind, base, ss) {
+        try {
+            const movie = await MovieRoom.load(base);
+            movie.warmPlayheads();
+            const { dyns, segments } = planRoom(movie, ss);
+            const segImgs = [];
+            for (const seg of segments) {
+                if (this.currentRoom !== roomKey) return null;
+                const r = segmentRect(movie, seg, ss);
+                if (!r) continue;
+                const { x0, y0, w, h } = r;
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                seg.canvas = canvas; seg.ox = x0; seg.oy = y0;
+                const texKey = `alt_seg_${roomKey}_${kind}_${segImgs.length}`;
+                if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                const tex = this.textures.addCanvas(texKey, canvas);
+                const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                    .setDisplaySize(w / ss, h / ss)
+                    .setDepth(seg.depth).setAlpha(0);
+                seg.tex = tex; seg.img = img; seg.texKey = texKey;
+                segImgs.push(seg);
+                await drawSegment(movie, seg, ss);
+                tex.refresh();
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            const dynImgs = [];
+            for (const d of dyns) {
+                if (this.currentRoom !== roomKey) return null;
+                const r = dynRect(movie, d, ss);
+                if (!r) continue;
+                const { x0, y0, w, h } = r;
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                d.canvas = canvas; d.ox = x0; d.oy = y0;
+                const texKey = `alt_dyn_${roomKey}_${kind}_${dynImgs.length}`;
+                if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                const tex = this.textures.addCanvas(texKey, canvas);
+                const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                    .setDisplaySize(w / ss, h / ss)
+                    .setDepth(d.depth).setAlpha(0);
+                d.tex = tex; d.img = img; d.texKey = texKey;
+                dynImgs.push(d);
+                try { await movie.renderSpriteDynamic(d, ss); } catch {}
+                tex.refresh();
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            if (this.currentRoom !== roomKey) return null;
+            return { kind, movie, segs: segImgs, dyns: dynImgs, timer: null };
+        } catch (e) {
+            console.warn('[daynight] plane', roomKey, kind, e);
+            return null;
+        }
+    }
+
+    // anima os planos visiveis (alpha > 0) — mesmo dirty-path do plano
+    // antigo, agora por plano
+    _planesTick() {
+        const w = this._zoneWeightsNow();
+        for (const [kind, a] of Object.entries(this._planes)) {
+            if ((w[kind] ?? 0) <= 0.01) continue;
+            a.movie.tick();
+            const dp = a.movie._dirtyPaths || new Set();
+            const fp = a.movie._dirtyForcedPaths || new Set();
+            if (!dp.size && !fp.size) continue;
+            const hit = (p, base) => p === base || p.startsWith(base + '.') || p.startsWith(base + '#');
+            for (const d of a.dyns) {
+                if (d._busy || !d.canvas) continue;
+                let dirty = false;
+                for (const p of dp) if (hit(p, d.path)) { dirty = true; break; }
+                if (!dirty) for (const p of fp) if (hit(p, d.path)) { dirty = true; break; }
+                if (!dirty) continue;
+                d._busy = true;
+                a.movie.renderSpriteDynamic(d, this._ss)
+                    .then(() => d.tex?.refresh())
+                    .catch(() => {})
+                    .finally(() => { d._busy = false; });
+            }
+            for (const seg of a.segs) {
+                if (seg._busy || !seg.paths?.size) continue;
+                let dirty = false;
+                for (const p of dp) if (seg.paths.has(p)) { dirty = true; break; }
+                if (!dirty) for (const p of fp) if (seg.paths.has(p)) { dirty = true; break; }
+                if (!dirty) continue;
+                seg._busy = true;
+                drawSegment(a.movie, seg, this._ss)
+                    .then(() => seg.tex?.refresh())
+                    .catch(() => {})
+                    .finally(() => { seg._busy = false; });
+            }
         }
     }
 
@@ -1684,63 +1768,24 @@ export default class RoomScene extends Phaser.Scene {
         return imgs;
     }
 
-    _altImgs() {
-        const a = this._alt;
-        if (!a) return [];
-        const imgs = [];
-        for (const s of a.segs) if (s.img) imgs.push(s.img);
-        for (const d of a.dyns) if (d.img) imgs.push(d.img);
-        return imgs;
-    }
-
-    _setPhase(p) {
-        this._phase = p;
-        this._syncPhase(true);
-    }
-
-    _syncPhase(animate = true) {
-        const a = this._alt;
-        if (!a || !this._movieReady) return;
-        // plano primario visivel quando a fase bate com a do pack dele;
-        // o alternativo cobre a fase oposta
-        const primaryOn = this._phase === this._primaryPhase;
-        const dur = animate ? 12000 : 0;
-        if (this._phaseTween) { this._phaseTween.forEach((t) => t.stop()); this._phaseTween = null; }
-        const tweens = [];
-        for (const img of this._primaryImgs()) {
-            tweens.push(this.tweens.add({
-                targets: img, alpha: primaryOn ? 1 : 0, duration: dur,
-                ease: 'Sine.easeInOut',
-            }));
-        }
-        for (const img of this._altImgs()) {
-            tweens.push(this.tweens.add({
-                targets: img, alpha: primaryOn ? 0 : 1, duration: dur,
-                ease: 'Sine.easeInOut',
-            }));
-        }
-        this._phaseTween = tweens;
-    }
-
-    _clearAltMovie() {
-        if (this._altTimer) { this._altTimer.remove(); this._altTimer = null; }
-        const a = this._alt;
-        if (a) {
-            for (const s of a.segs) {
+    _clearAltPlanes() {
+        for (const plane of Object.values(this._planes || {})) {
+            if (plane.timer) plane.timer.remove();
+            for (const s of plane.segs) {
                 s.img?.destroy();
                 if (s.texKey && this.textures.exists(s.texKey)) this.textures.remove(s.texKey);
             }
-            for (const d of a.dyns) {
+            for (const d of plane.dyns) {
                 d.img?.destroy();
                 if (d.texKey && this.textures.exists(d.texKey)) this.textures.remove(d.texKey);
             }
         }
-        this._alt = null;
-        this._altReadyP = null;
+        this._planes = {};
+        this._planeReadyP = null;
     }
 
     _clearMovie() {
-        this._clearAltMovie();
+        this._clearAltPlanes();
         this.catalogue?.close();
         if (this.movieTimer) { this.movieTimer.remove(); this.movieTimer = null; }
         if (this.movieLayers) {
@@ -1759,7 +1804,7 @@ export default class RoomScene extends Phaser.Scene {
         }
         this._segments = null;
         this.movie = null;
-        this._primaryPhase = null;
+        this._primaryKind = null;
         this._primaryBase = null;
         this._interactions?.destroy?.();
         this._interactions = null;

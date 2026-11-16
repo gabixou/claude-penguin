@@ -99,13 +99,10 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     }));
     // ciclo dia/noite: fase atual (relogio America/Sao_Paulo) + ms ate a
     // proxima virada — o cliente agenda o crossfade
+    const zi = daynight.zoneInfo();
     ws.send(JSON.stringify({
         op: 'DAY_NIGHT',
-        data: {
-            phase: daynight.phase(),
-            msUntilFlip: daynight.msUntilFlip(),
-            spTime: daynight.spTimeLabel(),
-        }
+        data: { zone: zi.zone, progress: zi.progress, spTime: daynight.spTimeLabel() }
     }));
 }
 
@@ -251,21 +248,18 @@ setInterval(() => {
     }
 }, 60 * 1000).unref?.();
 
-// ciclo dia/noite: broadcast na virada de fase (06h/18h SP)
-let lastDayPhase = daynight.phase();
+// ciclo dia/noite: broadcast periodico da zona + progresso (o cliente
+// interpola os alphas dos planos pelo relogio — crepusculo continuo)
 setInterval(() => {
-    const p = daynight.phase();
-    if (p === lastDayPhase) return;
-    lastDayPhase = p;
+    const zi = daynight.zoneInfo();
     const payload = JSON.stringify({
         op: 'DAY_NIGHT',
-        data: { phase: p, msUntilFlip: daynight.msUntilFlip(), spTime: daynight.spTimeLabel() },
+        data: { zone: zi.zone, progress: zi.progress, spTime: daynight.spTimeLabel() },
     });
     for (const [sws] of clientPlayerData) {
         if (sws.readyState === WebSocket.OPEN) sws.send(payload);
     }
-    console.log(`[daynight] virada para ${p} (SP ${daynight.spTimeLabel()})`);
-}, 15000).unref?.();
+}, 60000).unref?.();
 
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
