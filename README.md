@@ -38,6 +38,9 @@ It is a love letter to the penguin that stole our childhoods: authentic HUD, rea
 - 🗺️ **Island map / HUD buttons** — explore rooms, open your inventory & wardrobe, check player cards
 - 🛍️ **Catalogues** — buy clothes and items with coins in the shop rooms, then equip them from your wardrobe
 - 👥 **Multiplayer** — other players appear live: you see them walk, emote, sit and chat
+- ⌨️ **Emote hotkeys** — the original letters: **D** dance, **W** wave, **S** sit, **T** throw a snowball
+- 🎲 **Minigames & tables** — click a game in its room (Pizza Parlor, Coffee Shop, Ski Lodge, Pet Shop) or walk up to a Find Four, Mancala or Card-Jitsu table to sit and play
+- 🏠 **Home button** — enters your own igloo, where your adopted puffles hang out
 
 > Tip: everything runs in the browser and progress (penguin, coins, items) is saved on the server — come back anytime and you're the same penguin.
 
@@ -47,9 +50,14 @@ It is a love letter to the penguin that stole our childhoods: authentic HUD, rea
 - **True paperdoll penguins**: multi-part clothing rendered from the original character packs with Flash `colorTransform` tinting (in Web Workers), 8-way walk animation, emotes, sitting and remote-player action sync.
 - **Classic web HUD**: chat bar, action bar, island map, player cards, inventory/wardrobe (owned items only) and time-accurate catalogues with purchase confirmations.
 - **Multiplayer**: real-time rooms over WebSocket: movement, chat, emotes, equipment changes and multiple simultaneous rooms.
-- **Minigames**: Pufflescape and other bundled minigames via native overlays.
+- **Minigames**: Pufflescape (Pet Shop), Bean Counters (Coffee Shop) and Pizzatron (Pizza Parlor) in overlays, plus a native port of Ice Fishing (Ski Lodge) running the original movie and game logic.
+- **Table games**: Find Four (Ski Lodge and Lodge Attic), Mancala (Book Room) and Card-Jitsu (Dojo) on the original room tables. The server owns the board, validates every move, runs the turn timer and pays the coins; sit alone and you can call in a computer opponent.
+- **Social**: buddy list with requests and online status, ignore list (hides that player's chat), and a chat filter with rate limiting.
+- **Pets & igloo**: adopt any of 10 puffle species at the Pet Shop (800 coins each); your equipped puffle follows you and mirrors your emotes. The Home button takes you to your own igloo, where you walk, feed, play with and rest your puffles from the original puffle card.
+- **Day/night cycle**: the server's São Paulo clock drives dawn, day, dusk and night across the outdoor rooms, with dedicated night and twilight packs and smooth fades between them.
+- **Parties**: server-clock party schedule that can swap room packages and music while a party is active (see [FESTAS.md](FESTAS.md)).
 - **Heavily optimized loading**: shared asset caches, IndexedDB layer/bitmap cache (warm room entry in ~0.4s on revisits, ~2-4s between sessions), parallel render lanes, Web Worker tinting and idle pack prefetch for all rooms.
-- **Dev tools**: `?penguin=Arenovisk` test penguin (loopback only), deterministic QA probes and visual regression pipeline.
+- **Dev tools** (loopback only): `?penguin=<name>` logs in as any penguin and a pool of test penguins makes multi-tab multiplayer testing easy. `?daynight=day|night|dawn|dusk` and `?dayauto=<seconds>` force or loop the day/night cycle. Deterministic QA probes, a visual regression pipeline and a CI smoke test (server tests + build + headless browser) on every push to master.
 
 ## How it differs from CPPs (Club Penguin Private Servers)
 
@@ -78,11 +86,11 @@ In short: instead of resurrecting Flash, this project **rebuilds the game native
 | **Minigames** | Mix of sprite-based ports + Flash emulation (Ruffle) for some | Native ports of the original game logic (Ice Fishing runs the same 24fps timeline/event model as the original SWL), no Flash anywhere |
 | **Paperdoll** | Slot-based sprite assembly | Original character packs with Flash `colorTransform` tinting in Web Workers |
 | **Server** | Separate `yukon-server` (Node + Socket.IO + **MySQL**/Sequelize) | Lightweight Node `ws` + **SQLite**, zero extra services |
-| **Scope today** | Broader feature coverage (igloos, buddies, pets, more minigames) | Deeper rendering/authenticity fidelity; feature coverage is growing |
+| **Scope today** | Broader feature coverage (igloo decorating, igloo visits, more minigames) | Deeper rendering/authenticity fidelity; buddies, pets, a personal igloo, table games and parties already in, feature coverage is growing |
 
 **Why not Phaser Editor?** It is a visual scene builder: you drag sprites into place and it exports JSON + JS. That is a great fit for games designed around hand-placed assets, but our content *is* the original game's display lists. Rebuilding rooms as editor scenes would mean approximating the original art by hand, losing the fidelity that makes this project different. Our renderer is data-driven: the game content comes from the original assets, so every room is authentic by construction, not by manual recreation.
 
-**Honest trade-off:** Yukon covers more features today (personal igloos with a furniture editor, buddy lists, pets, extra minigames). Claude Penguin's edge is that what it renders is the *real* Club Penguin, vector-perfect rooms and UI, on a much lighter stack. We are closing the feature gap using Yukon as a protocol/feature reference, while keeping the renderer that makes us different.
+**Honest trade-off:** Yukon covers more features today (igloos with a furniture editor and visits to other players' igloos, extra minigames). Buddy lists, puffles and a personal igloo have since landed here too. Claude Penguin's edge is that what it renders is the *real* Club Penguin, vector-perfect rooms and UI, on a much lighter stack. We are closing the feature gap using Yukon as a protocol/feature reference, while keeping the renderer that makes us different.
 
 ## Tech stack
 
@@ -97,13 +105,16 @@ In short: instead of resurrecting Flash, this project **rebuilds the game native
 
 **Server** (`server/`)
 - [Node.js](https://nodejs.org/) + [`ws`](https://github.com/websockets/ws): WebSocket multiplayer server
-- SQLite via `better-sqlite3`: player persistence
+- SQLite via Node's built-in `node:sqlite` (no native dependencies): players, inventory, social, pets and parties
 
-**Tooling** (local, not in repo)
-- Playwright: automated browser QA probes
+**Tooling** (`tools/`)
+- Playwright: automated browser QA probes and the CI smoke test
 - Gemini Vision / local Ollama models: visual regression analysis
+- `swf2movie.mjs` (JPEXS FFDec) and asset audit scripts for the content pipeline
 
 ## Getting started
+
+Requires **Node.js 22+** (the server uses the built-in `node:sqlite` module).
 
 ```bash
 # 1. Server (WebSocket on port 8080)
