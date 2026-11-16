@@ -57,29 +57,32 @@ export function zoneProgressFor(zone, now = Date.now()) {
     return 0;
 }
 
-// Estado do fade para uma zona+progresso — crossfade classico em 2
-// etapas por janela (sem "fantasma": nunca dois planos translucidos
-// sobre fundo vazio):
-//   1a metade da janela: plano "de" fica OPACO embaixo, twilight
-//     sobe por cima com alpha 0 -> 1
-//   2a metade: twilight fica opaco embaixo, plano "para" sobe por cima
-//   No ponto medio o twilight esta puro (alpha 1, sozinho)
-// Retorna alpha por plano + quem e bottom/top (RoomScene usa isso
-// pra dar um leve viés de depth e garantir a ordem de composicao).
+// Estado do fade para uma zona+progresso — FADE THROUGH DARK:
+// nunca dois packs translucidos ao mesmo tempo (crossfade de arte
+// detalhada de predios fica "fantasma"). Em vez disso UM pack fica
+// opaco e um overlay azul-noite escurece/clareia; a troca de pack
+// acontece no ponto de maxima escuridao, invisivel.
+//   dawn 06-07h:   noite -(dip)-> twilight -(dip)-> dia
+//   dusk 17:30-18:30: dia -(dip)-> twilight -(dip)-> noite
+// O twilight fica visivel sozinho na segunda metade central da janela.
+// Retorna alpha do pack ativo (0/1), `dim` (alpha do overlay) e
+// bottom=kind ativo (RoomScene usa pro depth bias).
 export function zoneWeights(zone, progress = 0) {
     const p = Math.min(1, Math.max(0, progress));
-    const w = { day: 0, twilight: 0, night: 0, bottom: null, top: null };
-    const fade = (b, t, a) => { w[b] = 1; w[t] = a; w.bottom = b; w.top = t; };
+    const w = { day: 0, twilight: 0, night: 0, dim: 0, bottom: null, top: null };
+    // triângulo de escuridão centrado em c, meia-largura 0.2 do progresso
+    const dip = (c) => Math.max(0, 1 - Math.abs(p - c) / 0.2);
+    const set = (k, d) => { w[k] = 1; w.dim = Math.min(1, d) * 0.9; w.bottom = k; };
     if (zone === 'dawn') {
-        // 06:00-06:30 noite->crepusculo | 06:30-07:00 crepusculo->dia
-        if (p < 0.5) fade('night', 'twilight', 2 * p);
-        else fade('twilight', 'day', 2 * p - 1);
+        if (p < 0.25) set('night', dip(0.25));
+        else if (p < 0.75) set('twilight', Math.max(dip(0.25), dip(0.75)));
+        else set('day', dip(0.75));
         return w;
     }
     if (zone === 'dusk') {
-        // 17:30-18:00 dia->crepusculo | 18:00-18:30 crepusculo->noite
-        if (p < 0.5) fade('day', 'twilight', 2 * p);
-        else fade('twilight', 'night', 2 * p - 1);
+        if (p < 0.25) set('day', dip(0.25));
+        else if (p < 0.75) set('twilight', Math.max(dip(0.25), dip(0.75)));
+        else set('night', dip(0.75));
         return w;
     }
     w[zone] = 1;
