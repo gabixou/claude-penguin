@@ -3,7 +3,7 @@
 //   atlas.json = { v:1, k:<scale>, sheets:["atlas-0.png",...],
 //                  frames:{ "<file>": {s,x,y,w,h} } }
 // Uso:
-//   node tools/bake-char-atlas.mjs [--k 5] [--force] [--only <substr>] <dir...>
+//   node tools/bake-char-atlas.mjs [--k 5] [--sheet 4096] [--force] [--only <substr>] <dir...>
 //   dirs = raizes contendo movies (ex.: client/public/assets/movies/penguin-actions)
 //         ou o proprio assets/ (varre ate depth 2 procurando timelines.json)
 import { chromium } from 'playwright-core';
@@ -22,7 +22,7 @@ const ONLY = opt('only', '');
 const DIRS = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--k' && args[i - 1] !== '--only');
 if (!DIRS.length) { console.error('informe dirs'); process.exit(1); }
 
-const SHEET = 4096;
+const SHEET = parseInt(opt('sheet', '4096'), 10);
 
 // ---- Node: descobre movies e extrai SVGs ----
 function* walkMovies(dir, depth = 0) {
@@ -170,6 +170,11 @@ for (const m of movies) {
     failed++; continue;
   }
   for (const [a, c] of aliases || []) if (res.frames[c]) res.frames[a] = res.frames[c];
+  // remove sheets orfas de bakes anteriores (sheet size / K diferente
+  // gera contagem diferente — sem isso atlas-999.png velho fica lixo)
+  const keep = new Set(Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'));
+  for (const f of fs.readdirSync(outDir))
+    if (/^atlas-\d+\.png$/.test(f) && !keep.has(f)) fs.rmSync(path.join(outDir, f));
   fs.writeFileSync(atlasJson, JSON.stringify({ v: 1, k: K, sheets: Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'), frames: res.frames }));
   done++; totalChars += items.length;
   if (done % 25 === 0) console.log(`${done}/${movies.length} movies, ${totalChars} chars, ${((Date.now() - t0) / 60000).toFixed(1)}min`);

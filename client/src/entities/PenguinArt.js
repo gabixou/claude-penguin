@@ -441,6 +441,12 @@ export class PenguinView {
                 bodyClip = actionClips.get(af);
                 bodyFrame = ACTION_DRAW_FRAME;
             }
+            // Decode paralelo das sheets do atlas que este frame usa:
+            // sem isso cada sheet 4096px decodificava serial dentro do
+            // primeiro draw que a pedia (~2min de warm). Em lotes de 6
+            // o decode das PNGs sobrepoe e o warm cai p/ ~1/3.
+            await this._warmSheets(bodyClip.m, bodyFrame);
+            for (const c of itemClips) await this._warmSheets(c.m, af);
             // 9 passos cobrem o loop de 8f dos sub-sprites (draw no frame
             // atual, advance, repete) — mesmo padrao do render real
             for (let step = 0; step < 9; step++) {
@@ -455,6 +461,23 @@ export class PenguinView {
             }
         }
         if (token === this._warmToken) this._warmDone = true;
+    }
+
+    // Prefetch das sheets do atlas alcancaveis por um frame do movie:
+    // resolve files->atlas.frames->sheet e dispara _atlasSheet em lotes
+    // de 6 (decode de PNG em paralelo, sem inundar a memoria GPU).
+    async _warmSheets(m, frame) {
+        const atlas = m?._atlas;
+        if (!atlas?.frames || typeof m._frameFiles !== 'function') return;
+        const { files } = m._frameFiles([frame]);
+        const sheets = new Set();
+        for (const f of files) {
+            const e = atlas.frames[f];
+            if (e) sheets.add(e.s);
+        }
+        const list = [...sheets];
+        for (let i = 0; i < list.length; i += 6)
+            await Promise.all(list.slice(i, i + 6).map((s) => m._atlasSheet(s)));
     }
 
     // frame: numero do frame logico da timeline principal (1..76)
