@@ -1,0 +1,1 @@
+Image 1: our Club Penguin clone Nightclub loaded from cache. Image 2: reference gopenguin.lol Nightclub. Check OUR image for defects: black/empty regions, missing sprites (especially animated overlays like disco ball, speakers, posters), broken UI. Reply: verdict PASS or ISSUES + brief reason.

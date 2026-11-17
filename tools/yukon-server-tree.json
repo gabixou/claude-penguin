@@ -1,0 +1,1045 @@
+{
+  "sha": "fead5f7849e97a866e07d39213ff41b970497f4e",
+  "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/fead5f7849e97a866e07d39213ff41b970497f4e",
+  "tree": [
+    {
+      "path": ".babelrc",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3d23cb11ef9e0e6f7009e7c7e65afa97b915ea1f",
+      "size": 486,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/3d23cb11ef9e0e6f7009e7c7e65afa97b915ea1f"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "369876a423f67b5151ab7de391b9392732154ed2",
+      "size": 1867,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/369876a423f67b5151ab7de391b9392732154ed2"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "05a3de40b7206759a27fd4345611b35de5297f2f",
+      "size": 1064,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/05a3de40b7206759a27fd4345611b35de5297f2f"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ded5a2c9d203e529ac671ce9c30bcc3358df4651",
+      "size": 2929,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ded5a2c9d203e529ac671ce9c30bcc3358df4651"
+    },
+    {
+      "path": "config",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3c84c873b2429191b4db0879d625400a4d61d994",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/3c84c873b2429191b4db0879d625400a4d61d994"
+    },
+    {
+      "path": "config/config_example.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b6fb32d493869d913e1dc2f542225214afcda3ea",
+      "size": 1173,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/b6fb32d493869d913e1dc2f542225214afcda3ea"
+    },
+    {
+      "path": "data",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b93caf41a1d176fc86b4905f46fd4c2127667680",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/b93caf41a1d176fc86b4905f46fd4c2127667680"
+    },
+    {
+      "path": "data/cards.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "744a6b36bf459bf3aa70afca37cae6604983b6dd",
+      "size": 81977,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/744a6b36bf459bf3aa70afca37cae6604983b6dd"
+    },
+    {
+      "path": "data/data.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ac9b02970886d7dba9b0fe7c31e6a5b1cbe25671",
+      "size": 246,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ac9b02970886d7dba9b0fe7c31e6a5b1cbe25671"
+    },
+    {
+      "path": "data/decks.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "17c377a884d0430ed70bb92d05ee3cc8b6bcc7a1",
+      "size": 163,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/17c377a884d0430ed70bb92d05ee3cc8b6bcc7a1"
+    },
+    {
+      "path": "data/floorings.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d167c44a85607606cbe0a3248774cb245f66efd8",
+      "size": 2247,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/d167c44a85607606cbe0a3248774cb245f66efd8"
+    },
+    {
+      "path": "data/furnitures.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f115baa4967ebbc93cd4a0d29c468581a42bd5e8",
+      "size": 268974,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f115baa4967ebbc93cd4a0d29c468581a42bd5e8"
+    },
+    {
+      "path": "data/igloos.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5eeae00d39db04878f578a412f0d3ad17fa78eed",
+      "size": 9349,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/5eeae00d39db04878f578a412f0d3ad17fa78eed"
+    },
+    {
+      "path": "data/items.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1c4e81d11018ed2e61fcfbf48735acffa6328e32",
+      "size": 954723,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/1c4e81d11018ed2e61fcfbf48735acffa6328e32"
+    },
+    {
+      "path": "data/matchmakers.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "849df7063fd9150da8f5d03c279974025dd4b9f8",
+      "size": 46,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/849df7063fd9150da8f5d03c279974025dd4b9f8"
+    },
+    {
+      "path": "data/pets.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "22188c2854d0de78a3a4820af134a2e3b6473a9f",
+      "size": 1122,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/22188c2854d0de78a3a4820af134a2e3b6473a9f"
+    },
+    {
+      "path": "data/rooms.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0c15c10fbe09df5d5a57f11d20da203e35571674",
+      "size": 6612,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/0c15c10fbe09df5d5a57f11d20da203e35571674"
+    },
+    {
+      "path": "data/tables.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "36e5ec63bbec0fe693422bab3892b5d37d71dd60",
+      "size": 1032,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/36e5ec63bbec0fe693422bab3892b5d37d71dd60"
+    },
+    {
+      "path": "data/waddles.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "de2b122e5efe44784dffae7537ee85827618559f",
+      "size": 787,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/de2b122e5efe44784dffae7537ee85827618559f"
+    },
+    {
+      "path": "ecosystem.config.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7dc335c1d98552a893a1c8ad70de9ec0c72d6aed",
+      "size": 237,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/7dc335c1d98552a893a1c8ad70de9ec0c72d6aed"
+    },
+    {
+      "path": "jsconfig.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e3aa450a4e15a242f01d9acb3625245e91048b2b",
+      "size": 401,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/e3aa450a4e15a242f01d9acb3625245e91048b2b"
+    },
+    {
+      "path": "package-lock.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7a971bf47d6dccefc96d11e31f5c8c7d033875b4",
+      "size": 413184,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/7a971bf47d6dccefc96d11e31f5c8c7d033875b4"
+    },
+    {
+      "path": "package.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5ddd49bfd7382cd59b2af3aada33af4f5599dc26",
+      "size": 1429,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/5ddd49bfd7382cd59b2af3aada33af4f5599dc26"
+    },
+    {
+      "path": "src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e8cc6f58911919050ebd58663b9a9bb1e97231ab",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/e8cc6f58911919050ebd58663b9a9bb1e97231ab"
+    },
+    {
+      "path": "src/World.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b7989a3614bedc9bf0dcb3c26f2ce39f7b703e86",
+      "size": 740,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/b7989a3614bedc9bf0dcb3c26f2ce39f7b703e86"
+    },
+    {
+      "path": "src/database",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "03e9b9c97948c00a276ff22dedf272bb04a25143",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/03e9b9c97948c00a276ff22dedf272bb04a25143"
+    },
+    {
+      "path": "src/database/BaseModel.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ed804dd9cfd69c103d7f3faba9444e257cbd3f06",
+      "size": 321,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ed804dd9cfd69c103d7f3faba9444e257cbd3f06"
+    },
+    {
+      "path": "src/database/Collection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "75b4d680622ac97f8de379db55ad3f837471e22f",
+      "size": 1307,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/75b4d680622ac97f8de379db55ad3f837471e22f"
+    },
+    {
+      "path": "src/database/Database.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fe783057055bc64ba3c723993892fbd4cbcb4e4f",
+      "size": 4818,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fe783057055bc64ba3c723993892fbd4cbcb4e4f"
+    },
+    {
+      "path": "src/database/collections",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f4465e8b4f233959d38d6b70ad3108b4f8ea3add",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/f4465e8b4f233959d38d6b70ad3108b4f8ea3add"
+    },
+    {
+      "path": "src/database/collections/BuddyCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4b08f0823a5b6345ae68170d9201cee8363f6c3a",
+      "size": 1158,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/4b08f0823a5b6345ae68170d9201cee8363f6c3a"
+    },
+    {
+      "path": "src/database/collections/CardCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ef7f20c97ce798fe90dcae25d7d6879b7cb63389",
+      "size": 1474,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ef7f20c97ce798fe90dcae25d7d6879b7cb63389"
+    },
+    {
+      "path": "src/database/collections/FurnitureCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd9f0905066e5bedf4301fb41b2f86336c7c9456",
+      "size": 999,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/cd9f0905066e5bedf4301fb41b2f86336c7c9456"
+    },
+    {
+      "path": "src/database/collections/IglooCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "668ba0da30bd6039e8fc7f96ac3adae7df01e596",
+      "size": 284,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/668ba0da30bd6039e8fc7f96ac3adae7df01e596"
+    },
+    {
+      "path": "src/database/collections/IgnoreCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3302f9e1df89467bb78c586fa4005322a19e669d",
+      "size": 537,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/3302f9e1df89467bb78c586fa4005322a19e669d"
+    },
+    {
+      "path": "src/database/collections/InventoryCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a1405d724c0e5b003d5f65a87a46107e55b39aa8",
+      "size": 279,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/a1405d724c0e5b003d5f65a87a46107e55b39aa8"
+    },
+    {
+      "path": "src/database/collections/PetCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5d73de6de7e5397f8d89d1a20265ba66ba921f4b",
+      "size": 3622,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/5d73de6de7e5397f8d89d1a20265ba66ba921f4b"
+    },
+    {
+      "path": "src/database/collections/PostcardCollection.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f6847f0921324c29c5412c65f60aff0bac512125",
+      "size": 1473,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f6847f0921324c29c5412c65f60aff0bac512125"
+    },
+    {
+      "path": "src/database/models",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8f45eead6640da0147d067850ddd52792a6e2f55",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/8f45eead6640da0147d067850ddd52792a6e2f55"
+    },
+    {
+      "path": "src/database/models/AuthTokens.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "55eb1232f2c4fd91188034bd8ef24647bd55bdf3",
+      "size": 1102,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/55eb1232f2c4fd91188034bd8ef24647bd55bdf3"
+    },
+    {
+      "path": "src/database/models/Bans.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "aab0d0807a287db56aa0b495b808bfe3ef7c3aeb",
+      "size": 1402,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/aab0d0807a287db56aa0b495b808bfe3ef7c3aeb"
+    },
+    {
+      "path": "src/database/models/Buddies.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "94fea982d24da71d4b1c2d2bb88b0aab7a5a2f86",
+      "size": 853,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/94fea982d24da71d4b1c2d2bb88b0aab7a5a2f86"
+    },
+    {
+      "path": "src/database/models/Cards.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f31b8585bd07fc16c6e48f5ea36edf0e38cfd38e",
+      "size": 995,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f31b8585bd07fc16c6e48f5ea36edf0e38cfd38e"
+    },
+    {
+      "path": "src/database/models/FurnitureInventories.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6a2e6cefdae850b5268c8c07d84722282c763f69",
+      "size": 886,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/6a2e6cefdae850b5268c8c07d84722282c763f69"
+    },
+    {
+      "path": "src/database/models/Furnitures.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "739825ea5c46738fff01d045dc4484830654114f",
+      "size": 1377,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/739825ea5c46738fff01d045dc4484830654114f"
+    },
+    {
+      "path": "src/database/models/IglooInventories.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "54d8c0fd8d9a136f4f9858bee6ca30d0e1bdf500",
+      "size": 745,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/54d8c0fd8d9a136f4f9858bee6ca30d0e1bdf500"
+    },
+    {
+      "path": "src/database/models/Igloos.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc1b37d406a2ea8e36b75c8b98d61bdc939c1eca",
+      "size": 1206,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/bc1b37d406a2ea8e36b75c8b98d61bdc939c1eca"
+    },
+    {
+      "path": "src/database/models/Ignores.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "869519d542e0ff5f0b8c25e376450a5dbae478b3",
+      "size": 855,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/869519d542e0ff5f0b8c25e376450a5dbae478b3"
+    },
+    {
+      "path": "src/database/models/Inventories.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd02f33bbd3713419e187ab55b632727173a0f08",
+      "size": 733,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/cd02f33bbd3713419e187ab55b632727173a0f08"
+    },
+    {
+      "path": "src/database/models/Pets.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "044102f28621a4aef273256fcd926d096c2c6bec",
+      "size": 2737,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/044102f28621a4aef273256fcd926d096c2c6bec"
+    },
+    {
+      "path": "src/database/models/Postcards.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8f8b42d84eb3e3fdd213607de4c9a6eef73b007d",
+      "size": 2240,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/8f8b42d84eb3e3fdd213607de4c9a6eef73b007d"
+    },
+    {
+      "path": "src/database/models/Users.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "68f2954160f74917c240dd52b5bfa0bb75e3aaef",
+      "size": 5024,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/68f2954160f74917c240dd52b5bfa0bb75e3aaef"
+    },
+    {
+      "path": "src/database/models/Worlds.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "62a4f71acc9513d071aa25a73097fdcd375650b8",
+      "size": 602,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/62a4f71acc9513d071aa25a73097fdcd375650b8"
+    },
+    {
+      "path": "src/handlers",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "192fcfef1c5b2b554cbdc784022b3c5b29f603eb",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/192fcfef1c5b2b554cbdc784022b3c5b29f603eb"
+    },
+    {
+      "path": "src/handlers/BaseHandler.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8cf0ad5bb364066e8b1fb805cb9de1e05105aefe",
+      "size": 1912,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/8cf0ad5bb364066e8b1fb805cb9de1e05105aefe"
+    },
+    {
+      "path": "src/handlers/GameHandler.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bea51866dd09fdd0d0f90fcbcfe9fe9e5d6aefdb",
+      "size": 3245,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/bea51866dd09fdd0d0f90fcbcfe9fe9e5d6aefdb"
+    },
+    {
+      "path": "src/handlers/LoginHandler.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ef5f819f264abaca05404967df24691ecbe27a94",
+      "size": 253,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ef5f819f264abaca05404967df24691ecbe27a94"
+    },
+    {
+      "path": "src/objects",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c52f64a0baaa0a422240143d428df2c9f7b9f96c",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/c52f64a0baaa0a422240143d428df2c9f7b9f96c"
+    },
+    {
+      "path": "src/objects/instance",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1bddb9260e4b03941e9ae11245d176fd1609f69d",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/1bddb9260e4b03941e9ae11245d176fd1609f69d"
+    },
+    {
+      "path": "src/objects/instance/BaseInstance.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "db4a2653ecfb12386f407e77585f7ed7105889bf",
+      "size": 1934,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/db4a2653ecfb12386f407e77585f7ed7105889bf"
+    },
+    {
+      "path": "src/objects/instance/InstanceFactory.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fe63931ebf9445a2eba4f0b6ab9cb1f21976f088",
+      "size": 319,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fe63931ebf9445a2eba4f0b6ab9cb1f21976f088"
+    },
+    {
+      "path": "src/objects/instance/card",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "395eb386aa2535de521da720107abb9b1a217072",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/395eb386aa2535de521da720107abb9b1a217072"
+    },
+    {
+      "path": "src/objects/instance/card/CardInstance.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e522d96b30737692572ee96da4009a551aef21db",
+      "size": 10517,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/e522d96b30737692572ee96da4009a551aef21db"
+    },
+    {
+      "path": "src/objects/instance/card/Power.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "115c3dc43f3dde6521d5336407be2c1c870a2cae",
+      "size": 151,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/115c3dc43f3dde6521d5336407be2c1c870a2cae"
+    },
+    {
+      "path": "src/objects/instance/card/Rules.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "db60576259c7a1869e09f4c4f9fd5e87a4ad5bf4",
+      "size": 554,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/db60576259c7a1869e09f4c4f9fd5e87a4ad5bf4"
+    },
+    {
+      "path": "src/objects/instance/card/SenseiInstance.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9b69fbe33d0598b2109e3cd77c006e25a3c2a823",
+      "size": 2018,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/9b69fbe33d0598b2109e3cd77c006e25a3c2a823"
+    },
+    {
+      "path": "src/objects/instance/card/ninja",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "040ef5b600e14edc17a607b6154dce149419c2d1",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/040ef5b600e14edc17a607b6154dce149419c2d1"
+    },
+    {
+      "path": "src/objects/instance/card/ninja/Card.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fe949eaa9701782f9322050819d859912e1c146a",
+      "size": 537,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fe949eaa9701782f9322050819d859912e1c146a"
+    },
+    {
+      "path": "src/objects/instance/card/ninja/Ninja.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a54fb9c7c464348d4f4eb40b622e1a1397e7728",
+      "size": 2323,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/4a54fb9c7c464348d4f4eb40b622e1a1397e7728"
+    },
+    {
+      "path": "src/objects/instance/card/ninja/SenseiNinja.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6fe5e81e5896872d00e5ddce70bfb1a87e982f50",
+      "size": 2163,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/6fe5e81e5896872d00e5ddce70bfb1a87e982f50"
+    },
+    {
+      "path": "src/objects/instance/sled",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "7571c010ec6c7a36793bc39f1f9304c3e9818111",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/7571c010ec6c7a36793bc39f1f9304c3e9818111"
+    },
+    {
+      "path": "src/objects/instance/sled/SledInstance.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a9b7702b87539b8155e332f93b38bbd48d208a0d",
+      "size": 1161,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/a9b7702b87539b8155e332f93b38bbd48d208a0d"
+    },
+    {
+      "path": "src/objects/room",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1ce9859317a03cc44bad7970f3f1b99c54930b2b",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/1ce9859317a03cc44bad7970f3f1b99c54930b2b"
+    },
+    {
+      "path": "src/objects/room/Igloo.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eb83a61c4b0cefdc815f318ef65c3bc97589a754",
+      "size": 1184,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/eb83a61c4b0cefdc815f318ef65c3bc97589a754"
+    },
+    {
+      "path": "src/objects/room/OpenIgloos.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "77b6c3522d4621fcc011a1f689f0cfbd06263905",
+      "size": 562,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/77b6c3522d4621fcc011a1f689f0cfbd06263905"
+    },
+    {
+      "path": "src/objects/room/Room.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "19aa96711b806454e5ff307c8663ee4c46ebf4c5",
+      "size": 1645,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/19aa96711b806454e5ff307c8663ee4c46ebf4c5"
+    },
+    {
+      "path": "src/objects/room/matchmaker",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8cd76abe38bbc18089ae9d1e9c072ce7e4a3b61c",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/8cd76abe38bbc18089ae9d1e9c072ce7e4a3b61c"
+    },
+    {
+      "path": "src/objects/room/matchmaker/CardMatchmaker.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f89a12e0c4dff11f2b48ff97b3c73f294a849621",
+      "size": 2168,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f89a12e0c4dff11f2b48ff97b3c73f294a849621"
+    },
+    {
+      "path": "src/objects/room/matchmaker/MatchmakerFactory.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3f9d2dd8f6f9585e9b1037014b0ae45c3806cf50",
+      "size": 271,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/3f9d2dd8f6f9585e9b1037014b0ae45c3806cf50"
+    },
+    {
+      "path": "src/objects/room/matchmaker/MatchmakerPlayer.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eeefc01104860415928dd1cefee3bde8379d3423",
+      "size": 204,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/eeefc01104860415928dd1cefee3bde8379d3423"
+    },
+    {
+      "path": "src/objects/room/table",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "83a804eba9fda2885ad6f93b2d975e0763cb75cf",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/83a804eba9fda2885ad6f93b2d975e0763cb75cf"
+    },
+    {
+      "path": "src/objects/room/table/BaseTable.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fffe80d3959cfaf39637b6c99b150f726f3b05bd",
+      "size": 2138,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fffe80d3959cfaf39637b6c99b150f726f3b05bd"
+    },
+    {
+      "path": "src/objects/room/table/FourTable.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "acc670ca25abda68423767d2551d3c4863ed4819",
+      "size": 2531,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/acc670ca25abda68423767d2551d3c4863ed4819"
+    },
+    {
+      "path": "src/objects/room/table/MancalaTable.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a7b479a297cce6d24f74445bde922515d20a0e73",
+      "size": 3550,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/a7b479a297cce6d24f74445bde922515d20a0e73"
+    },
+    {
+      "path": "src/objects/room/table/TableFactory.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6cf40dd776682af3cc17d0e0a3c21196b11fd411",
+      "size": 306,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/6cf40dd776682af3cc17d0e0a3c21196b11fd411"
+    },
+    {
+      "path": "src/objects/room/waddle",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "79180ab2139301e07add6d95f2ec3465bfb977dc",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/79180ab2139301e07add6d95f2ec3465bfb977dc"
+    },
+    {
+      "path": "src/objects/room/waddle/Waddle.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8191cdacfb15f121b050a817494616b404675f3b",
+      "size": 1276,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/8191cdacfb15f121b050a817494616b404675f3b"
+    },
+    {
+      "path": "src/objects/user",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a27b4b1aa6a33878014b90dbd217d4ca4df73d85",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/a27b4b1aa6a33878014b90dbd217d4ca4df73d85"
+    },
+    {
+      "path": "src/objects/user/GameUser.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "758c543a33373a1f3c560f26a5510bb948a48ea0",
+      "size": 8518,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/758c543a33373a1f3c560f26a5510bb948a48ea0"
+    },
+    {
+      "path": "src/objects/user/User.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5bd54fabf772b796f1cb44d9e9e522b5108d0b3c",
+      "size": 2782,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/5bd54fabf772b796f1cb44d9e9e522b5108d0b3c"
+    },
+    {
+      "path": "src/objects/user/UserFactory.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dda74b1d6d0418bbf6c0cdb28624277227c7de9c",
+      "size": 225,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/dda74b1d6d0418bbf6c0cdb28624277227c7de9c"
+    },
+    {
+      "path": "src/objects/user/getSocketAddress.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d4775dec5f8cdc15ea06e94e5d711b73921bd1b7",
+      "size": 387,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/d4775dec5f8cdc15ea06e94e5d711b73921bd1b7"
+    },
+    {
+      "path": "src/objects/user/purchase",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "cf467d4b891b194da5ac03018a4b41fa987fc774",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/cf467d4b891b194da5ac03018a4b41fa987fc774"
+    },
+    {
+      "path": "src/objects/user/purchase/PurchaseValidator.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd7175a1608df05c382438cbf71dd9f8e293bf8f",
+      "size": 1270,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/cd7175a1608df05c382438cbf71dd9f8e293bf8f"
+    },
+    {
+      "path": "src/plugin",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2821d23a90774fc15777eeb6ddb32c631310868e",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/2821d23a90774fc15777eeb6ddb32c631310868e"
+    },
+    {
+      "path": "src/plugin/GamePlugin.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2971ccdac3d57a31515ef83f377aba27dd57a0a3",
+      "size": 350,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/2971ccdac3d57a31515ef83f377aba27dd57a0a3"
+    },
+    {
+      "path": "src/plugin/Plugin.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "81098a72d64026db54efa471b40cf866febffcb2",
+      "size": 271,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/81098a72d64026db54efa471b40cf866febffcb2"
+    },
+    {
+      "path": "src/plugin/PluginManager.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b733b9ddab9184399a2bf3f76277c61116050641",
+      "size": 1138,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/b733b9ddab9184399a2bf3f76277c61116050641"
+    },
+    {
+      "path": "src/plugin/plugins",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c473c0f9c006fac2a0ed0010d5c1bf0a245fa92b",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/c473c0f9c006fac2a0ed0010d5c1bf0a245fa92b"
+    },
+    {
+      "path": "src/plugin/plugins/game",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "68d998e5abffe233251a9fee047a2af1c20a71d7",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/68d998e5abffe233251a9fee047a2af1c20a71d7"
+    },
+    {
+      "path": "src/plugin/plugins/game/Actions.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f901a1ca715d1c75238b5bdd241c5da20af7364",
+      "size": 1506,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/7f901a1ca715d1c75238b5bdd241c5da20af7364"
+    },
+    {
+      "path": "src/plugin/plugins/game/Buddy.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "48e468545b9b2149e07ff0ced3910dbfb68e6fe8",
+      "size": 2725,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/48e468545b9b2149e07ff0ced3910dbfb68e6fe8"
+    },
+    {
+      "path": "src/plugin/plugins/game/Chat.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f23944513f262f16e19e695a4b4f29cdd9b7ccd6",
+      "size": 4213,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f23944513f262f16e19e695a4b4f29cdd9b7ccd6"
+    },
+    {
+      "path": "src/plugin/plugins/game/Deck.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8ff710ccbfbd4acf07d158fef6bb8b87acec70a8",
+      "size": 1081,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/8ff710ccbfbd4acf07d158fef6bb8b87acec70a8"
+    },
+    {
+      "path": "src/plugin/plugins/game/GameAuth.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2955a5f1b2e99218accbf0445d850a1c6f85dcc2",
+      "size": 2738,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/2955a5f1b2e99218accbf0445d850a1c6f85dcc2"
+    },
+    {
+      "path": "src/plugin/plugins/game/Get.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f6f88a2d561aace64f2f35207c18a363a8d72f1e",
+      "size": 816,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f6f88a2d561aace64f2f35207c18a363a8d72f1e"
+    },
+    {
+      "path": "src/plugin/plugins/game/Igloo.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2dd939782725d78277a06057b9d1564a82670146",
+      "size": 4405,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/2dd939782725d78277a06057b9d1564a82670146"
+    },
+    {
+      "path": "src/plugin/plugins/game/Ignore.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "858bb30ea5803c811be6141c47dfa97a04c6d1ff",
+      "size": 1387,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/858bb30ea5803c811be6141c47dfa97a04c6d1ff"
+    },
+    {
+      "path": "src/plugin/plugins/game/Item.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d09ae0e91111d334f6a2d22ca654a334d9a5e22e",
+      "size": 1599,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/d09ae0e91111d334f6a2d22ca654a334d9a5e22e"
+    },
+    {
+      "path": "src/plugin/plugins/game/Join.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5ac363840accccda790c921f01c0107b4d9e93a8",
+      "size": 2763,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/5ac363840accccda790c921f01c0107b4d9e93a8"
+    },
+    {
+      "path": "src/plugin/plugins/game/Mail.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f8ce49f83b14dd8b81fe67d31e458128f661d1b6",
+      "size": 3284,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/f8ce49f83b14dd8b81fe67d31e458128f661d1b6"
+    },
+    {
+      "path": "src/plugin/plugins/game/Matchmaking.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "487cf53fd40d91c4d57accea67a631ef3c5af5cb",
+      "size": 733,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/487cf53fd40d91c4d57accea67a631ef3c5af5cb"
+    },
+    {
+      "path": "src/plugin/plugins/game/MiniGame.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cf03e43c1401ab90b7d326adc81b8295b5ddc53f",
+      "size": 873,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/cf03e43c1401ab90b7d326adc81b8295b5ddc53f"
+    },
+    {
+      "path": "src/plugin/plugins/game/Moderation.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c5fea59a8688c7b1cff8ef21b309a51397566918",
+      "size": 1624,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/c5fea59a8688c7b1cff8ef21b309a51397566918"
+    },
+    {
+      "path": "src/plugin/plugins/game/Ninja.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a2c41c04ec41ae7f65e668e4523a1517a6c7fdbf",
+      "size": 369,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/a2c41c04ec41ae7f65e668e4523a1517a6c7fdbf"
+    },
+    {
+      "path": "src/plugin/plugins/game/Pet.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "72075cd79dc4ace16a4913cd1b9355628ea63469",
+      "size": 3464,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/72075cd79dc4ace16a4913cd1b9355628ea63469"
+    },
+    {
+      "path": "src/plugin/plugins/game/Puck.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "37f392e07ab9c70ef0317239b19b72bbe943fc0d",
+      "size": 1035,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/37f392e07ab9c70ef0317239b19b72bbe943fc0d"
+    },
+    {
+      "path": "src/plugin/plugins/game/Sensei.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "85e1b3fcc7ceabdc564cc8d4534f690e4fad2322",
+      "size": 584,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/85e1b3fcc7ceabdc564cc8d4534f690e4fad2322"
+    },
+    {
+      "path": "src/plugin/plugins/game/Table.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fc683d730c58927f08fc474a83ac485061143011",
+      "size": 953,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fc683d730c58927f08fc474a83ac485061143011"
+    },
+    {
+      "path": "src/plugin/plugins/game/Waddle.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3146cfb41ea2c0829fc7837b33877dad5a6462b8",
+      "size": 972,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/3146cfb41ea2c0829fc7837b33877dad5a6462b8"
+    },
+    {
+      "path": "src/plugin/plugins/login",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5406a6de36d12be8f8d90d19c78c92f9c7586b2c",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/5406a6de36d12be8f8d90d19c78c92f9c7586b2c"
+    },
+    {
+      "path": "src/plugin/plugins/login/Login.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d61d66fdfe922f9bf0c31f29085b0c68f3c25cf6",
+      "size": 6276,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/d61d66fdfe922f9bf0c31f29085b0c68f3c25cf6"
+    },
+    {
+      "path": "src/ratelimit",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "47de0754b7c44776ba6aa1eb2903b1a3652f5905",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/47de0754b7c44776ba6aa1eb2903b1a3652f5905"
+    },
+    {
+      "path": "src/ratelimit/RateLimiter.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "45a775f260945832de9d7e0c40410f458c2de317",
+      "size": 533,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/45a775f260945832de9d7e0c40410f458c2de317"
+    },
+    {
+      "path": "src/server",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1d9d40c9c50528371af4652f25b55c530923532d",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/1d9d40c9c50528371af4652f25b55c530923532d"
+    },
+    {
+      "path": "src/server/Server.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ee87755df832a00d08e741771844baaaf5951167",
+      "size": 2931,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/ee87755df832a00d08e741771844baaaf5951167"
+    },
+    {
+      "path": "src/utils",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "846a77b0221919024aa1a9619b391ceca1a261d2",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/846a77b0221919024aa1a9619b391ceca1a261d2"
+    },
+    {
+      "path": "src/utils/math.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "13482effd962869c5b5c0914c9c16aab8776dd3d",
+      "size": 190,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/13482effd962869c5b5c0914c9c16aab8776dd3d"
+    },
+    {
+      "path": "src/utils/pick.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "679732b015b6d433c2a5af3435698a0cea569abb",
+      "size": 201,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/679732b015b6d433c2a5af3435698a0cea569abb"
+    },
+    {
+      "path": "src/utils/validation.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "68aaa5927bcadb3c0745e599a721d098da78ab5a",
+      "size": 688,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/68aaa5927bcadb3c0745e599a721d098da78ab5a"
+    },
+    {
+      "path": "utils",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "37e9008a03ac747d068835e5f1814e2043e2d3b3",
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/trees/37e9008a03ac747d068835e5f1814e2043e2d3b3"
+    },
+    {
+      "path": "utils/secret-gen.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "31d60e50d981f68146bd4ebf3200cd0253c0e229",
+      "size": 541,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/31d60e50d981f68146bd4ebf3200cd0253c0e229"
+    },
+    {
+      "path": "yukon.sql",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fbad15ab6c122424f41464aa530177cde421b8a8",
+      "size": 9180,
+      "url": "https://api.github.com/repos/wizguin/yukon-server/git/blobs/fbad15ab6c122424f41464aa530177cde421b8a8"
+    }
+  ],
+  "truncated": false
+}

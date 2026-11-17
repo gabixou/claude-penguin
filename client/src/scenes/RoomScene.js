@@ -36,7 +36,11 @@ import PuffleCard from '../ui/PuffleCard.js';
 import PetNameModal from '../ui/PetNameModal.js';
 import TableGames from '../minigames/tables/TableGames.js';
 import { mark } from '../perf.js';
-import { MOVIE_ROOM_MAP, movieBaseFor } from '../room/rooms.js';
+import { MOVIE_ROOM_MAP, NIGHT_ROOM_MAP, HIDDEN_ROOM_PATHS, RINK_PINNED_CLIPS, movieBaseFor, nightBaseFor, twilightBaseFor, zoneOverride, zoneProgressOverride, dayAutoSeconds } from '../room/rooms.js';
+import { zoneInfo, zoneProgressFor, zoneWeights } from '../room/daynight.js';
+import { IglooManager } from '../igloo/IglooManager.js';
+import { IglooCatalogue } from '../igloo/IglooCatalogue.js';
+import RinkPuck from '../room/RinkPuck.js';
 import {
     layerCacheGet, layerCachePut, layerCacheKey, canvasToBlob,
     planRoom, segmentRect, dynRect, drawSegment,
@@ -65,6 +69,13 @@ export default class RoomScene extends Phaser.Scene {
         this.mapOpen = false;
         this.clothesOpen = false;
         this._ss = 2; // fator de supersampling inicial (ajustado por applySupersampling)
+        // zona do ciclo dia/note/crepusculo — precisa existir ANTES do
+        // primeiro _initMovie (linha ~88) para o pack primario ja nascer
+        // na zona certa; o relogio local interpola e o servidor confirma
+        this._zone = zoneOverride() || zoneInfo().zone;
+        this._zoneP = zoneOverride() ? zoneProgressFor(this._zone) : zoneInfo().progress;
+        this._planes = {}; // planos alternativos {kind: {movie,segs,dyns,timer}}
+        this._planeReadyP = null;
     }
 
     create() {
@@ -135,6 +146,9 @@ export default class RoomScene extends Phaser.Scene {
 
             // catalogo aberto: cliques vao para ele, nao para a sala
             if (this.catalogue?.isOpen) { this.catalogue.clickAt(wx, wy); return; }
+
+            // editor de iglu aberto: cliques vao para a grade/palette
+            if (this._iglooEditing) return;
 
             // botoes de conteudo do cenario (ex.: clothing_btn da Gift Shop)
             // ficam na faixa inferior junto ao HUD — resolvem antes do
@@ -227,6 +241,12 @@ export default class RoomScene extends Phaser.Scene {
         this.petViews = new Map(); // ownerPlayerId -> PuffleView
         this.iglooPetViews = new Map(); // petRowId -> PuffleView (wander no iglu)
         this._iglooReturn = null; // sala de origem ao entrar no iglu
+        this._iglooVisit = null;  // playerId do iglu visitado (null = proprio)
+        this._iglooPassword = null;
+        this.igloo = new IglooManager(this);
+        this.iglooCatalogue = new IglooCatalogue(this);
+        // boot direto em ?room=igloo nao passa por changeRoom — entra aqui
+        if (this.currentRoom === 'igloo') this.igloo.enter(this._netRoomId('igloo'));
         // 6e. Prompt autenticico (interface_mc.prompt_mc) — requests de buddy
         this.promptUI = new PromptUI(this);
         this.events.on('buddy-request', (d) => {
@@ -347,6 +367,18 @@ export default class RoomScene extends Phaser.Scene {
             this._playMusic(this.currentRoom);
         });
 
+        // ciclo dia/noite (relogio SP no servidor): o cliente interpola
+        // pelo relogio local; o servidor so re-sincroniza (drift/offset)
+        this.events.on('daynight', (d) => {
+            if (zoneOverride() || !d?.zone) return;
+            this._zone = d.zone;
+            this._zoneP = typeof d.progress === 'number' ? d.progress : this._zoneP;
+            this._applyZoneWeights();
+        });
+        // ticker do relogio local — progress avanca continuamente durante
+        // as janelas de transicao (06-07h e 17h30-18h30)
+        this.time.addEvent({ delay: 1000, loop: true, callback: () => this._tickZone() });
+
         // Dados do jogador recebidos - criar pinguim local ou atualizar
         this.events.on('player-data', (data) => {
             // Se o nameChangeModal estiver aberto, é uma resposta de rename
@@ -386,6 +418,19 @@ export default class RoomScene extends Phaser.Scene {
             } else if (data.code === 'CARE_COOLDOWN') {
                 // cooldown de cuidado do pet: o PuffleCard mostra o aviso
                 // na propria interface — nao poluir o chat do pinguim
+            } else if (data.code === 'IGLOO_PASSWORD') {
+                // iglu com senha: pede e tenta o JOIN_ROOM de novo
+                const pw = prompt('Este igloo tem senha:');
+                if (pw) {
+                    this._iglooPassword = pw;
+                    this.network.joinRoom(this._netRoomId(this.currentRoom),
+                        this.localPlayer?.x ?? 380, this.localPlayer?.y ?? 320, pw);
+                } else {
+                    this._leaveIgloo();
+                }
+            } else if (data.code === 'IGLOO_FRIENDS' || data.code === 'IGLOO_NOT_FOUND' || data.code === 'IGLOO_LOCKED') {
+                this.localPlayer?.showChat?.(`(${data.message || 'Igloo restrito'})`);
+                this._leaveIgloo();
             } else {
                 // Erro genérico - mostra no chat ou alert
                 this.localPlayer?.showChat?.(`Erro: ${data.message || 'Erro de conexão'}`);
@@ -439,6 +484,11 @@ export default class RoomScene extends Phaser.Scene {
     setupNetworkEvents() {
         this.events.on('room-state', (data) => {
             if (!data || !data.players) return;
+            // room ball: o JOIN_ROOM pode ter saido antes do pack carregar —
+            // (re) pede o estado do disco quando a sala confirma a entrada
+            if (this.currentRoom === 'rink' && this.rinkPuck && !this.rinkPuck._gotState) {
+                this.rinkPuck.requestState();
+            }
             this.clearRemotePlayers();
             data.players.forEach(p => {
                 if (p.playerId === this.network.playerId) {
@@ -482,6 +532,19 @@ export default class RoomScene extends Phaser.Scene {
         this.events.on('player-joined', (data) => {
             if (!data || data.playerId === this.network.playerId) return;
             this.upsertRemotePlayer(data.playerId, data.x, data.y, data.colorItemId, data.paperdoll, data.username, data.action, data.pet);
+        });
+
+        // room ball (Hockey Rink): estado inicial (PUCK_STATE) e chute
+        // de outro jogador (PUCK_HIT — o proprio ja aplicou localmente)
+        this.events.on('puck-state', (data) => {
+            if (!data || !this.rinkPuck) return;
+            this.rinkPuck._gotState = true;
+            this.rinkPuck.hitPuck(data.x || 0, data.y || 0, 0, 0);
+        });
+        this.events.on('puck-hit', (data) => {
+            if (!data || !this.rinkPuck) return;
+            if (data.playerId === this.network.playerId) return;
+            this.rinkPuck.hitPuck(data.x || 0, data.y || 0, data.vx || 0, data.vy || 0);
         });
 
         // pet de outro jogador equipou/desequipou na sala
@@ -651,7 +714,7 @@ export default class RoomScene extends Phaser.Scene {
     // fica para depois — o id igloo-<playerId> passa no regex do server)
     _netRoomId(roomKey) {
         return roomKey === 'igloo' && this.network?.playerId
-            ? `igloo-${this.network.playerId}`
+            ? `igloo-${this._iglooVisit || this.network.playerId}`
             : roomKey;
     }
 
@@ -659,7 +722,20 @@ export default class RoomScene extends Phaser.Scene {
         if (this.currentRoom === 'igloo') return;
         if (!this._playerReady || !this.localPlayer) return;
         this._iglooReturn = this.currentRoom;
+        this._iglooVisit = null;
+        this._iglooPassword = null;
         // spawn do AS do igloo (start_x/start_y); a safe spawn ajusta
+        this.changeRoom('igloo', 380, 320);
+    }
+
+    // visita o iglu de outro jogador (player card "home" / buddy list)
+    visitIgloo(ownerId, password = null) {
+        if (!ownerId || !this._playerReady || !this.localPlayer) return;
+        if (ownerId === this.network?.playerId) { this._enterIgloo(); return; }
+        if (this.currentRoom === 'igloo' && this._iglooVisit === ownerId) return;
+        this._iglooReturn = this.currentRoom;
+        this._iglooVisit = ownerId;
+        this._iglooPassword = password;
         this.changeRoom('igloo', 380, 320);
     }
 
@@ -739,6 +815,7 @@ export default class RoomScene extends Phaser.Scene {
         if (this.iglooPetViews?.size) {
             for (const v of this.iglooPetViews.values()) v.tick(dt);
         }
+        this.rinkPuck?.update(delta);
     }
 
     // Retorna o pinguim (local ou remoto) sob o ponto, ou null.
@@ -800,6 +877,13 @@ export default class RoomScene extends Phaser.Scene {
         this.gpHud = new VectorHud(this).setDepth(10000000); // acima dos segmentos SWL (max ~900001)
         this.gpHud.onButton((id) => this.handleHudButton(id));
 
+        // overlay do "fade through dark" do ciclo dia/noite: cobre sala
+        // e atores (depth abaixo do HUD), alpha vem de zoneWeights().dim
+        this._dimOverlay = this.add.rectangle(
+            this.scale.width / 2, this.scale.height / 2,
+            this.scale.width + 8, this.scale.height + 8, 0x0a0f1e, 0)
+            .setScrollFactor(0).setDepth(999999).setVisible(false);
+
         // remove inputs de chat de scenes anteriores (restart vaza elementos DOM)
         document.querySelectorAll('input.cp-chat-input').forEach((el) => el.remove());
         // Input de chat DOM sobre o pill central do dock
@@ -845,6 +929,7 @@ export default class RoomScene extends Phaser.Scene {
         // o rect real do chat_mc so existe depois do build async do VectorHud
         this.events.on('vectorhud:ready', () => { mark('hud-ready'); this._layoutChatInput(); });
         this.events.once('shutdown', () => chatInput.remove());
+        this.events.once('shutdown', () => this.igloo?.leave());
         this.events.once('shutdown', () => musicPlayer.stop());
         this.events.once('shutdown', () => this._minigame?.close());
     }
@@ -934,6 +1019,7 @@ export default class RoomScene extends Phaser.Scene {
     // Mapa da ilha: painel vetorial map.swf (IslandMap) — substitui o grid antigo
     createMapModal() {
         this.islandMap = new IslandMap(this);
+        this.islandMap.preload(); // pack do mapa fica pronto antes do 1o clique
     }
 
     toggleMap() {
@@ -1053,7 +1139,7 @@ export default class RoomScene extends Phaser.Scene {
     // pode mandar package alternativo (assets/movies-party/<id>/<pack>).
     // A URL diferente já versiona o cache IndexedDB por festa.
     _movieBaseFor(roomKey) {
-        return movieBaseFor(roomKey, this.network?.party);
+        return movieBaseFor(roomKey, this.network?.party, this._zone);
     }
 
     // Música da sala — substituição de festa (global ou por sala) aponta
@@ -1077,7 +1163,14 @@ export default class RoomScene extends Phaser.Scene {
     // Sem fallback: se o pack nao carregar, mostra retangulo de erro.
     _initMovie(roomKey) {
         this._clearMovie();
-        const base = this._movieBaseFor(roomKey);
+        let base = this._movieBaseFor(roomKey);
+        // iglu: o AS2 carrega igloo_art<type>.swf como a propria sala
+        // (igloo_mc) — o pack igloo-type/<id> tem a mesma estrutura
+        // (background_mc + areas). Se o tipo ainda nao e conhecido
+        // (layout ainda nao chegou), usa o pack base 'igloo' (tipo 1).
+        if (roomKey === 'igloo' && this._iglooTypeId) {
+            base = `/assets/movies/igloo-type/${this._iglooTypeId}`;
+        }
         if (this.roomFailText) { this.roomFailText.destroy(); this.roomFailText = null; }
         if (!base) { this._showRoomFail(roomKey); return; }
         this._movieReady = false;
@@ -1101,12 +1194,39 @@ export default class RoomScene extends Phaser.Scene {
             ? (pre.urgent = true, Promise.race([pre.promise, new Promise((r) => setTimeout(r, 15000))]))
             : Promise.resolve();
         preReady
-            .then(() => MovieRoom.load(base))
+            .then(() => MovieRoom.load(base).catch((e) => {
+                // igloo-type ainda nao convertido -> pack base 'igloo'
+                if (roomKey === 'igloo' && base !== '/assets/movies/igloo') {
+                    console.warn('[igloo] type pack falhou, fallback p/ igloo', e);
+                    base = '/assets/movies/igloo';
+                    this._iglooTypeId = null;
+                    return MovieRoom.load(base);
+                }
+                throw e;
+            }))
             .then(async (movie) => {
                 if (this.currentRoom !== roomKey) { releaseHold(); return; } // sala trocou durante o load
                 mark(`room-pack:${roomKey}`);
                 this.movie = movie;
                 this.movie.setScale(this._ss);
+                // debug/collision do SWF que o AS original escondia (_visible=false)
+                for (const p of HIDDEN_ROOM_PATHS[roomKey] || []) movie.set(p, { visible: false });
+                // room ball do Hockey Rink (z/gz + z/m do original)
+                if (roomKey === 'rink') {
+                    this.rinkPuck?.destroy();
+                    this.rinkPuck = new RinkPuck(this, movie);
+                    this.rinkPuck.requestState();
+                }
+                // plano do pack da zona atual (dia/noite/twilight conforme
+                // o relogio no momento do load — os outros viram alternativos)
+                this._primaryBase = movie.base;
+                this._primaryKind = this._kindForBase(roomKey, movie.base);
+                // ciclo so existe se o pack carregado e um dos 3 do ciclo
+                // (sem party substitution nem ?moviepack= fora dele) —
+                // senao a sala fica 100% no pack carregado, qualquer que
+                // seja a zona
+                const cb = this._cycleBases(roomKey);
+                this._cycleEnabled = !!cb && Object.values(cb).includes(movie.base);
                 // Cache de layers (IDB) consultado JA — em paralelo com o
                 // setup abaixo. Hit = sala sem rasterizar nada.
                 const cacheKey = layerCacheKey(base, this._ss, movie);
@@ -1114,6 +1234,11 @@ export default class RoomScene extends Phaser.Scene {
                 // cria playheads sem rasterizar — sem isso, rooms vindos do
                 // cache IndexedDB ficavam com animacao congelada
                 movie.warmPlayheads();
+                // clipes de clima do rink ficam em 'off' (default do
+                // WeatherEffectsManager — so animam em danca elemental)
+                if (roomKey === 'rink') {
+                    for (const p of RINK_PINNED_CLIPS) movie.gotoPath(p, 'off', false);
+                }
                 // sprites animados viram overlays proprios: as layers ficam
                 // estaticas (1 render + 0 uploads por frame) e so os
                 // overlays pequenos atualizam por tick
@@ -1173,10 +1298,16 @@ export default class RoomScene extends Phaser.Scene {
                     this._movieReady = true;
                     this._booting = false;
                     const finish = () => {
-                        this.loadingScreen?.hide();
-                        // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
-                        // (ficou na fila durante o load para nao competir)
-                        PenguinLibrary.startWarm?.();
+                        // planos alternativos do ciclo: build em background;
+                        // se o peso do plano primario ja nao e 1 (ex.: entrou
+                        // de noite ou no meio do crepusculo), segura o loader
+                        // ate eles ficarem prontos para nao piscar
+                        this._initAltPlanes(roomKey);
+                        const hide = () => {
+                            this.loadingScreen?.hide();
+                            // sala pronta: libera o warm-up dos SVGs do pinguim/roupas
+                            // (ficou na fila durante o load para nao competir)
+                            PenguinLibrary.startWarm?.();
                         // cache hit: decodifica os SVGs da sala aos poucos, em
                         // idle — prontos quando os overlays animarem
                         if (cacheHit) movie.prefetchSvgs(4);
@@ -1190,6 +1321,14 @@ export default class RoomScene extends Phaser.Scene {
                         this._applySafeSpawn();
                         // iglu: puffles vagando (a location ja foi aguardada)
                         if (roomKey === 'igloo') this._syncIglooPets();
+                        };
+                        const w = this._zoneWeightsNow();
+                        if (this._primaryKind && (w[this._primaryKind] ?? 1) < 0.99 && this._planeReadyP) {
+                            Promise.race([
+                                this._planeReadyP,
+                                new Promise((r) => setTimeout(r, 25000)),
+                            ]).finally(hide);
+                        } else hide();
                     };
                     // iglu: segura o loader ate a location (fundo) estar
                     // desenhada — sem isso aparecia fundo preto por segundos
@@ -1535,7 +1674,281 @@ export default class RoomScene extends Phaser.Scene {
         }
     }
 
+    // ---------- Ciclo dia/noite/crepusculo (3 planos + pesos do relogio) ----------
+    // O pack PRIMARIO segue a zona do load (dia -> *-twilight nas janelas
+    // -> *-night). Os outros packs do ciclo viram planos alternativos
+    // construidos em background; o relogio define o alpha de cada um —
+    // transicao continua durante 06-07h e 17h30-18h30 (server/src/daynight.js).
+
+    // 'day' | 'night' | 'twilight' | null (pack fora do ciclo / party)
+    _kindForBase(roomKey, base) {
+        if (!base) return null;
+        const pack = MOVIE_ROOM_MAP[roomKey];
+        if (!pack || !NIGHT_ROOM_MAP[roomKey]) return 'day'; // interna: sempre 'day'
+        if (base === `/assets/movies/${NIGHT_ROOM_MAP[roomKey]}`) return 'night';
+        if (base === `/assets/movies/${pack}-twilight`) return 'twilight';
+        return 'day';
+    }
+
+    // bases dos 3 planos do ciclo para a sala (null se nao participa)
+    _cycleBases(roomKey) {
+        const pack = MOVIE_ROOM_MAP[roomKey];
+        const night = nightBaseFor(roomKey);
+        if (!pack || !night) return null;
+        return {
+            day: `/assets/movies/${pack}`,
+            twilight: twilightBaseFor(roomKey),
+            night,
+        };
+    }
+
+    // ?dayauto — loop de QA: cicla dia -> dusk -> noite -> dawn -> dia
+    // com tempo igual por zona (ver dayAutoSeconds em rooms.js)
+    _dayAutoInfo() {
+        const secs = dayAutoSeconds();
+        if (!secs) return null;
+        if (!this._autoT0) this._autoT0 = Date.now();
+        const ORDER = ['day', 'dusk', 'night', 'dawn'];
+        const pos = ((Date.now() - this._autoT0) / 1000 / secs);
+        const idx = Math.floor(pos) % ORDER.length;
+        return { zone: ORDER[idx], progress: pos % 1 };
+    }
+
+    _zoneWeightsNow() {
+        // sala fora do ciclo (interna, pack forçado, party): sempre o
+        // pack primario 100% visivel
+        if (!this._cycleEnabled || !this._primaryKind) {
+            const k = this._primaryKind || 'day';
+            return { day: 0, twilight: 0, night: 0, [k]: 1, dim: 0, bottom: k, top: null };
+        }
+        const auto = this._dayAutoInfo();
+        if (auto) return zoneWeights(auto.zone, auto.progress);
+        const ov = zoneOverride();
+        const zone = ov || this._zone;
+        const zp = zoneProgressOverride();
+        const progress = zp ?? (ov ? zoneProgressFor(ov) : this._zoneP);
+        return zoneWeights(zone, progress);
+    }
+
+    _tickZone() {
+        const auto = this._dayAutoInfo();
+        if (auto) {
+            if (auto.zone !== this._zone || Math.abs(auto.progress - this._zoneP) > 0.004) {
+                this._zone = auto.zone;
+                this._zoneP = auto.progress;
+                this._applyZoneWeights();
+            }
+            return;
+        }
+        const ov = zoneOverride();
+        if (ov) {
+            const p = zoneProgressOverride() ?? zoneProgressFor(ov);
+            if (p !== this._zoneP) { this._zoneP = p; this._applyZoneWeights(); }
+            return;
+        }
+        const zi = zoneInfo();
+        if (zi.zone !== this._zone || Math.abs(zi.progress - this._zoneP) > 0.002) {
+            this._zone = zi.zone;
+            this._zoneP = zi.progress;
+            this._applyZoneWeights();
+        }
+    }
+
+    // aplica os pesos do relogio direto no alpha das imagens — sem tween:
+    // o progresso muda devagar (janelas de 1h), entao setAlpha por segundo
+    // ja e suave e evita corrida de tweens.
+    // Alem do alpha, aplica um viés de depth por plano (bottom=0,
+    // top=+EPS, ocultos=-EPS): os 3 packs tem profundidades identicas
+    // (mesma geometria), entao sem o viés a ordem de composicao seria
+    // a ordem de criacao — o plano que esta subindo precisa ficar
+    // ACIMA do opaco embaixo pro crossfade nao ficar "fantasma".
+    // EPS=0.002 e muito menor que o menor gap entre segmentos e que o
+    // passo de depth dos atores (0.01), entao nao quebra o y-sort.
+    _applyZoneWeights() {
+        if (!this._movieReady || !this._primaryKind) return;
+        const w = this._zoneWeightsNow();
+        const EPS = 0.002;
+        const biasFor = (k) => (k === w.bottom ? 0 : k === w.top ? EPS : -EPS);
+        const paint = (img, kind) => {
+            if (!img) return;
+            if (img._dnBase === undefined) img._dnBase = img.depth;
+            img.setDepth(img._dnBase + biasFor(kind));
+            img.setAlpha(w[kind] ?? 0);
+        };
+        for (const img of this._primaryImgs()) paint(img, this._primaryKind);
+        for (const [kind, plane] of Object.entries(this._planes)) {
+            for (const s of plane.segs) paint(s.img, kind);
+            for (const d of plane.dyns) paint(d.img, kind);
+        }
+        // fade through dark: escurece a cena inteira na troca de pack
+        const dim = w.dim ?? 0;
+        if (this._dimOverlay) {
+            this._dimOverlay.setAlpha(dim);
+            this._dimOverlay.setVisible(dim > 0.01);
+        }
+    }
+
+    _initAltPlanes(roomKey) {
+        this._clearAltPlanes();
+        const bases = this._cycleBases(roomKey);
+        const primaryBase = this.movie?.base;
+        if (!bases || !primaryBase) return;
+        // so faz sentido com um dos packs do ciclo carregado (sem party
+        // substitution nem ?moviepack=)
+        const kinds = ['day', 'twilight', 'night'].filter((k) => bases[k] && bases[k] !== primaryBase);
+        const allowed = new Set(Object.values(bases));
+        if (!allowed.has(primaryBase)) return;
+        const ss = this._ss;
+        this._planeReadyP = (async () => {
+            for (const kind of kinds) {
+                if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
+                const plane = await this._buildPlane(roomKey, kind, bases[kind], ss);
+                if (!plane) continue;
+                this._planes[kind] = plane;
+                plane.timer = this.time.addEvent({
+                    delay: 1000 / (plane.movie.rate || 24), loop: true,
+                    callback: () => this._planesTick(),
+                });
+            }
+            if (this.currentRoom !== roomKey || this.movie?.base !== primaryBase) return;
+            this._applyZoneWeights();
+        })().catch((e) => console.warn('[daynight] alt planes', roomKey, e));
+    }
+
+    // constroi um plano alternativo: MovieRoom.load + raster estatico dos
+    // segmentos + overlays dinamicos (mesma receita do _initAltMovie antiga)
+    async _buildPlane(roomKey, kind, base, ss) {
+        try {
+            const movie = await MovieRoom.load(base);
+            movie.warmPlayheads();
+            const { dyns, segments } = planRoom(movie, ss);
+            const segImgs = [];
+            for (const seg of segments) {
+                if (this.currentRoom !== roomKey) return null;
+                const r = segmentRect(movie, seg, ss);
+                if (!r) continue;
+                const { x0, y0, w, h } = r;
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                seg.canvas = canvas; seg.ox = x0; seg.oy = y0;
+                const texKey = `alt_seg_${roomKey}_${kind}_${segImgs.length}`;
+                if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                const tex = this.textures.addCanvas(texKey, canvas);
+                const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                    .setDisplaySize(w / ss, h / ss)
+                    .setDepth(seg.depth).setAlpha(0);
+                seg.tex = tex; seg.img = img; seg.texKey = texKey;
+                segImgs.push(seg);
+                await drawSegment(movie, seg, ss);
+                tex.refresh();
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            const dynImgs = [];
+            for (const d of dyns) {
+                if (this.currentRoom !== roomKey) return null;
+                const r = dynRect(movie, d, ss);
+                if (!r) continue;
+                const { x0, y0, w, h } = r;
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                d.canvas = canvas; d.ox = x0; d.oy = y0;
+                const texKey = `alt_dyn_${roomKey}_${kind}_${dynImgs.length}`;
+                if (this.textures.exists(texKey)) this.textures.remove(texKey);
+                const tex = this.textures.addCanvas(texKey, canvas);
+                const img = this.add.image((x0 + w / 2) / ss, (y0 + h / 2) / ss, texKey)
+                    .setDisplaySize(w / ss, h / ss)
+                    .setDepth(d.depth).setAlpha(0);
+                d.tex = tex; d.img = img; d.texKey = texKey;
+                dynImgs.push(d);
+                try { await movie.renderSpriteDynamic(d, ss); } catch {}
+                tex.refresh();
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            if (this.currentRoom !== roomKey) return null;
+            return { kind, movie, segs: segImgs, dyns: dynImgs, timer: null };
+        } catch (e) {
+            console.warn('[daynight] plane', roomKey, kind, e);
+            return null;
+        }
+    }
+
+    // anima os planos visiveis (alpha > 0) — mesmo dirty-path do plano
+    // antigo, agora por plano
+    _planesTick() {
+        const w = this._zoneWeightsNow();
+        for (const [kind, a] of Object.entries(this._planes)) {
+            if ((w[kind] ?? 0) <= 0.01) continue;
+            a.movie.tick();
+            const dp = a.movie._dirtyPaths || new Set();
+            const fp = a.movie._dirtyForcedPaths || new Set();
+            if (!dp.size && !fp.size) continue;
+            const hit = (p, base) => p === base || p.startsWith(base + '.') || p.startsWith(base + '#');
+            for (const d of a.dyns) {
+                if (d._busy || !d.canvas) continue;
+                let dirty = false;
+                for (const p of dp) if (hit(p, d.path)) { dirty = true; break; }
+                if (!dirty) for (const p of fp) if (hit(p, d.path)) { dirty = true; break; }
+                if (!dirty) continue;
+                d._busy = true;
+                a.movie.renderSpriteDynamic(d, this._ss)
+                    .then(() => d.tex?.refresh())
+                    .catch(() => {})
+                    .finally(() => { d._busy = false; });
+            }
+            for (const seg of a.segs) {
+                if (seg._busy || !seg.paths?.size) continue;
+                let dirty = false;
+                for (const p of dp) if (seg.paths.has(p)) { dirty = true; break; }
+                if (!dirty) for (const p of fp) if (seg.paths.has(p)) { dirty = true; break; }
+                if (!dirty) continue;
+                seg._busy = true;
+                drawSegment(a.movie, seg, this._ss)
+                    .then(() => seg.tex?.refresh())
+                    .catch(() => {})
+                    .finally(() => { seg._busy = false; });
+            }
+        }
+    }
+
+    // Movie do plano VISIVEL no momento — as interacoes (hover/click)
+    // precisam agir no pack que esta na tela, nao no primario do load:
+    // quem entrou de noite (primary=*-night) e depois o relogio virou
+    // dia ve o plano 'day' alternativo, e o hover no primario ficava
+    // invisivel. Fade-through-dark: um pack por vez -> w.bottom.
+    _visibleMovie() {
+        if (!this.movie) return null;
+        if (!this._cycleEnabled || !this._primaryKind) return this.movie;
+        const w = this._zoneWeightsNow();
+        const kind = w.bottom || this._primaryKind;
+        if (kind === this._primaryKind) return this.movie;
+        return this._planes?.[kind]?.movie || this.movie;
+    }
+
+    _primaryImgs() {
+        const imgs = [];
+        for (const l of this.movieLayers || []) if (l.img) imgs.push(l.img);
+        for (const d of this._dynList || []) if (d.img) imgs.push(d.img);
+        return imgs;
+    }
+
+    _clearAltPlanes() {
+        for (const plane of Object.values(this._planes || {})) {
+            if (plane.timer) plane.timer.remove();
+            for (const s of plane.segs) {
+                s.img?.destroy();
+                if (s.texKey && this.textures.exists(s.texKey)) this.textures.remove(s.texKey);
+            }
+            for (const d of plane.dyns) {
+                d.img?.destroy();
+                if (d.texKey && this.textures.exists(d.texKey)) this.textures.remove(d.texKey);
+            }
+        }
+        this._planes = {};
+        this._planeReadyP = null;
+    }
+
     _clearMovie() {
+        this._clearAltPlanes();
         this.catalogue?.close();
         if (this.movieTimer) { this.movieTimer.remove(); this.movieTimer = null; }
         if (this.movieLayers) {
@@ -1554,6 +1967,11 @@ export default class RoomScene extends Phaser.Scene {
         }
         this._segments = null;
         this.movie = null;
+        this.rinkPuck?.destroy();
+        this.rinkPuck = null;
+        this._primaryKind = null;
+        this._primaryBase = null;
+        this._cycleEnabled = false;
         this._interactions?.destroy?.();
         this._interactions = null;
         this._locationImg?.destroy();
@@ -1565,7 +1983,11 @@ export default class RoomScene extends Phaser.Scene {
         if (this.currentRoom === newRoomKey) return;
         if (!this._playerReady || !this.localPlayer) return;
         // saida do iglu por outra via (mapa da ilha etc.) limpa o retorno
-        if (newRoomKey !== 'igloo') this._iglooReturn = null;
+        if (newRoomKey !== 'igloo') {
+            this._iglooReturn = null; this._iglooVisit = null; this._iglooPassword = null;
+            this._iglooTypeId = null;
+            this.igloo?.leave();
+        } else this.igloo?.enter(this._netRoomId('igloo'));
         this.playerCard?.close();
         this._closeMinigame();
         // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)
@@ -1583,7 +2005,8 @@ export default class RoomScene extends Phaser.Scene {
         this.localPlayer.updateDepth();
 
         this.clearRemotePlayers();
-        this.network.joinRoom(this._netRoomId(newRoomKey), startX, startY);
+        this.network.joinRoom(this._netRoomId(newRoomKey), startX, startY,
+            newRoomKey === 'igloo' ? this._iglooPassword : null);
 
         if (this.mapOpen) {
             this.toggleMap();

@@ -1,0 +1,1 @@
+This is an isolated game sprite (a Club Penguin puffle, blue) upscaled 4x with nearest-neighbor. Describe exactly what you see: shape, colors, facial features (eyes, beak, hair tuft), outline. Does it look like a proper Club Penguin puffle or a corrupted/blurry blob? Be precise about visible details.

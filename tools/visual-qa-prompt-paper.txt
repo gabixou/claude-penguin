@@ -1,0 +1,1 @@
+This is an isolated UI element from Club Penguin (the "paper_mc" of the puffle card). Describe exactly what it shows: is there a puffle portrait? On what background (parchment/paper/blue)? Any frame/border? Colors and shapes.

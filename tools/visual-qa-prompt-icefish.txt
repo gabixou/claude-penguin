@@ -1,0 +1,8 @@
+Analise este screenshot de um minigame "Ice Fishing" (clone de Club Penguin) num overlay escuro.
+
+Verifique:
+1. Ha uma cena de pesca visivel: gelo/ponte no topo, agua abaixo, linha de pesca, isca/peixe?
+2. Os elementos estao renderizando (nao tela preta/vazia/erro)?
+3. Ha algo visualmente quebrado ou muito feio que prejudique jogabilidade?
+
+Responda em portugues, conciso: OK ou problema + descricao.

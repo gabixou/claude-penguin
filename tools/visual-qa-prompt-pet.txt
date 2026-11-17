@@ -1,0 +1,13 @@
+Compare these two Club Penguin screenshots.
+
+IMAGE 1 (clone): our recreation showing a puffle card dialog open (left/center) and a small blue puffle creature standing next to the penguin.
+IMAGE 2 (reference): gopenguin.lol town for general scene comparison.
+
+The gopenguin reference does NOT have a puffle card open (state difference is expected — ignore that the card is absent there).
+
+Evaluate ONLY:
+1. Does the puffle card in image 1 look like the authentic Club Penguin puffle/pet card (blue window, stats bars, paper area with puffle preview, buttons)? Note anything visually broken, misaligned, transparent, or placeholder-looking.
+2. Does the small blue puffle sprite next to the penguin in image 1 look like a proper Club Penguin puffle (round fuzzy creature) rather than a broken/blank/misshapen sprite?
+3. Any other glaring visual defects in image 1 (HUD, room, penguin).
+
+Be concrete and concise. List issues by severity.

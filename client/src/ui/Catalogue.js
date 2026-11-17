@@ -105,6 +105,11 @@ export class CatalogueOverlay {
             movie.prefetchSvgs(16);
             await movie.ensureFonts();
             itemsById(); // prefetch do catalogo de itens (buy labels)
+            // prefetch do catalogo de igloo — buy labels dos catalogs
+            // furn2008/igloocat2008 (nomes/custos reais, nao items.json)
+            this._iglooCatP = fetch('/assets/igloo-catalog.json')
+                .then((r) => (r.ok ? r.json() : {})).then((d) => { this._iglooCat = d; return d; })
+                .catch(() => ({}));
             const pages = movie.data?.main?.frames?.length || 1;
             movie.goto('book', Math.max(1, Math.min(pages, page)));
             this._buildCanvas();
@@ -135,7 +140,11 @@ export class CatalogueOverlay {
         if (this.scene.textures.exists(this.texKey)) this.scene.textures.remove(this.texKey);
         this._tex = this.scene.textures.addCanvas(this.texKey, this.canvas);
         this.img = this.scene.add.image(380, 240, this.texKey)
-            .setDisplaySize(760, 480).setDepth(999999);
+            .setDisplaySize(760, 480).setDepth(999999)
+            // modal: bloqueia clique/drag nos objetos abaixo (ex.: editor
+            // de iglu) — os controles do catalogo sao resolvidos via
+            // clickAt/hoverAt no handler da cena, nao em game objects
+            .setInteractive();
     }
 
     // ---------- render + controles (port do xo.render) ----------
@@ -152,6 +161,7 @@ export class CatalogueOverlay {
         this.movie.prefetchFrames?.([this.movie.currentFrame('book')], 12, true, this._renderSs, false);
         await this._render(true); // troca de pagina: tenta cache primeiro
         if (gen !== this._generation) return;
+        await this._iglooCatP?.catch(() => {}); // labels de buy do igloo
         this._buildControls();
         // warm em background de TODAS as paginas restantes, em ordem —
         // o semaforo de raster drena ~6 por vez durante a leitura; sem
@@ -296,8 +306,15 @@ export class CatalogueOverlay {
                 label = 'Catalogue detail';
             }
             if (buyM) {
-                const item = _itemsById?.get(Number(buyM[2]));
-                if (item) label = `Buy ${item.name} for ${item.cost} coins`;
+                const bkind = BUY_KINDS[buyM[1]];
+                if (bkind === 'items') {
+                    const item = _itemsById?.get(Number(buyM[2]));
+                    if (item) label = `Buy ${item.name} for ${item.cost} coins`;
+                } else {
+                    // catalogs de igloo: nome/custo do igloo-catalog.json
+                    const e = this._iglooEntrySync(bkind, Number(buyM[2]));
+                    if (e) label = `Buy ${e.name} for ${e.cost ?? 0} coins`;
+                }
             }
 
             // ---- paginas especiais (port do xo.render) ----
@@ -382,6 +399,32 @@ export class CatalogueOverlay {
     async _product(kind, id) {
         if (kind !== 'items') return null;
         return (await itemsById()).get(id) || null;
+    }
+
+    // catalogos de igloo (FurnDec2008 / IglooCatalogDec2008): o produto
+    // vem do igloo-catalog.json e a compra e IGLOO_BUY no servidor.
+    // kind do overlay -> kind do servidor
+    static IGLOO_KIND = { furniture: 'furniture', flooring: 'flooring', igloos: 'igloo' };
+    static IGLOO_CAT = { furniture: 'furniture', flooring: 'floorings', igloo: 'igloos' };
+    _iglooCatalog = null;
+    async _iglooProduct(kind, id) {
+        const cat = this._iglooCat || (this._iglooCat = await this._iglooCatP?.catch(() => ({})) || {});
+        const table = cat[CatalogueOverlay.IGLOO_CAT[kind] || kind];
+        const e = table?.[String(id)];
+        return e ? { ...e, id: Number(id) } : null;
+    }
+    // lookup sincrono p/ labels em _buildControls (catalogo pre-carregado)
+    _iglooEntrySync(kind, id) {
+        const cat = this._iglooCat;
+        if (!cat) return null;
+        const table = cat[CatalogueOverlay.IGLOO_CAT[kind] || kind];
+        const e = table?.[String(id)];
+        return e ? { name: e.name, cost: e.cost } : null;
+    }
+    _iglooOwned(kind, id) {
+        const want = CatalogueOverlay.IGLOO_KIND[kind];
+        return (this.scene.igloo?.inventory || []).some(
+            (r) => r.kind === want && Number(r.itemId) === Number(id) && (r.quantity || 1) > 0);
     }
 
     // ---------- commands(): interpreta o corpo do on(release) ----------
@@ -506,7 +549,44 @@ export class CatalogueOverlay {
 
     async _buy(kind, id) {
         const net = this.scene.network;
-        if (kind !== 'items') return this._notice(str('unavailable'));
+        // catalogos de igloo: compra via IGLOO_BUY (inventario do iglu)
+        if (kind !== 'items') {
+            const sk = CatalogueOverlay.IGLOO_KIND[kind];
+            if (!sk) return this._notice(str('unavailable'));
+            const item = await this._iglooProduct(kind, id);
+            if (!item) return this._notice(str('not_available'));
+            if (this._iglooOwned(kind, id) && kind !== 'furniture')
+                return this._notice('You already own this.');
+            const coins = net?.coins ?? 0;
+            if ((item.cost || 0) > 0 && coins < item.cost)
+                return this._notice(str('low_coin_warn'));
+            const msg = (item.cost || 0) === 0
+                ? `Would you like to get ${item.name} for free?`
+                : `Would you like to buy ${item.name} for ${item.cost} coins?`;
+            this._confirm(msg, () => {
+                if (!net?.sendIglooBuy) return this._notice(str('unavailable'));
+                // sucesso = IGLOO_INVENTORY; falha = net-error (ERROR do server)
+                const done = (ok, code) => {
+                    this.scene.events.off('igloo-inventory', onInv);
+                    this.scene.events.off('net-error', onErr);
+                    const map = {
+                        NO_COINS: str('low_coin_warn'),
+                        MAX_OWNED: 'You already have the maximum of this item.',
+                        UNKNOWN_ITEM: str('not_available'),
+                    };
+                    this._notice(ok
+                        ? `${item.name} added to your igloo inventory.`
+                        : map[code] || 'Purchase failed.');
+                    this._show();
+                };
+                const onInv = () => done(true);
+                const onErr = (d) => done(false, d?.code);
+                this.scene.events.once('igloo-inventory', onInv);
+                this.scene.events.once('net-error', onErr);
+                net.sendIglooBuy(sk, id);
+            });
+            return;
+        }
         const item = await this._product(kind, id);
         if (!item) return this._notice(str('not_available'));
         const owned = net?.hasItem?.(id);

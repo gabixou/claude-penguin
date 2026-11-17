@@ -1,0 +1,8 @@
+Analise este screenshot de um minigame "Bean Counters" (clone de Club Penguin) rodando num overlay.
+
+Verifique:
+1. O jogo esta renderizando corretamente (menu ou gameplay visivel, nao tela preta/vazia)?
+2. Ha artefatos visuais, elementos cortados, ou a interface parece quebrada?
+3. A escala do jogo parece adequada para a area do overlay?
+
+Responda em portugues, de forma concisa: OK ou problema + descricao.

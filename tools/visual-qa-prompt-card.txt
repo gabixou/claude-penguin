@@ -1,0 +1,1 @@
+This is a Club Penguin puffle card UI. Compare with the authentic Club Penguin puffle card: it should have the puffle portrait on parchment/paper background, the puffle's name at top, stat bars (hunger/health/rest), and buttons (play, rest, feed, walk, close). List concrete visual defects: missing name, wrong background color, clipped elements, misaligned tabs/buttons.

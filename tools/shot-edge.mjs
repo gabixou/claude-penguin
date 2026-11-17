@@ -1,0 +1,10 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await (await b.newContext({ viewport: { width: 1366, height: 768 } })).newPage();
+await p.goto('http://localhost:3000/?room=coffee&guest=1', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => window.__penguin?.scene?._movieReady === true, null, { timeout: 120000 });
+await p.waitForTimeout(2000);
+await p.evaluate(() => window.__penguin.scene._showGameUnavailable('beans'));
+await p.waitForTimeout(8000);
+await p.screenshot({ path: 'tools/tools/shots/beans-edge.png' });
+await b.close();

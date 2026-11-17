@@ -209,6 +209,11 @@ export class MovieRoom {
             if (!r.ok) throw new Error(`timelines.json ${r.status}`);
             return r.json();
         });
+        // atlas PNG pre-assado (tools/bake-char-atlas.mjs): se existir,
+        // artCanvas serve bitmap do atlas em vez de decodificar SVG.
+        const atlasP = fetch(`${base}/chars/atlas.json`)
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
         const packs = [];
         const urls = [];
         const charsUrl = tl.pack?.file ? `${base}/chars/${tl.pack.file}` : null;
@@ -244,12 +249,24 @@ export class MovieRoom {
         const exits = tmp._parseExits();
         tmp._parseInteractions();
 
-        return {
+        const atlas = await atlasP;
+        const s = {
             tl, packs, files, exits, interactions: tmp.interactions,
             svgCache: new Map(), imgCache: new Map(), imgReady: new Set(),
             artCache: new Map(), tintCache: new Map(), fontCache: new Map(),
-            svgOverrides: new Map(),
+            svgOverrides: new Map(), atlas, atlasSheets: new Map(),
         };
+        // arquivos cobertos pelo atlas contam como "prontos": nunca passam
+        // pelo decode de SVG (imgCache=null evita _svgImage recursivo e
+        // setSvgOverride continua funcionando — deleta a entrada e o
+        // artCanvas checa _svgOverrides antes do atlas)
+        if (atlas?.frames) {
+            for (const f of Object.keys(atlas.frames)) {
+                s.imgReady.add(f);
+                s.imgCache.set(f, Promise.resolve(null));
+            }
+        }
+        return s;
     }
 
     // P4: baixa os packs de uma sala para o IDB sem parsear o timelines na
@@ -298,6 +315,8 @@ export class MovieRoom {
         room._tintCache = s.tintCache;
         room._fontCache = s.fontCache;
         room._svgOverrides = s.svgOverrides;
+        room._atlas = s.atlas;
+        room._atlasSheets = s.atlasSheets;
         room._playheads = new Map();  // path -> playhead "ativo" (ultimo resolvido; goto/currentFrame)
         room._playheadAll = new Map(); // path+''+spriteId -> playhead (instancias co-existentes)
         room._buttonStates = new Map(); // path -> 'up'|'over'|'down' (interacoes)
@@ -656,6 +675,13 @@ export class MovieRoom {
         let p = this._artCache.get(key);
         if (p) return p;
         p = (async () => {
+            // atlas pre-assado: bitmap direto do PNG (sem decode SVG).
+            // setSvgOverride fura o atlas — o override precisa do SVG.
+            const af = this._atlas?.frames?.[file];
+            if (af && !this._svgOverrides?.has(file)) {
+                const c = await this._atlasBitmap(file, char, af, scale, bg);
+                if (c) return c;
+            }
             const img = await this._svgImage(file);
             if (!img) return null;
             // size[0]=0 existe em shapes degenerados do Flash (ex.: a linha
@@ -685,6 +711,50 @@ export class MovieRoom {
         this._artCache.set(key, p);
         p.catch(() => { if (this._artCache.get(key) === p) this._artCache.delete(key); });
         return p;
+    }
+
+    // Sheet do atlas (lazy, compartilhada entre instancias do mesmo pack).
+    _atlasSheet(i) {
+        let p = this._atlasSheets?.get(i);
+        if (p) return p;
+        const url = `${this.base}/chars/${this._atlas.sheets[i]}`;
+        p = new Promise((res) => {
+            const img = new Image();
+            img.onload = () => res(img);
+            img.onerror = () => res(null);
+            img.src = url;
+        });
+        this._atlasSheets?.set(i, p);
+        return p;
+    }
+
+    // Recorta o frame do atlas e rasteriza no tamanho pedido. O frame ja
+    // vem em Kx (bake), entao eff <= K sai nativo; eff > K faz upscale —
+    // createImageBitmap resolve os dois casos.
+    async _atlasBitmap(file, char, af, scale, bg) {
+        const sheet = await this._atlasSheet(af.s);
+        if (!sheet) return null;
+        const w = char?.size?.[0];
+        const h = char?.size?.[1];
+        if (!w || !h) return null;
+        const cw = Math.max(1, Math.ceil(w * scale));
+        const ch = Math.max(1, Math.ceil(h * scale));
+        let c;
+        await _artAcquire(bg);
+        try {
+            c = await createImageBitmap(sheet, af.x, af.y, af.w, af.h, { resizeWidth: cw, resizeHeight: ch });
+        } catch {
+            c = document.createElement('canvas');
+            c.width = cw; c.height = ch;
+            const ctx = c.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(sheet, af.x, af.y, af.w, af.h, 0, 0, cw, ch);
+        } finally {
+            _artRelease();
+        }
+        c._scale = scale;
+        return c;
     }
 
     // Caminho rapido do tint: bitmap base do cache -> copia transferivel

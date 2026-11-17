@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+import fs from 'fs';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await (await b.newContext()).newPage();
+const svg = fs.readFileSync('shots/shape37.svg', 'utf8');
+const b64 = Buffer.from(svg).toString('base64');
+await p.setContent(`<body style="margin:0;background:#223"><img src="data:image/svg+xml;base64,${b64}" style="width:800px"></body>`);
+await p.waitForTimeout(200);
+await (await p.$('img')).screenshot({ path: 'shots/shape37.png' });
+await b.close();
+console.log('done');

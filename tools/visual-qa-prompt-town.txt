@@ -1,0 +1,2 @@
+You are doing a visual diff review. IMAGE 1 is our clone of Club Penguin town, IMAGE 2 is the gopenguin.lol reference of the same town.
+Write a short prose analysis in Portuguese (NOT json): describe what you see in each image, then bullet the concrete visual differences (missing HUD icons, colors, positions, UI elements). Ignore dynamic content like player names positions and chat text. End with verdict ACCEPTABLE or NEEDS-FIX.

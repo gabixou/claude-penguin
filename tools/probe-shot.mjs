@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+p.on('pageerror', e => console.log('PAGEERR', String(e).slice(0, 200)));
+await p.goto('http://localhost:3000/?penguin=Arenovisk', { waitUntil: 'domcontentloaded' });
+await p.waitForFunction(() => window.__penguin?.scene?._movieReady === true, null, { timeout: 120000 });
+await p.waitForTimeout(2500);
+const ss = await p.evaluate(() => window.__penguin.scene._ss);
+console.log('ss =', ss);
+await p.screenshot({ path: 'tools/shots/clone-town-ss225.png' });
+await b.close();

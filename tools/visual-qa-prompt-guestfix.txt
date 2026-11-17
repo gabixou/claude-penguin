@@ -1,0 +1,9 @@
+Compare these two Club Penguin screenshots: image 1 = our clone, image 2 = original GoPenguin reference.
+
+Check specifically:
+1. Is there any "Guest Mode" text/badge visible in the clone's top-right corner? (It should be GONE now.)
+2. Nametag position: in the original, the penguin's username sits very close below its feet. In the clone, is the nametag now close to the penguin's feet, or still floating too low?
+3. Penguin sharpness: does the penguin sprite in the clone look blurry/pixelated compared to the crisp room background? (It should now render at the same effective resolution as the room.)
+4. Any other obvious visual regression (missing penguin, glitched rendering, artifacts)?
+
+Answer concisely in Portuguese, item by item: OK or problem + description.

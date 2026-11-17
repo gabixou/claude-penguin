@@ -1,0 +1,6 @@
+Você receberá DUAS imagens de telas de carregamento do Club Penguin.
+
+- IMAGEM 1: nosso clone (Phaser)
+- IMAGEM 2: referência original
+
+Descreva cada uma em detalhe (fundo, logo, textos, barra de progresso, elementos animados, cores, posições) e liste as diferenças visuais concretas entre elas. Seja exaustivo e preciso, em português.

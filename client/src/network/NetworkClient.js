@@ -234,7 +234,7 @@ export default class NetworkClient {
 
     // ---------- Ações do Jogador ----------
 
-    joinRoom(roomId = 'town', x = 400, y = 300) {
+    joinRoom(roomId = 'town', x = 400, y = 300, password) {
         if (!this.playerId) {
             console.warn('[NetworkClient] Tentativa de entrar na sala antes de autenticar');
             return;
@@ -242,7 +242,8 @@ export default class NetworkClient {
         this.send('JOIN_ROOM', {
             roomId,
             x,
-            y
+            y,
+            password: password || undefined
         });
     }
 
@@ -278,6 +279,22 @@ export default class NetworkClient {
     sendAction(action) {
         this.send('PLAYER_ACTION', { action: action || null });
     }
+
+    // Room ball (Hockey Rink): pede o estado atual do disco (z/gz original)
+    // e avisa quando o jogador local "chuta" o disco (z/m original).
+    sendPuckGet() { this.send('PUCK_GET', {}); }
+    sendPuckHit(x, y, vx, vy) {
+        this.send('PUCK_HIT', { x, y, vx, vy });
+    }
+
+    // ---------- igloo (fase 3) ----------
+    sendIglooGet(ownerId, password) {
+        this.send('IGLOO_GET', { ownerId, password: password || undefined });
+    }
+    sendIglooSave(patch) { this.send('IGLOO_SAVE', patch); }
+    sendIglooPerms(patch) { this.send('IGLOO_PERMS', patch); }
+    sendIglooBuy(kind, itemId) { this.send('IGLOO_BUY', { kind, itemId }); }
+    sendIglooInventory() { this.send('IGLOO_INVENTORY', {}); }
 
     // ---------- Social (fase 1) ----------
 
@@ -319,6 +336,9 @@ export default class NetworkClient {
             case 'PARTY_UPDATE':
                 this.party = data?.party || null;
                 this.scene.events.emit('party-update', data);
+                break;
+            case 'DAY_NIGHT':
+                this.scene.events.emit('daynight', data);
                 break;
             case 'ERROR':
                 // feedback de moderacao: toast generico (nunca expoe a palavra)
@@ -382,6 +402,19 @@ export default class NetworkClient {
                 break;
             case 'PLAYER_PET_CARE':
                 this.scene.events.emit('player-pet-care', data);
+                break;
+            case 'PUCK_STATE':
+                this.scene.events.emit('puck-state', data);
+                break;
+            case 'PUCK_HIT':
+                this.scene.events.emit('puck-hit', data);
+                break;
+            case 'IGLOO_STATE':
+                this.scene.events.emit('igloo-state', data);
+                break;
+            case 'IGLOO_INVENTORY':
+                this.scene.events.emit('igloo-inventory', data?.inventory || []);
+                this.scene.iglooCatalogue?.setInventory?.(data?.inventory || []);
                 break;
             default:
                 this.scene.events.emit('packet-' + op, data);

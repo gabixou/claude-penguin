@@ -1,0 +1,6 @@
+Esta imagem e um screenshot de um clone do Club Penguin rodando em Phaser.
+Avalie criticamente a QUALIDADE DE RENDERIZACAO:
+1. A arte do cenario (predios, neve) esta suave (como vetorial Flash suavizado) ou visivelmente pixelizada em blocos?
+2. O pinguim esta nítido/suave ou com pixels duros nas bordas?
+3. Ha texto borrado ou nítido?
+Responda em portugues, curto e direto, focando apenas em pixelização vs suavidade.

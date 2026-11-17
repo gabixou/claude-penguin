@@ -1,0 +1,1 @@
+Screenshot de um modal de rename do Club Penguin. Verifique: (1) o modal e a janela azul autentica do jogo (prompt_mc), nao um retangulo generico; (2) existe um campo de texto branco dentro da janela; (3) ha um botao de confirmar e um X de fechar; (4) o input DOM esta alinhado dentro do campo, sem vazar para fora. Responda OK ou liste problemas concretos.

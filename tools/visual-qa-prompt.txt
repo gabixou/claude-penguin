@@ -1,0 +1,1 @@
+Compare as duas imagens: a primeira e o clone local do Club Penguin na sala de iglu (interior do iglu com pinguim e HUD); a segunda e a referencia gopenguin.lol na mesma sala. Liste divergencias visuais concretas: posicao/tamanho dos botoes laterais direitos, HUD inferior, render do interior do iglu, mobília, cores e arte. Seja especifico com coordenadas aproximadas.

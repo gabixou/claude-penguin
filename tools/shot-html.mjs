@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:\\Users\\GABS\\AppData\\Local\\ms-playwright\\chromium-1208\\chrome-win64\\chrome.exe';
+const html = process.argv[2] || 'E:/project/cp-halloween-swfs/sheet-town.html';
+const out = process.argv[3] || 'E:/project/cp-halloween-swfs/sheet-town.png';
+const b = await chromium.launch({ executablePath: EXE, headless: true });
+const p = await b.newPage({ viewport: { width: 1250, height: 1400 } });
+await p.goto('file:///' + html);
+await p.waitForTimeout(1500);
+await p.screenshot({ path: out, fullPage: true });
+await b.close();
+console.log('done', out);
