@@ -411,22 +411,46 @@ export class PenguinView {
         // (playheads playing). Se o warm usasse os clips vivos, reset/
         // advance corromperia a animacao real — instancias novas compartilham
         // so os caches do movie (artCanvas/_svgImage), que e o objetivo.
-        const clips = [new Clip(this.art.m)];
-        for (const it of this.items.values()) clips.push(new Clip(it.m));
+        const mainClip = new Clip(this.art.m);
+        const itemClips = [...this.items.values()].map((it) => new Clip(it.m));
+        const actionClips = new Map(); // af -> Clip do movie penguin-actions
+        const mainMax = this._mainFrames();
+        // walk+idle primeiro (mais visiveis), depois EMOTES (wave/dance/
+        // throw — acoes disparadas por botao, priorizadas sobre sit) e por
+        // ultimo sit. Os frames 17-30 ficaram FORA do warm antigo: a
+        // primeira dance pagava o load de dezenas de sheets do atlas sob
+        // demanda e o pinguim congelava — com atlas o prefetchFrames nao
+        // aquece nada (files do atlas ja nascem "prontos" no imgReady),
+        // entao o warm por render e o UNICO pre-aquecimento que existe.
         for (const f of [9, 10, 11, 12, 13, 14, 15, 16,
-            1, 2, 3, 4, 5, 6, 7, 8]) {
+            1, 2, 3, 4, 5, 6, 7, 8,
+            25, 26, 27, 28, 29, 30,
+            17, 18, 19, 20, 21, 22, 23, 24]) {
             if (token !== this._warmToken) return;
             while (MovieRoom._decodeHold > 0)
                 await new Promise((r) => setTimeout(r, 120));
             const af = this.lib.animationFrame(look, f);
+            // af > mainMax = pose secreta: corpo desenha o movie de acao
+            // no ACTION_DRAW_FRAME; as roupas desenham no af (mesmo
+            // esquema do render real via drawnFrame).
+            let bodyClip = mainClip, bodyFrame = af;
+            if (af > mainMax) {
+                const mv = await this.lib.actionMovie(af);
+                if (!mv) continue;
+                if (!actionClips.has(af)) actionClips.set(af, new Clip(mv));
+                bodyClip = actionClips.get(af);
+                bodyFrame = ACTION_DRAW_FRAME;
+            }
             // 9 passos cobrem o loop de 8f dos sub-sprites (draw no frame
             // atual, advance, repete) — mesmo padrao do render real
             for (let step = 0; step < 9; step++) {
                 if (token !== this._warmToken) return;
                 try {
-                    for (const c of clips) await c.draw(ctx, af, sc);
+                    await bodyClip.draw(ctx, bodyFrame, sc);
+                    for (const c of itemClips) await c.draw(ctx, af, sc);
                 } catch { /* warm e best-effort */ }
-                for (const c of clips) c.advance();
+                bodyClip.advance();
+                for (const c of itemClips) c.advance();
                 await new Promise((r) => setTimeout(r, 0));
             }
         }
