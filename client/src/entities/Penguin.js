@@ -85,7 +85,7 @@ export default class Penguin extends Phaser.GameObjects.Container {
         this.view = new PenguinView(lib, color);
         this.view.setLook(this.gpaOutfit || {}, this._viewScale());
         // anel de selecao azul (#3399ff) so no jogador local — como no original
-        if (this.isLocal) this.view.art.set('ring', { visible: true });
+        this.view.setRing(this.isLocal);
 
         const b = lib.bounds;
         const w = lib.viewW, h = lib.viewH;
@@ -200,7 +200,15 @@ export default class Penguin extends Phaser.GameObjects.Container {
         const b = this._lib.bounds;
         ctx.setTransform(ss, 0, 0, ss, -b.x0 * ss, -b.y0 * ss);
         ctx.clearRect(b.x0, b.y0, this._canvas.width / ss, this._canvas.height / ss);
-        this.view.render(ctx, ss)
+        // watchdog: se um decode/raster travar, render() nunca resolve e
+        // _rendering ficaria true para sempre — pinguim congelado. O race
+        // garante o reset; o draw em background e inofensivo se resolver.
+        const rendered = this.view.render(ctx, ss);
+        rendered.catch(() => {}); // race abaixo ja reporta; evita unhandled
+        Promise.race([
+            rendered,
+            new Promise((_, rej) => setTimeout(() => rej(new Error('render timeout')), 15000)),
+        ])
             .then(() => {
                 if (scene.textures.exists(this._texKey)) scene.textures.get(this._texKey).refresh();
             })

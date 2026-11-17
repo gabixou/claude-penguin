@@ -15,6 +15,8 @@ import { checkText, allowChat, hashTerm } from './chatFilter.js';
 import * as social from './socialStore.js';
 import * as tables from './tables.js';
 import * as parties from './parties.js';
+import * as daynight from './daynight.js';
+import * as igloos from './iglooStore.js';
 
 const PORT = process.env.PORT || 8080;
 // maxPayload: pacotes do protocolo sao JSON pequenos (<2KB); 16KB e folga
@@ -41,6 +43,10 @@ const rooms = new Map();
 const clientSessions = new Map();
 // Mapeamento de socket para dados persistentes do jogador (playerData)
 const clientPlayerData = new Map();
+// "Room ball" (disco do Hockey Rink): estado do puck por sala.
+// { roomId: { x, y, vx, vy } } — coords LOCAIS ao game_mc do pack,
+// igual ao protocolo z/gz + z/m do SWF original.
+const roomBalls = new Map();
 
 const PAPERDOLL_SLOTS = ['feet', 'body', 'neck', 'hand', 'face', 'head'];
 // flag/photo = cosméticos do player card (pin/bandeira e fundo) — persistem
@@ -95,6 +101,13 @@ function sendPlayerData(ws, playerData, sessionToken = null) {
     ws.send(JSON.stringify({
         op: 'PLAYER_DATA',
         data
+    }));
+    // ciclo dia/noite: fase atual (relogio America/Sao_Paulo) + ms ate a
+    // proxima virada — o cliente agenda o crossfade
+    const zi = daynight.zoneInfo();
+    ws.send(JSON.stringify({
+        op: 'DAY_NIGHT',
+        data: { zone: zi.zone, progress: zi.progress, spTime: daynight.spTimeLabel() }
     }));
 }
 
@@ -239,6 +252,19 @@ setInterval(() => {
         if (sws.readyState === WebSocket.OPEN) sws.send(payload);
     }
 }, 60 * 1000).unref?.();
+
+// ciclo dia/noite: broadcast periodico da zona + progresso (o cliente
+// interpola os alphas dos planos pelo relogio — crepusculo continuo)
+setInterval(() => {
+    const zi = daynight.zoneInfo();
+    const payload = JSON.stringify({
+        op: 'DAY_NIGHT',
+        data: { zone: zi.zone, progress: zi.progress, spTime: daynight.spTimeLabel() },
+    });
+    for (const [sws] of clientPlayerData) {
+        if (sws.readyState === WebSocket.OPEN) sws.send(payload);
+    }
+}, 60000).unref?.();
 
 wss.on('connection', (ws, req) => {
     const ip = clientIp(req);
@@ -610,6 +636,29 @@ function handlePacket(ws, req, packet) {
                 sendError(ws, 'INVALID_ROOM', 'Sala inválida');
                 return;
             }
+            // sala de iglu: igloo-<playerId do dono> — aplica permissoes
+            // (senha / somente amigos) antes de entrar
+            const iglooMatch = /^igloo-(p_[a-z0-9]+)$/i.exec(roomId);
+            if (iglooMatch) {
+                const ownerId = iglooMatch[1];
+                const isBuddy = igloos.areBuddies(session.playerId, ownerId);
+                const deny = igloos.checkAccess(ownerId, session.playerId, {
+                    password: typeof data.password === 'string' ? data.password : null,
+                    isBuddy,
+                });
+                if (deny === 'NOT_FOUND') {
+                    sendError(ws, 'IGLOO_NOT_FOUND', 'Igloo não encontrado');
+                    return;
+                }
+                if (deny === 'PASSWORD') {
+                    sendError(ws, 'IGLOO_PASSWORD', 'Este igloo tem senha');
+                    return;
+                }
+                if (deny === 'FRIENDS') {
+                    sendError(ws, 'IGLOO_FRIENDS', 'Este igloo é somente para amigos');
+                    return;
+                }
+            }
             // mesa de jogo: levantar ao entrar em outra sala
             tables.leaveRoomTables(session.playerId, roomId);
             const jx = Math.max(0, Math.min(760, Number(data.x) || 400));
@@ -680,6 +729,36 @@ function handlePacket(ws, req, packet) {
                     targetX: cx,
                     targetY: cy
                 }
+            }, ws);
+            break;
+        }
+
+        case 'PUCK_GET': {
+            // z/gz do original: responde o estado atual do disco da sala
+            const session = clientSessions.get(ws);
+            if (!session) return;
+            const ball = roomBalls.get(session.roomId) || { x: 0, y: 0, vx: 0, vy: 0 };
+            ws.send(JSON.stringify({ op: 'PUCK_STATE', data: { ...ball } }));
+            break;
+        }
+
+        case 'PUCK_HIT': {
+            // z/m do original: um jogador "chutou" o disco — guarda e
+            // retransmite para a sala (cada cliente roda a mesma fisica)
+            const session = clientSessions.get(ws);
+            if (!session) return;
+            const num = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? Math.max(-2000, Math.min(2000, n)) : 0;
+            };
+            const ball = {
+                x: num(data.x), y: num(data.y),
+                vx: num(data.vx), vy: num(data.vy),
+            };
+            roomBalls.set(session.roomId, ball);
+            broadcastToRoom(session.roomId, {
+                op: 'PUCK_HIT',
+                data: { playerId: session.playerId, ...ball }
             }, ws);
             break;
         }
@@ -1061,6 +1140,115 @@ function handlePacket(ws, req, packet) {
                 data: { playerId: session.playerId, petRowId, action }
             });
             sendSocial(ws);
+            break;
+        }
+
+        // ---------- Igloo (fase 3) ----------
+
+        case 'IGLOO_GET': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Autentique-se antes');
+                return;
+            }
+            const ownerId = typeof data.ownerId === 'string' ? data.ownerId : session.playerId;
+            if (!/^p_[a-z0-9]+$/i.test(ownerId)) {
+                sendError(ws, 'INVALID_DATA', 'ownerId inválido');
+                return;
+            }
+            const isOwner = ownerId === session.playerId;
+            const isBuddy = igloos.areBuddies(session.playerId, ownerId);
+            const deny = igloos.checkAccess(ownerId, session.playerId, {
+                password: typeof data.password === 'string' ? data.password : null,
+                isBuddy,
+            });
+            if (deny) {
+                sendError(ws, deny === 'NOT_FOUND' ? 'IGLOO_NOT_FOUND' : 'IGLOO_LOCKED',
+                    deny === 'NOT_FOUND' ? 'Igloo não encontrado' : 'Este igloo é restrito');
+                return;
+            }
+            ws.send(JSON.stringify({
+                op: 'IGLOO_STATE',
+                data: isOwner ? igloos.getOwnerLayout(ownerId) : igloos.getPublicLayout(ownerId)
+            }));
+            break;
+        }
+
+        case 'IGLOO_SAVE': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Autentique-se antes');
+                return;
+            }
+            // so o dono edita o proprio iglu
+            const patch = {
+                iglooType: data.iglooType,
+                location: data.location,
+                floor: data.floor,
+                music: data.music,
+                items: data.items,
+            };
+            const layout = igloos.saveLayout(session.playerId, patch);
+            // broadcast para quem estiver dentro do iglu do jogador
+            broadcastToRoom(`igloo-${session.playerId}`, {
+                op: 'IGLOO_STATE',
+                data: layout
+            });
+            ws.send(JSON.stringify({ op: 'IGLOO_STATE', data: igloos.getOwnerLayout(session.playerId) }));
+            break;
+        }
+
+        case 'IGLOO_PERMS': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Autentique-se antes');
+                return;
+            }
+            const layout = igloos.setPermissions(session.playerId, {
+                password: data.password,
+                friendsOnly: data.friendsOnly,
+            });
+            ws.send(JSON.stringify({ op: 'IGLOO_STATE', data: layout }));
+            break;
+        }
+
+        case 'IGLOO_BUY': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Autentique-se antes');
+                return;
+            }
+            const kind = String(data.kind || '');
+            const itemId = Math.round(Number(data.itemId));
+            if (!['furniture', 'flooring', 'igloo', 'location'].includes(kind) || !Number.isFinite(itemId)) {
+                sendError(ws, 'INVALID_DATA', 'Compra de igloo inválida');
+                return;
+            }
+            const res = igloos.buyIglooItem(session.playerId, kind, itemId);
+            if (!res.ok) {
+                const msg = { NO_COINS: 'Moedas insuficientes', UNKNOWN_ITEM: 'Item desconhecido', MAX_OWNED: 'Limite atingido' }[res.error] || res.error;
+                sendError(ws, res.error, msg);
+                return;
+            }
+            // devolve PLAYER_DATA atualizado (coins) + inventario do igloo
+            sendPlayerData(ws, playerStore.getPublicPlayerData(session.playerId), session.sessionToken);
+            ws.send(JSON.stringify({
+                op: 'IGLOO_INVENTORY',
+                data: { inventory: igloos.iglooInventory(session.playerId) }
+            }));
+            break;
+        }
+
+        case 'IGLOO_INVENTORY': {
+            const session = clientPlayerData.get(ws);
+            if (!session || !session.playerId) {
+                sendError(ws, 'NOT_AUTHENTICATED', 'Autentique-se antes');
+                return;
+            }
+            ws.send(JSON.stringify({
+                op: 'IGLOO_INVENTORY',
+                data: { inventory: igloos.iglooInventory(session.playerId) }
+            }));
             break;
         }
     }

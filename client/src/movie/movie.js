@@ -183,8 +183,10 @@ export class MovieRoom {
     // _font). Revisita de sala/sprite pula fetch+parse+decode — so o estado
     // de playback (playheads, botoes, dirty sets) e recriado por instancia.
     // LRU por base; catalogos/roupas sao entries pequenas, salas ficam quentes.
+    // 160: os 65 movies penguin-actions + salas + catalogos + roupas nao
+    // podem ficar se evictando durante uma sessao (thrash de load na dance).
     static _sharedAssets = new Map(); // base -> Promise<SharedAssets>
-    static _SHARED_MAX = 24;
+    static _SHARED_MAX = 160;
 
     static async load(base) {
         let entry = MovieRoom._sharedAssets.get(base);
@@ -338,6 +340,10 @@ export class MovieRoom {
         room.scalingGrids = tl.scalingGrids || {};
         room.exits = s.exits;
         room.interactions = s.interactions;
+        // movies sem pack/chunks (penguin-actions soltos) servem cada SVG
+        // como arquivo individual em <base>/chars/<file> — equivale ao
+        // fallback `return this.base + e` do Ih.source do original
+        room._looseChars = s.packs.length === 0;
         return room;
     }
 
@@ -487,6 +493,31 @@ export class MovieRoom {
         if (p) return p;
         const svg = this._svgText(file);
         if (!svg) {
+            if (this._looseChars) {
+                // arquivo solto: busca chars/<file> (IDB primeiro — os
+                // nomes nao tem hash, entao a chave inclui o source do tl)
+                const url = `${this.base}/chars/${file}`;
+                const key = `${url}@${this.data?.source || ''}`;
+                p = packGet(key)
+                    .then((buf) => buf || fetch(url).then((r) => {
+                        if (!r.ok) return null;
+                        return r.arrayBuffer().then((b) => { packPut(key, b); return b; });
+                    }))
+                    .then((buf) => {
+                        if (!buf) { this._imgReady?.add(file); this._imgCache.set(file, Promise.resolve(null)); return null; }
+                        this._svgCache.set(file, new TextDecoder().decode(buf));
+                        // sem o delete a recursao acha a PRÓPRIA promise
+                        // pendente no cache e retorna ela mesma — circular,
+                        // o decode nunca acontece (frameReady nunca fecha)
+                        this._imgCache.delete(file);
+                        return this._svgImage(file);
+                    })
+                    .catch(() => { this._imgReady?.add(file); this._imgCache.set(file, Promise.resolve(null)); return null; });
+                _pendingImages++;
+                p.finally(() => { _pendingImages--; });
+                this._imgCache.set(file, p);
+                return p;
+            }
             this._imgReady?.add(file);
             this._imgCache.set(file, Promise.resolve(null));
             return this._imgCache.get(file);
@@ -953,10 +984,24 @@ export class MovieRoom {
         if (!h) {
             h = { tl, frame: 1, stopped: false, path, sid: tlId };
             // clips de idioma (letreiros): frames segmentados por idioma,
-            // o script original faz gotoAndStop(language) — fixamos o frame
-            const langs = ['english', 'portuguese', 'french', 'spanish'];
-            if (langs.some((l) => tl.labels?.[l] !== undefined)) {
-                h.frame = tl.labels[this.language] ?? tl.labels.english ?? 1;
+            // o script original faz gotoAndStop(language) — fixamos o frame.
+            // SWFs antigos usam rotulos de 2 letras (en/pt/fr/es/de/ru —
+            // ex.: fishdog_mc, boxseats_mc, sports_mc do rink), os novos
+            // usam nome completo (english/portuguese/... do map.swf).
+            const LANG_KEYS = {
+                english: ['english', 'en'], portuguese: ['portuguese', 'pt'],
+                french: ['french', 'fr'], spanish: ['spanish', 'es'],
+                german: ['german', 'de'], russian: ['russian', 'ru'],
+            };
+            const allLangKeys = Object.values(LANG_KEYS).flat();
+            if (allLangKeys.some((l) => tl.labels?.[l] !== undefined)) {
+                const keys = [...(LANG_KEYS[this.language] || [this.language]), 'english', 'en'];
+                let lf = null;
+                for (const k of keys) {
+                    const v = tl.labels?.[k];
+                    if (typeof v === 'number') { lf = v; break; }
+                }
+                h.frame = lf ?? 1;
                 h.stopped = true;
                 this._playheadAll.set(key, h);
                 this._playheads.set(path, h);
