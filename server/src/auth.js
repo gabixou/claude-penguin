@@ -1,11 +1,11 @@
 /**
- * auth.js - Identificação de jogadores sem login
- * Estratégia: cookie HttpOnly -> localStorage token -> IP fallback
+ * auth.js - Identificação de jogadores por sessão (cookie/localStorage)
+ * Sem fallback por IP: visitantes do mesmo IP publico (mesma casa, CGNAT)
+ * nao podem herdar o pinguim um do outro — sem token valido, e guest novo.
  */
 
-import crypto from 'crypto';
 import playerStore from './playerStore.js';
-import { clientIp, isLoopbackIp } from './net.js';
+import { clientIp } from './net.js';
 
 const COOKIE_NAME = 'penguin_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 dias
@@ -50,18 +50,9 @@ export function identifyPlayer(req, clientToken = null) {
         }
     }
 
-    // 2. Tenta por IP (fallback) — ignorado em localhost para permitir
-    // varios pinguins de teste na mesma maquina (todos compartilham ::1)
-    const isLoopback = isLoopbackIp(ip);
-    const playerByIp = isLoopback ? null : playerStore.getPlayerByIp(ip);
-    if (playerByIp) {
-        // Se encontrou por IP mas não tem token, gera um novo
-        const newToken = crypto.randomBytes(32).toString('hex');
-        playerStore.updatePlayerSession(playerByIp.player_id, newToken);
-        playerStore.touchPlayer(playerByIp.player_id);
-        const updated = playerStore.getPlayerById(playerByIp.player_id);
-        return { player: updated, isNew: false, sessionToken: newToken };
-    }
+    // 2. Sem token valido: jogador novo. O antigo fallback por IP foi
+    // removido — em producao todos os moradores de uma casa compartilham
+    // o mesmo IP publico e herdariam o pinguim do ultimo a entrar.
 
     // 3. Nenhum jogador encontrado - precisa criar
     return { player: null, isNew: true, sessionToken: null, ip };

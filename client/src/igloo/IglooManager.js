@@ -83,6 +83,7 @@ export class IglooManager {
         this.ownerId = owner;
         this.isOwner = this.ownerId === this.scene.network?.playerId;
         this.scene.events.on('igloo-state', this._onState, this);
+        this.scene.events.on('igloo-pets', this._onPets, this);
         this.scene.events.on('igloo-inventory', this._onInv, this);
         // boot direto em ?room=igloo: playerId ainda nao existe — espera o
         // PLAYER_DATA para pedir o layout (IGLOO_GET exige auth)
@@ -163,8 +164,10 @@ export class IglooManager {
 
     leave() {
         this.scene?.events?.off?.('igloo-state', this._onState, this);
+        this.scene?.events?.off?.('igloo-pets', this._onPets, this);
         this.scene?.events?.off?.('igloo-inventory', this._onInv, this);
         this.layout = null; this.ownerId = null; this.isOwner = false;
+        this.pets = null;
         this._clearFurniture();
         this._floorImg?.destroy(); this._floorImg = null;
         this._locImg?.destroy(); this._locImg = null;
@@ -176,9 +179,19 @@ export class IglooManager {
     _onState = (data) => {
         if (!data || data.ownerId !== this.ownerId) return;
         this.layout = data;
+        if (Array.isArray(data.pets)) this.pets = data.pets;
         this.isOwner = this.ownerId === this.scene.network?.playerId;
         this._syncRoomButtons();
         this._apply();
+        // pets do dono chegaram junto — (re)cria os puffles do iglu
+        this.scene._syncIglooPets?.();
+    };
+
+    // IGLOO_PETS: mudanca de pets do dono propagada p/ quem esta no iglu
+    _onPets = (data) => {
+        if (!data || data.ownerId !== this.ownerId) return;
+        this.pets = data.pets || [];
+        this.scene._syncIglooPets?.();
     };
 
     _onInv = (inv) => {
@@ -196,12 +209,16 @@ export class IglooManager {
         const sc = this.scene;
         if (sc.currentRoom !== 'igloo') return;
         const type = Number(this.layout?.iglooType) || 1;
-        const want = type === 1 ? null : type; // 1 = pack base 'igloo'
-        if (sc._iglooTypeId === want) return;
+        let want = type === 1 ? null : type; // 1 = pack base 'igloo'
+        // pack do tipo falhou neste load -> fica no base ate o proximo
+        // ciclo (evita loop infinito de _initMovie -> fallback -> sync)
+        if (want && want === sc._iglooTypeFailed) want = null;
         sc._iglooTypeId = want;
         const loaded = sc.movie?.base;
         const expected = want ? `/assets/movies/igloo-type/${want}` : '/assets/movies/igloo';
-        // movie ainda carregando: o _initMovie ja pegou o tipo novo
+        // movie ainda carregando: o _initMovie pode ter comecado ANTES
+        // do layout chegar (pack base) — o reveal da sala re-chama este
+        // metodo quando o load termina, entao aqui so sai.
         if (!loaded || sc._movieReady === false) return;
         if (loaded === expected) return;
         sc._initMovie('igloo');

@@ -7,6 +7,44 @@
 import { DEFAULT_COLOR_ITEM_ID, colorItemToRgb } from '../items/colors.js';
 import { mark } from '../perf.js';
 
+const SESSION_COOKIE = 'penguin_session';
+const SESSION_MAX_AGE = 30 * 24 * 60 * 60; // 30 dias, igual ao server
+
+function readCookie(name) {
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+}
+
+// Cookie e a fonte primaria (sobrevive a limpeza de dados do site e e o
+// que o servidor espera); localStorage fica como fallback legado.
+function readSessionToken() {
+    return readCookie(SESSION_COOKIE) || localStorage.getItem('penguin_session');
+}
+
+function writeSessionToken(token) {
+    localStorage.setItem('penguin_session', token);
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE}; SameSite=Lax${secure}`;
+}
+
+function clearSessionToken() {
+    localStorage.removeItem('penguin_session');
+    document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+// ?token=<sessionToken> — bootstrap de sessao por link (ex.: recuperar o
+// pinguim numa maquina nova). Salva e remove o param da URL.
+function consumeUrlToken() {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    if (!token) return null;
+    params.delete('token');
+    const qs = params.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+    writeSessionToken(token);
+    return token;
+}
+
 export default class NetworkClient {
     constructor(scene) {
         this.scene = scene;
@@ -57,8 +95,11 @@ export default class NetworkClient {
         // ?guest=1 ou automacao (navigator.webdriver = Playwright etc.) ->
         // entra direto como visitante, sem tela de login
         const forceGuest = params.get('guest') === '1' || !!navigator.webdriver;
-        if (forceGuest) localStorage.removeItem('penguin_user');
-        const sessionToken = localStorage.getItem('penguin_session');
+        if (forceGuest) {
+            localStorage.removeItem('penguin_user');
+            clearSessionToken();
+        }
+        const sessionToken = consumeUrlToken() || (forceGuest ? null : readSessionToken());
         // Sem token e sem pedido de guest: servidor responde NEED_AUTH
         // e o cliente abre a tela de login/cadastro.
         return [
@@ -189,7 +230,7 @@ export default class NetworkClient {
     }
 
     playAsGuest() {
-        localStorage.removeItem('penguin_session');
+        clearSessionToken();
         this.send('AUTH_GUEST', { guest: true });
     }
 
@@ -412,6 +453,9 @@ export default class NetworkClient {
             case 'IGLOO_STATE':
                 this.scene.events.emit('igloo-state', data);
                 break;
+            case 'IGLOO_PETS':
+                this.scene.events.emit('igloo-pets', data);
+                break;
             case 'IGLOO_INVENTORY':
                 this.scene.events.emit('igloo-inventory', data?.inventory || []);
                 this.scene.iglooCatalogue?.setInventory?.(data?.inventory || []);
@@ -434,9 +478,9 @@ export default class NetworkClient {
         this.party = data.party || null;
         this.dailyBonus = data.dailyBonus || 0;
 
-        // Salva session token no localStorage para fallback
+        // Salva session token em cookie + localStorage para as proximas sessoes
         if (data.sessionToken) {
-            localStorage.setItem('penguin_session', data.sessionToken);
+            writeSessionToken(data.sessionToken);
         }
 
         // Daily bonus creditado nesta sessão — notifica peak-a-peak (DOM,

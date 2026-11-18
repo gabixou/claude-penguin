@@ -203,6 +203,15 @@ function broadcastChat(roomId, message) {
     for (const [sock, payload] of payloads) sock.send(payload);
 }
 
+// avisa quem estiver dentro do iglu do jogador sobre a lista de pets
+// (visitantes veem os puffles do dono vagando — issue #38)
+function broadcastIglooPets(playerId) {
+    broadcastToRoom(`igloo-${playerId}`, {
+        op: 'IGLOO_PETS',
+        data: { ownerId: playerId, pets: social.getPets(playerId) }
+    });
+}
+
 function findSessionSocket(playerId) {
     for (const p of clientSessions.values()) {
         if (p.playerId === playerId && p.socket.readyState === WebSocket.OPEN) return p.socket;
@@ -1051,6 +1060,7 @@ function handlePacket(ws, req, packet) {
             if (res.error) { sendError(ws, res.error, res.error); return; }
             refreshCoins(ws, session);
             sendSocial(ws);
+            broadcastIglooPets(session.playerId);
             console.log(`[PET] ${session.username} adotou ${sp.name} por ${sp.cost} coins`);
             break;
         }
@@ -1065,6 +1075,7 @@ function handlePacket(ws, req, packet) {
             const res = social.renamePet(session.playerId, Number(data.petRowId), data.name);
             if (res.error) { sendError(ws, res.error, res.error); break; }
             sendSocial(ws);
+            broadcastIglooPets(session.playerId);
             break;
         }
 
@@ -1074,6 +1085,7 @@ function handlePacket(ws, req, packet) {
             const res = social.releasePet(session.playerId, Number(data.petRowId));
             if (res.error) { sendError(ws, res.error, res.error); break; }
             sendSocial(ws);
+            broadcastIglooPets(session.playerId);
             break;
         }
 
@@ -1101,6 +1113,7 @@ function handlePacket(ws, req, packet) {
                 }, ws);
             }
             sendSocial(ws);
+            broadcastIglooPets(session.playerId);
             console.log(`[PET] ${session.username} ${turningOff ? 'guardou' : 'passeou com'} ${pet.name}`);
             break;
         }
@@ -1167,9 +1180,12 @@ function handlePacket(ws, req, packet) {
                     deny === 'NOT_FOUND' ? 'Igloo não encontrado' : 'Este igloo é restrito');
                 return;
             }
+            const layout = isOwner ? igloos.getOwnerLayout(ownerId) : igloos.getPublicLayout(ownerId);
             ws.send(JSON.stringify({
                 op: 'IGLOO_STATE',
-                data: isOwner ? igloos.getOwnerLayout(ownerId) : igloos.getPublicLayout(ownerId)
+                // pets do dono vão junto: visitantes precisam deles para
+                // renderizar os puffles que vagam pelo iglu (issue #38)
+                data: layout ? { ...layout, pets: social.getPets(ownerId) } : layout
             }));
             break;
         }
@@ -1189,12 +1205,13 @@ function handlePacket(ws, req, packet) {
                 items: data.items,
             };
             const layout = igloos.saveLayout(session.playerId, patch);
+            const withPets = layout ? { ...layout, pets: social.getPets(session.playerId) } : layout;
             // broadcast para quem estiver dentro do iglu do jogador
             broadcastToRoom(`igloo-${session.playerId}`, {
                 op: 'IGLOO_STATE',
-                data: layout
+                data: withPets
             });
-            ws.send(JSON.stringify({ op: 'IGLOO_STATE', data: igloos.getOwnerLayout(session.playerId) }));
+            ws.send(JSON.stringify({ op: 'IGLOO_STATE', data: { ...igloos.getOwnerLayout(session.playerId), pets: social.getPets(session.playerId) } }));
             break;
         }
 

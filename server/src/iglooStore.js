@@ -93,8 +93,44 @@ const MAX_IGLOO_ITEMS = 99; // IGLOO_ITEMS do cliente original
 const GRID_MAX_X = 760;    // coords do editor sao pixels do stage 760x480
 const GRID_MAX_Y = 480;    // (obj.x/obj.y do AS2, nao celulas)
 
+// tipo/localizacao/piso so podem ser equipados se comprados (ou forem o
+// default gratuito). Sem isso qualquer cliente equipava o Stage Igloo
+// sem pagar — issue #36.
+function ownsKind(playerId, kind, itemId) {
+    return ownedCount(playerId, kind, itemId) > 0;
+}
+function canEquipIglooType(playerId, type) {
+    const e = iglooEntry(type);
+    if (!e) return false;
+    return type === 1 || !e.cost || ownsKind(playerId, 'igloo', type);
+}
+function canEquipLocation(playerId, locId) {
+    const e = locationEntry(locId);
+    if (!e) return false;
+    return !e.cost || ownsKind(playerId, 'location', locId);
+}
+function canEquipFloor(playerId, floorId) {
+    if (!floorId) return true; // piso 0 = sem carpete (default)
+    const e = flooringEntry(floorId);
+    if (!e) return false;
+    return !e.cost || ownsKind(playerId, 'flooring', floorId);
+}
+
 export function saveLayout(playerId, patch = {}) {
     ensureIgloo(playerId);
+    patch = { ...patch };
+    if (patch.iglooType !== undefined && !canEquipIglooType(playerId, patch.iglooType)) {
+        console.warn(`[igloo] ${playerId} tentou equipar igloo_type=${patch.iglooType} sem posse`);
+        patch.iglooType = undefined;
+    }
+    if (patch.location !== undefined && !canEquipLocation(playerId, patch.location)) {
+        console.warn(`[igloo] ${playerId} tentou equipar location=${patch.location} sem posse`);
+        patch.location = undefined;
+    }
+    if (patch.floor !== undefined && !canEquipFloor(playerId, patch.floor)) {
+        console.warn(`[igloo] ${playerId} tentou equipar floor=${patch.floor} sem posse`);
+        patch.floor = undefined;
+    }
     const sets = [];
     const args = [];
     for (const key of ['igloo_type', 'location', 'floor', 'music']) {

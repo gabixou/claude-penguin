@@ -178,7 +178,9 @@ export default class RoomScene extends Phaser.Scene {
             // Fora do iglu o puffle equipado nao abre card nenhum —
             // clicar nele abre o player card do dono (doll com o pet)
             const puffle = this.currentRoom === 'igloo' ? this._iglooPetAt(wx, wy) : null;
-            if (puffle) { this.puffleCard?.open(puffle.pet); return; }
+            // card de pet (renomear/liberar/cuidar) so para o dono do iglu —
+            // visitante ve o puffle do amigo mas nao gerencia (como no CP)
+            if (puffle && this.igloo?.isOwner) { this.puffleCard?.open(puffle.pet); return; }
             const petOwner = this._petFollowerAt(wx, wy);
             if (petOwner) { this.playerCard.open(petOwner); return; }
             const clicked = btnDest ? null : this._penguinAt(wx, wy);
@@ -755,7 +757,15 @@ export default class RoomScene extends Phaser.Scene {
             return;
         }
         const wanted = new Map();
-        for (const pet of this.network?.social?.pets || []) {
+        // pets do DONO do iglu aberto — no proprio iglu sao os nossos
+        // (social.pets, atualizado ao vivo); visitando, vem do IGLOO_STATE
+        // (igloo.pets). Antes usava sempre social.pets: visitante via os
+        // proprios pets (que nem estao la) e nunca os do dono.
+        const ownerId = this.igloo?.ownerId;
+        const src = ownerId === this.network?.playerId
+            ? (this.network?.social?.pets || [])
+            : (this.igloo?.pets || []);
+        for (const pet of src) {
             if (!pet.equipped) wanted.set(pet.petRowId, pet);
         }
         for (const [id, v] of this.iglooPetViews) {
@@ -773,11 +783,16 @@ export default class RoomScene extends Phaser.Scene {
     // o fundo da sala inteira, entao renderizamos como layer abaixo de
     // tudo (depth 0 < background_mc ~3 < atores >= 901).
     async _setupIglooLocation() {
+        // geracao: a sala do iglu pode ser reinicializada no meio do load
+        // (pack base -> igloo-type/<id> quando o IGLOO_STATE chega). Sem o
+        // guard, as duas chamadas criavam texture+img e a perdedora ficava
+        // orfa na display list com texture destruida -> glTexture null.
+        const gen = (this._locGen = (this._locGen || 0) + 1);
         const ss = this._ss;
         const movie = await MovieRoom.load('/assets/movies/igloo-loc1')
             .then((m) => { m.setScale(1); return m; })
             .catch((e) => { console.warn('[igloo] location load', e); return null; });
-        if (!movie || this.currentRoom !== 'igloo') return;
+        if (!movie || this.currentRoom !== 'igloo' || gen !== this._locGen) return;
         const clip = new Clip(movie);
         const frame = movie._mainTl?.frames?.[0] || [];
         const cv = document.createElement('canvas');
@@ -787,6 +802,13 @@ export default class RoomScene extends Phaser.Scene {
         const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
         const COL = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
         await clip._drawListFrame(ctx, frame, ID, '', COL, ss * 2);
+        // re-check DEPOIS do raster: outra chamada pode ter começado (e o
+        // _clearMovie incrementado a geracao) enquanto o drawListFrame
+        // rodava — sem isto a versao velha sobrescrevia a textura e sua
+        // imagem ficava orfa com glTexture destruido
+        if (this.currentRoom !== 'igloo' || gen !== this._locGen) return;
+        this._locationImg?.destroy();
+        this._locationImg = null;
         const key = 'igloo_location_tex';
         if (this.textures.exists(key)) this.textures.remove(key);
         this.textures.addCanvas(key, cv);
@@ -1198,6 +1220,7 @@ export default class RoomScene extends Phaser.Scene {
                 // igloo-type ainda nao convertido -> pack base 'igloo'
                 if (roomKey === 'igloo' && base !== '/assets/movies/igloo') {
                     console.warn('[igloo] type pack falhou, fallback p/ igloo', e);
+                    this._iglooTypeFailed = this._iglooTypeId;
                     base = '/assets/movies/igloo';
                     this._iglooTypeId = null;
                     return MovieRoom.load(base);
@@ -1297,6 +1320,10 @@ export default class RoomScene extends Phaser.Scene {
                     mark(`room-ready:${roomKey}${cacheHit ? ':cache' : ''}`);
                     this._movieReady = true;
                     this._booting = false;
+                    // iglu: o IGLOO_STATE pode ter chegado durante o load
+                    // (pack base carregado por engano) — re-sincroniza o
+                    // tipo agora que movie.base esta definido
+                    if (roomKey === 'igloo') this.igloo?._syncIglooTypeArt?.();
                     const finish = () => {
                         // planos alternativos do ciclo: build em background;
                         // se o peso do plano primario ja nao e 1 (ex.: entrou
@@ -1363,7 +1390,12 @@ export default class RoomScene extends Phaser.Scene {
                             } catch (e) {
                                 console.warn('[seg] render', e);
                             } finally {
-                                layer.tex?.refresh();
+                                // a sala pode ter sido limpa no meio do
+                                // render (troca de pack do igloo) — refresh
+                                // em texture destruida lanca glTexture null
+                                if (layer.tex && this.textures.exists(layer.texKey)) {
+                                    try { layer.tex.refresh(); } catch { /* texture morta */ }
+                                }
                                 layer._busy = false;
                             }
                             done++;
@@ -1976,6 +2008,7 @@ export default class RoomScene extends Phaser.Scene {
         this._interactions = null;
         this._locationImg?.destroy();
         this._locationImg = null;
+        this._locGen = (this._locGen || 0) + 1; // aborta _setupIglooLocation em voo
         this.cameras.main.setBackgroundColor(0x000000);
     }
 
@@ -1987,7 +2020,13 @@ export default class RoomScene extends Phaser.Scene {
             this._iglooReturn = null; this._iglooVisit = null; this._iglooPassword = null;
             this._iglooTypeId = null;
             this.igloo?.leave();
-        } else this.igloo?.enter(this._netRoomId('igloo'));
+        } else {
+            this.igloo?.enter(this._netRoomId('igloo'));
+            // nova entrada no iglu: limpa a trava de pack com falha — sem
+            // isso UMA falha transitoria de load (ex.: pack ainda em bake)
+            // deixava o iglu no pack base para sempre na sessao
+            this._iglooTypeFailed = null;
+        }
         this.playerCard?.close();
         this._closeMinigame();
         // mesa fisica fica na sala antiga (o servidor tambem levanta o jogador)

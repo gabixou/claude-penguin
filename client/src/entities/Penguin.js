@@ -100,6 +100,10 @@ export default class Penguin extends Phaser.GameObjects.Container {
             .setDisplaySize(w, h);
         this.add(this.sprite);
         this._texKey = texKey;
+        // acoes que chegaram antes do view ficar pronto (ex.: dance de um
+        // jogador que ja estava na sala quando entramos) ficam em this.action
+        // — sem isto o setFrame era perdido e o pinguim remoto aparecia idle
+        if (this.action !== 1) this.view.setFrame(this.action);
         this._render();
     }
 
