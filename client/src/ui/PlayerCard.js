@@ -137,6 +137,17 @@ export default class PlayerCard {
     get isOpen() { return !!this.container; }
 
     async open(penguin) {
+        // ignore (issue #28): o player card de pinguim ignorado nao abre —
+        // chat e emotes dele ja sao filtrados no server; para desfazer o
+        // ignore usa-se a aba Ignore List da Buddy Window. Cobre todos os
+        // caminhos de abertura (clique no pinguim, clique fora no dim,
+        // linhas da Buddy Window).
+        const pid = penguin?.playerId;
+        if (pid && pid !== this.scene.network?.playerId
+            && this.scene.network?.isIgnored?.(pid)) {
+            this.scene.localPlayer?.showChat?.(`(you are ignoring ${penguin.username || pid})`);
+            return;
+        }
         // card ja aberto/abrindo para o mesmo pinguim: clique extra nao faz
         // nada — sem isso cada clique fechava e reconstruia o card (e builds
         // concorrentes empilhavam containers orfaos na tela)

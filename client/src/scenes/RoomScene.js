@@ -577,6 +577,8 @@ export default class RoomScene extends Phaser.Scene {
         // movimento e aplica o frame correspondente no pinguim remoto.
         this.events.on('player-action', (data) => {
             if (!data || data.playerId === this.network.playerId) return;
+            // emote de pinguim ignorado nao toca (issue #28)
+            if (this.network?.isIgnored?.(data.playerId)) return;
             const penguin = this.remotePlayers.get(data.playerId);
             if (!penguin) return;
             if (penguin.moveTween) {
@@ -868,11 +870,14 @@ export default class RoomScene extends Phaser.Scene {
         this._syncPetView(penguin);
         if (paperdoll) penguin.applyOutfit(paperdoll);
         if (colorItemId) penguin.setColorItemId(colorItemId);
-        // estado de acao atual (ex.: dançando ao entrar na sala)
-        if (action && ['dance', 'wave', 'throw', 'sit', 'stand', 'idle'].includes(action)) {
-            if (action === 'sit') penguin.sit();
-            else if (action === 'stand' || action === 'idle') penguin.stand();
-            else penguin.playEmote(action);
+        // estado de acao atual (ex.: dançando ao entrar na sala) —
+        // emotes de ignorados nao aparecem (issue #28; o server ja
+        // filtra PLAYER_ACTION, isto cobre ROOM_STATE/PLAYER_JOINED)
+        const act = this.network?.isIgnored?.(playerId) ? null : action;
+        if (act && ['dance', 'wave', 'throw', 'sit', 'stand', 'idle'].includes(act)) {
+            if (act === 'sit') penguin.sit();
+            else if (act === 'stand' || act === 'idle') penguin.stand();
+            else penguin.playEmote(act);
         }
         return penguin;
     }

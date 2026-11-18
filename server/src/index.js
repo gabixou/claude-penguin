@@ -209,18 +209,25 @@ function notifyPlayer(playerId, message) {
     return false;
 }
 
-// chat filtrado por ignore: destinatarios que ignoram o remetente nao recebem
-function broadcastChat(roomId, message) {
+// mensagens filtradas por ignore: destinatarios que ignoram o remetente
+// nao recebem — cobre chat (SEND_CHAT) e emotes/acoes (PLAYER_ACTION),
+// como no CP original onde ignore esconde fala e animacao do jogador
+function broadcastRoomFiltered(roomId, message) {
     const room = rooms.get(roomId);
     if (!room) return;
-    const senderId = message.data.playerId;
+    const senderId = message.data?.playerId;
     const payloads = new Map(); // socket -> payload (sender sempre recebe)
     for (const [pid, p] of room.entries()) {
         if (p.socket.readyState !== WebSocket.OPEN) continue;
-        if (pid !== senderId && ignoreSetOf(pid).has(senderId)) continue;
+        if (pid !== senderId && senderId && ignoreSetOf(pid).has(senderId)) continue;
         payloads.set(p.socket, JSON.stringify(message));
     }
     for (const [sock, payload] of payloads) sock.send(payload);
+}
+
+// chat filtrado por ignore: destinatarios que ignoram o remetente nao recebem
+function broadcastChat(roomId, message) {
+    broadcastRoomFiltered(roomId, message);
 }
 
 // avisa quem estiver dentro do iglu do jogador sobre a lista de pets
@@ -801,10 +808,11 @@ function handlePacket(ws, req, packet) {
             if (action !== null && !VALID.has(action)) return;
             session.action = action;
 
-            broadcastToRoom(session.roomId, {
+            // emotes de ignorados nao aparecem para quem ignora (issue #28)
+            broadcastRoomFiltered(session.roomId, {
                 op: 'PLAYER_ACTION',
                 data: { playerId: session.playerId, action }
-            }, ws);
+            });
             break;
         }
 
