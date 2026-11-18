@@ -134,12 +134,28 @@ for (const m of movies) {
       const sorted = items
         .map((it) => ({ ...it, W: Math.ceil(it.w * K) + M, H: Math.ceil(it.h * K) + M }))
         .sort((a, b) => b.H - a.H || b.W - a.W);
+      // chars maiores que a sheet nao podem ser clipados — vao para
+      // sheets grandes dedicadas (pow2 >= maior char, cap 8192; se nem
+      // isso basta, reduz a resolucao do char — o runtime upscala)
+      const BIG_MAX = 8192;
+      const oversized = sorted.filter((it) => it.W > SHEET || it.H > SHEET);
+      const normal = sorted.filter((it) => it.W <= SHEET && it.H <= SHEET);
+      let big = 4096;
+      const need = Math.max(0, ...oversized.map((it) => Math.max(it.W, it.H)));
+      while (big < need && big < BIG_MAX) big *= 2;
+      for (const it of oversized) {
+        it.kd = Math.min(K, (big - 2 * M) / Math.max(it.w, it.h));
+        it.W = Math.ceil(it.w * it.kd) + M;
+        it.H = Math.ceil(it.h * it.kd) + M;
+      }
       const frames = {};
       let sheetIdx = -1, cv = null, ctx = null, cx = 0, cy = 0, rowH = 0;
-      const open = () => {
+      const SHEET_OF = [];
+      const open = (size) => {
         sheetIdx++;
-        cv = document.createElement('canvas'); cv.width = cv.height = SHEET;
+        cv = document.createElement('canvas'); cv.width = cv.height = size;
         ctx = cv.getContext('2d'); cx = cy = M; rowH = 0;
+        SHEET_OF.push(size);
       };
       const flush = async () => {
         if (!cv) return;
@@ -147,23 +163,27 @@ for (const m of movies) {
         const b64 = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(blob); });
         await window.__bakeSave('atlas-' + sheetIdx + '.png', b64);
       };
-      open();
-      for (const it of sorted) {
-        if (cx + it.W > SHEET) { cx = M; cy += rowH; rowH = 0; }
-        if (cy + it.H > SHEET) { await flush(); open(); }
-        const dw = Math.ceil(it.w * K), dh = Math.ceil(it.h * K);
-        const img = new Image();
-        const ok = await new Promise((res2) => {
-          img.onload = () => res2(true); img.onerror = () => res2(false);
-          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(it.svg);
-        });
-        if (!ok) continue;
-        ctx.drawImage(img, cx, cy, dw, dh);
-        frames[it.file] = { s: sheetIdx, x: cx, y: cy, w: dw, h: dh };
-        cx += it.W; rowH = Math.max(rowH, it.H);
-      }
-      await flush();
-      return { frames, sheets: sheetIdx + 1 };
+      const pack = async (list, size) => {
+        open(size);
+        for (const it of list) {
+          if (cx + it.W > size) { cx = M; cy += rowH; rowH = 0; }
+          if (cy + it.H > size) { await flush(); open(size); }
+          const dw = Math.ceil(it.w * (it.kd ?? K)), dh = Math.ceil(it.h * (it.kd ?? K));
+          const img = new Image();
+          const ok = await new Promise((res2) => {
+            img.onload = () => res2(true); img.onerror = () => res2(false);
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(it.svg);
+          });
+          if (!ok) continue;
+          ctx.drawImage(img, cx, cy, dw, dh);
+          frames[it.file] = { s: sheetIdx, x: cx, y: cy, w: dw, h: dh };
+          cx += it.W; rowH = Math.max(rowH, it.H);
+        }
+        await flush();
+      };
+      if (normal.length) await pack(normal, SHEET);
+      if (oversized.length) await pack(oversized, big);
+      return { frames, sheets: sheetIdx + 1, sheetSizes: SHEET_OF };
     }, { K, SHEET });
   } catch (e) {
     console.log('FAIL', path.relative(ROOT, m), e.message);
@@ -175,7 +195,7 @@ for (const m of movies) {
   const keep = new Set(Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'));
   for (const f of fs.readdirSync(outDir))
     if (/^atlas-\d+\.png$/.test(f) && !keep.has(f)) fs.rmSync(path.join(outDir, f));
-  fs.writeFileSync(atlasJson, JSON.stringify({ v: 1, k: K, sheets: Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'), frames: res.frames }));
+  fs.writeFileSync(atlasJson, JSON.stringify({ v: 1, k: K, sheets: Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'), sheetSizes: res.sheetSizes, frames: res.frames }));
   done++; totalChars += items.length;
   if (done % 25 === 0) console.log(`${done}/${movies.length} movies, ${totalChars} chars, ${((Date.now() - t0) / 60000).toFixed(1)}min`);
 }

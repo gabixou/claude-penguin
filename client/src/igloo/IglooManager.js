@@ -450,7 +450,10 @@ class IglooEditor {
         // original. O renderEntries adiciona 6px de padding transparente
         // a textura — compensamos com ~4% de escala extra p/ a arte
         // chegar nas bordas do stage.
-        this._cover = (await as2Sprite(this.scene, '19', 0, 0, { key: 'ig2_cover', depth: 40 }))?.img;
+        // Depth 2: no original a folha fica ATRAS do igloo (paredes/
+        // interior/furniture) mas NA FRENTE do fundo location (depth 0)
+        // — grid paper visivel so nas margens fora do igloo.
+        this._cover = (await as2Sprite(this.scene, '19', 0, 0, { key: 'ig2_cover', depth: 2 }))?.img;
         this._cover?.setOrigin(0.5).setPosition(WORLD_W / 2, WORLD_H / 2)
             .setScale(this._cover.scaleX * 1.04);
         // edit_controls (sprite 115): posicoes absolutas do stage —
