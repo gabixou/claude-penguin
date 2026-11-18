@@ -130,12 +130,21 @@ export class PenguinLibrary {
                     atlas._imgs = atlas.sheets.map((s) => {
                         const img = new Image();
                         img.src = base + '/composed/' + s;
-                        try { img.decode?.().catch(() => {}); } catch {}
                         return img;
                     });
-                    atlas._ready = Promise.all(
-                        atlas._imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : im.complete))
-                    ).then(() => { atlas._readyDone = true; });
+                    // decode LAZY por sheet: o atlas do pinguim tem ~112
+                    // sheets (~450MB decodificado) — sem lazy TODAS ficavam
+                    // residentes mesmo as de emotes raros. composedDraw
+                    // await so as sheets do frame pedido.
+                    atlas._sheetReady = atlas._imgs.map((img) => {
+                        let p = null;
+                        return () => (p ??= (img.decode
+                            ? img.decode().catch(() => {})
+                            : img.complete ? Promise.resolve()
+                            : new Promise((r) => { img.onload = img.onerror = () => r(); })));
+                    });
+                    atlas._ready = Promise.resolve();
+                    atlas._readyDone = true; // atlas.json ok — sheets decodificam sob demanda
                     // frames com pelo menos um sprite baked (p/ frameReady)
                     atlas._baked = new Set();
                     for (const k of Object.keys(atlas.frames))
@@ -198,6 +207,11 @@ export class PenguinLibrary {
         const key = eff + ':' + subs.join(',');
         const rec = atlas.frames[key];
         if (!rec || !rec.b) return false;
+        // decode lazy: espera so as sheets deste frame (1-3 draws)
+        const need = new Set([rec.b.s]);
+        if (rec.m && opts.tint != null) need.add(rec.m.s);
+        if (rec.r && opts.ring) need.add(rec.r.s);
+        await Promise.all([...need].map((s) => atlas._sheetReady?.[s]?.()));
         const imgs = atlas._imgs;
         const put = (slot, tintColor = null) => {
             const img = imgs[slot.s];
@@ -592,10 +606,14 @@ export class PenguinView {
                 return;
             }
         }
-        for (let i = 0; i < pairs.length; i += 8) {
-            if (token !== this._warmToken) return;
-            await Promise.all(pairs.slice(i, i + 8)
-                .map(([m, fr]) => this._warmSheets(m, fr).catch(() => {})));
+        for (let i = 0; i < pairs.length; i += 8) {
+
+            if (token !== this._warmToken) return;
+
+            await Promise.all(pairs.slice(i, i + 8)
+
+                .map(([m, fr]) => this._warmSheets(m, fr).catch(() => {})));
+
         }
         // fase 2 — practice render: cobre os bitmaps tintados (cor do
         // pinguim) e confirma que nada falta. 9 passos cobrem o loop de
