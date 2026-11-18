@@ -69,6 +69,10 @@ export class PenguinLibrary {
             lib.dh.set(Number(frame), m);
         }
         lib.items = new Map();      // itemId -> Promise<Clip|null>
+        // looks ja aquecidos (warmFrames): os caches de raster/sheets sao
+        // compartilhados por movie — views com look+cor identicos nao
+        // precisam repetir o warm de ~15-40s cada
+        lib._warmedLooks = new Set();
         lib.bounds = lib._unionBounds();
         // bounds "firmes" (so +4) p/ hit-test de clique — a margem de
         // render nao deve inflar a area que abre o player card
@@ -95,6 +99,122 @@ export class PenguinLibrary {
                 MovieRoom.load(`/assets/movies/penguin-actions/${af}`).catch(() => null));
         }
         return this._actionMovies.get(af);
+    }
+
+    // ---- composed-frame atlas (bake-composed.mjs, modelo CPJourney) ----
+    // Frames compostos por (frame principal x sub-frames dos sprites
+    // animados): o render vira poucos drawImage de sprites pequenos em
+    // vez de dezenas de chars em sheets gigantes — sem warm por look e
+    // sem eviction de textura (causa da dessincronia da dance).
+    // clip.m._composed guarda a Promise<atlas|null> por movie.
+    composedFor(clip) {
+        const m = clip?.m;
+        if (!m?.base) return null;
+        if (m._composed === undefined) {
+            m._composed = this.composed(m.base).then((a) => {
+                m._composedAtlas = a; // acesso sincrono p/ composedOk/frameReady
+                return a;
+            });
+        }
+        return m._composed;
+    }
+
+    composed(base) {
+        if (!this._composedAtlases) this._composedAtlases = new Map();
+        if (!this._composedAtlases.has(base)) {
+            this._composedAtlases.set(base, (async () => {
+                try {
+                    const atlas = await fetch(base + '/composed/atlas.json')
+                        .then((r) => (r.ok ? r.json() : null));
+                    if (!atlas?.frames) return null;
+                    atlas._imgs = atlas.sheets.map((s) => {
+                        const img = new Image();
+                        img.src = base + '/composed/' + s;
+                        try { img.decode?.().catch(() => {}); } catch {}
+                        return img;
+                    });
+                    atlas._ready = Promise.all(
+                        atlas._imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : im.complete))
+                    ).then(() => { atlas._readyDone = true; });
+                    // frames com pelo menos um sprite baked (p/ frameReady)
+                    atlas._baked = new Set();
+                    for (const k of Object.keys(atlas.frames))
+                        atlas._baked.add(parseInt(k.split(':')[0], 10));
+                    return atlas;
+                } catch { return null; }
+            })());
+        }
+        return this._composedAtlases.get(base);
+    }
+
+    // composed pronto p/ este clip+frame? frameReady usa p/ pular o gate
+    // de decode SVG quando o draw real sera via atlas composto.
+    composedOk(clip, frame) {
+        const a = clip?.m?._composedAtlas;
+        if (!a || !a._readyDone || !a._baked) return false;
+        const eff = Math.max(1, Math.min(a.mainFrames || frame, frame));
+        return a._baked.has(eff);
+    }
+
+    // canvas tintado da silhueta 'm' na cor do pinguim — equivale ao
+    // colorTransform solido do 'body' (mult=0, add=rgb -> so o alpha fica).
+    tintMask(slot, color) {
+        if (!this._tintMasks) this._tintMasks = new Map();
+        const key = `${slot.s}|${slot.x}|${slot.y}|${slot.w}|${slot.h}|${color}`;
+        let cv = this._tintMasks.get(key);
+        if (cv) return cv;
+        const src = slot._img; // sheet Image ja decodificada (ligada no put)
+        if (!src) return null;
+        cv = document.createElement('canvas');
+        cv.width = slot.w; cv.height = slot.h;
+        const c = cv.getContext('2d');
+        c.drawImage(src, slot.x, slot.y, slot.w, slot.h, 0, 0, slot.w, slot.h);
+        c.globalCompositeOperation = 'source-in';
+        c.fillStyle = '#' + color.toString(16).padStart(6, '0');
+        c.fillRect(0, 0, slot.w, slot.h);
+        if (this._tintMasks.size > 600) this._tintMasks.delete(this._tintMasks.keys().next().value);
+        this._tintMasks.set(key, cv);
+        return cv;
+    }
+
+    // Tenta desenhar 'frame' do clip via composed atlas. Retorna true se
+    // desenhou (caller nao deve chamar clip.draw); false = fallback.
+    // opts: {tint: cor do corpo p/ camada 'm', ring: bool p/ camada 'r'}
+    async composedDraw(ctx, clip, frame, opts = {}) {
+        const p = this.composedFor(clip);
+        if (!p) return false;
+        const atlas = await p;
+        if (!atlas || !atlas._readyDone) return false;
+        // mesmo clamp do Clip.draw: frame efetivo na timeline do movie
+        const eff = Math.max(1, Math.min(atlas.mainFrames || frame, frame));
+        // Sem clip.draw os playheads dos sub-sprites nunca sao criados —
+        // _boundsOf percorre as entries chamando frameOf (cria playhead +
+        // marca seen p/ advance() tickar), sem rasterizar nada.
+        const entries = clip._mainTimeline?.().frames?.[eff - 1];
+        if (entries && clip._boundsOf)
+            clip._boundsOf(entries, { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 }, '');
+        const anim = (atlas.anim && atlas.anim[String(eff)]) || [];
+        const subs = anim.map((a) => clip.currentFrame(a.path));
+        const key = eff + ':' + subs.join(',');
+        const rec = atlas.frames[key];
+        if (!rec || !rec.b) return false;
+        const imgs = atlas._imgs;
+        const put = (slot, tintColor = null) => {
+            const img = imgs[slot.s];
+            if (!img) return;
+            if (tintColor != null) {
+                slot._img = img;
+                const t = this.tintMask(slot, tintColor);
+                if (t) ctx.drawImage(t, slot.ox, slot.oy, slot.wu, slot.hu);
+                return;
+            }
+            ctx.drawImage(img, slot.x, slot.y, slot.w, slot.h,
+                slot.ox, slot.oy, slot.wu, slot.hu);
+        };
+        put(rec.b);
+        if (rec.m && opts.tint != null) put(rec.m, opts.tint);
+        if (rec.r && opts.ring) put(rec.r);
+        return true;
     }
 
     // bounds uniao de todos os frames (coords de mundo, y para cima = negativo)
@@ -384,8 +504,22 @@ export class PenguinView {
             // direcao pagava dezenas de createImageBitmap sob demanda
             const token = ++this._warmToken;
             this._warmDone = false;
+            // dedup por look+cor: caches compartilhados — warm identico
+            // ja feito (ou em curso por outra view) nao se repete
+            const wk = `${this._color}|${ITEM_DRAW_ORDER.map((s) => this.look[s] || 0).join(',')}`;
+            if (this.lib._warmedLooks?.has(wk)) {
+                this._warmDone = true;
+                return;
+            }
             Promise.all(loads).then(() => {
-                if (token === this._warmToken) this.warmFrames();
+                if (token !== this._warmToken) return;
+                this.warmFrames().finally(() => {
+                    if (token === this._warmToken && this._warmDone) {
+                        const set = this.lib._warmedLooks;
+                        if (set.size > 200) set.delete(set.values().next().value);
+                        set.add(wk);
+                    }
+                });
             });
         }
     }
@@ -415,24 +549,18 @@ export class PenguinView {
         const itemClips = [...this.items.values()].map((it) => new Clip(it.m));
         const actionClips = new Map(); // af -> Clip do movie penguin-actions
         const mainMax = this._mainFrames();
-        // walk+idle primeiro (mais visiveis), depois EMOTES (wave/dance/
-        // throw — acoes disparadas por botao, priorizadas sobre sit) e por
-        // ultimo sit. Os frames 17-30 ficaram FORA do warm antigo: a
-        // primeira dance pagava o load de dezenas de sheets do atlas sob
-        // demanda e o pinguim congelava — com atlas o prefetchFrames nao
-        // aquece nada (files do atlas ja nascem "prontos" no imgReady),
-        // entao o warm por render e o UNICO pre-aquecimento que existe.
-        for (const f of [9, 10, 11, 12, 13, 14, 15, 16,
+        const FRAMES = [9, 10, 11, 12, 13, 14, 15, 16,
             1, 2, 3, 4, 5, 6, 7, 8,
             25, 26, 27, 28, 29, 30,
-            17, 18, 19, 20, 21, 22, 23, 24]) {
-            if (token !== this._warmToken) return;
-            while (MovieRoom._decodeHold > 0)
-                await new Promise((r) => setTimeout(r, 120));
+            17, 18, 19, 20, 21, 22, 23, 24];
+        // fase 1 — prefetch de TODAS as sheets do atlas que os frames
+        // quentes usam, em paralelo: o decode() das PNGs dispara no load
+        // e sobrepoe entre si. Sem isso cada draw pagava o decode da
+        // sheet inline (~40s de warm); com prefetch os draws da fase 2
+        // viram blits puros.
+        const pairs = [];
+        for (const f of FRAMES) {
             const af = this.lib.animationFrame(look, f);
-            // af > mainMax = pose secreta: corpo desenha o movie de acao
-            // no ACTION_DRAW_FRAME; as roupas desenham no af (mesmo
-            // esquema do render real via drawnFrame).
             let bodyClip = mainClip, bodyFrame = af;
             if (af > mainMax) {
                 const mv = await this.lib.actionMovie(af);
@@ -441,15 +569,55 @@ export class PenguinView {
                 bodyClip = actionClips.get(af);
                 bodyFrame = ACTION_DRAW_FRAME;
             }
-            // Decode paralelo das sheets do atlas que este frame usa:
-            // sem isso cada sheet 4096px decodificava serial dentro do
-            // primeiro draw que a pedia (~2min de warm). Em lotes de 6
-            // o decode das PNGs sobrepoe e o warm cai p/ ~1/3.
-            await this._warmSheets(bodyClip.m, bodyFrame);
-            for (const c of itemClips) await this._warmSheets(c.m, af);
-            // 9 passos cobrem o loop de 8f dos sub-sprites (draw no frame
-            // atual, advance, repete) — mesmo padrao do render real
-            for (let step = 0; step < 9; step++) {
+            pairs.push([bodyClip.m, bodyFrame]);
+            for (const c of itemClips) pairs.push([c.m, af]);
+        }
+        // composed cobre todos os movies quentes? entao o warm vetorial
+        // inteiro (sheets + practice render) e dispensavel — o draw real
+        // sera so drawImage de sprites pequenos do composed atlas.
+        {
+            const hotMovies = [...new Set(pairs.map(([m]) => m).filter(Boolean))];
+            const cov = await Promise.race([
+                Promise.all(hotMovies.map(async (m) => {
+                    try {
+                        const a = await this.lib.composed(m.base);
+                        if (a && a._ready) await a._ready.catch(() => {});
+                        return !!(a && a._readyDone);
+                    } catch { return false; }
+                })),
+                new Promise((r) => setTimeout(() => r(null), 5000)),
+            ]);
+            if (cov && cov.every(Boolean)) {
+                if (token === this._warmToken) this._warmDone = true;
+                return;
+            }
+        }
+        for (let i = 0; i < pairs.length; i += 8) {
+            if (token !== this._warmToken) return;
+            await Promise.all(pairs.slice(i, i + 8)
+                .map(([m, fr]) => this._warmSheets(m, fr).catch(() => {})));
+        }
+        // fase 2 — practice render: cobre os bitmaps tintados (cor do
+        // pinguim) e confirma que nada falta. 9 passos cobrem o loop de
+        // 8f dos sub-sprites — mesmo padrao do render real.
+        for (const f of FRAMES) {
+            if (token !== this._warmToken) return;
+            while (MovieRoom._decodeHold > 0)
+                await new Promise((r) => setTimeout(r, 120));
+            const af = this.lib.animationFrame(look, f);
+            let bodyClip = mainClip, bodyFrame = af;
+            if (af > mainMax) {
+                const mv = await this.lib.actionMovie(af);
+                if (!mv) continue;
+                if (!actionClips.has(af)) actionClips.set(af, new Clip(mv));
+                bodyClip = actionClips.get(af);
+                bodyFrame = ACTION_DRAW_FRAME;
+            }
+            // 3 passos: com o fast-path do atlas os draws sao blits puros
+            // — os 9 passos antigos existiam p/ rasterizar cada frame de
+            // sub-sprite; agora so os bitmaps tintados (raros) precisam
+            // de cobertura e 3 amostras pegam a maioria dos variants.
+            for (let step = 0; step < 3; step++) {
                 if (token !== this._warmToken) return;
                 try {
                     await bodyClip.draw(ctx, bodyFrame, sc);
@@ -507,12 +675,17 @@ export class PenguinView {
         const body = this._bodyFor(af);
         if (!body) return this._frameWait(); // movie de acao ainda carregando
         const items = [...this.items.values()];
-        let ok = body.clip.m?.frameReady?.(body.frame) ?? true;
+        // composed atlas pronto cobre o frame sem decode SVG —
+        // sem isso o pinguim esperaria o warm vetorial mesmo com o
+        // draw real sendo so drawImage de sprites pequenos.
+        const gate = (clip, frame) => {
+            const svgOk = clip.m?.frameReady?.(frame) ?? true;
+            if (!svgOk) this._kick(clip.m, frame);
+            return svgOk || this.lib.composedOk(clip, frame);
+        };
+        let ok = gate(body.clip, body.frame);
         for (const it of items) {
-            if (!(it.m?.frameReady?.(af) ?? true)) {
-                ok = false;
-                this._kick(it.m, af);
-            }
+            if (!gate(it, af)) ok = false;
         }
         if (!ok) {
             this._kick(body.clip.m, body.frame);
@@ -573,10 +746,17 @@ export class PenguinView {
             body = { clip: this.art, frame: Math.min(this.frame, this._mainFrames()) };
         }
         this._activeAction = body.clip === this.art ? null : body.clip;
-        await body.clip.draw(ctx, body.frame, scale);
+        // composed atlas (CPJourney): se o frame estiver baked, o draw
+        // vira 1-3 drawImage de sprites pequenos — sem raster vetorial.
+        // Sem atlas/frame -> fallback clip.draw (comportamento original).
+        const drewBody = await this.lib.composedDraw(ctx, body.clip, body.frame,
+            { tint: this._color, ring: this._ringVisible });
+        if (!drewBody) await body.clip.draw(ctx, body.frame, scale);
         for (const slot of ITEM_DRAW_ORDER) {
             const it = this.items.get(slot);
-            if (it) await it.draw(ctx, this.drawnFrame, scale);
+            if (!it) continue;
+            const drew = await this.lib.composedDraw(ctx, it, this.drawnFrame, {});
+            if (!drew) await it.draw(ctx, this.drawnFrame, scale);
         }
         this.dirty = false;
     }

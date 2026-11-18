@@ -751,7 +751,15 @@ export class MovieRoom {
         const url = `${this.base}/chars/${this._atlas.sheets[i]}`;
         p = new Promise((res) => {
             const img = new Image();
-            img.onload = () => res(img);
+            img.onload = () => {
+                // decode() dispara a decodificacao do PNG 2048² em
+                // background — sem isso ela caia lazy no primeiro
+                // drawImage da sheet. NAO await: resolver img ja deixa o
+                // draw seguir (o browser decodifica uma vez so; a chamada
+                // so adiantao o trabalho para as sheets prefetchadas).
+                try { img.decode?.().catch(() => {}); } catch {}
+                res(img);
+            };
             img.onerror = () => res(null);
             img.src = url;
         });
@@ -1388,6 +1396,25 @@ export class MovieRoom {
         // leve suavizacao nos poucos shapes ampliados (como o gopenguin,
         // que rasteriza tudo a 1x).
         const eff = this.artFlatScale ? scale : +(scale * Math.min(k, 8)).toFixed(3);
+        // fast path atlas: shape sem tint desenha direto da sheet — sem
+        // createImageBitmap por (file|eff); a GPU escala no draw final.
+        // Era o maior custo do warm/dance (~10k bitmaps por look); agora
+        // so shapes tintados (cor do pinguim) e fallback SVG pagam raster.
+        {
+            const w0 = ch.size?.[0], h0 = ch.size?.[1];
+            const af = !tint && ch.file && w0 && h0 && this._atlas?.frames?.[file];
+            if (af && !this._svgOverrides?.has(file)) {
+                const sheet = await this._atlasSheet(af.s);
+                if (sheet) {
+                    ctx.save();
+                    ctx.transform(world.a, world.b, world.c, world.d, world.x, world.y);
+                    ctx.drawImage(sheet, af.x, af.y, af.w, af.h,
+                        -(ch.origin?.[0] ?? 0), -(ch.origin?.[1] ?? 0), w0, h0);
+                    ctx.restore();
+                    return;
+                }
+            }
+        }
         const canvas = tint
             ? await this.tintedCanvas(file, ch, color, eff)
             : await this.artCanvas(file, ch, eff);

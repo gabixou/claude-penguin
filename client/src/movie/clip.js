@@ -471,6 +471,25 @@ export class Clip {
         // quantiza: sem isso floats como 3.6749999999999998 geram chaves de
         // cache distintas a cada frame -> re-rasterizacao continua (lag)
         const eff = +(scale * Math.min(k, 8)).toFixed(3);
+        // fast path atlas: shape sem tint desenha direto da sheet — sem
+        // createImageBitmap por (file|eff); a GPU escala no draw final
+        // (mesmo caminho do movie.js — warm/dance ficam ~ordem de
+        // magnitude mais baratos; so tint e fallback SVG rasterizam).
+        if (isIdent(color) && ch.file && ch.size?.[0] && ch.size?.[1]) {
+            const af = this.m._atlas?.frames?.[ch.file];
+            if (af && !this.m._svgOverrides?.has(ch.file)) {
+                const sheet = await this.m._atlasSheet(af.s);
+                if (sheet) {
+                    const ox0 = ch.origin?.[0] ?? 0, oy0 = ch.origin?.[1] ?? 0;
+                    ctx.save();
+                    ctx.transform(world.a, world.b, world.c, world.d, world.x, world.y);
+                    ctx.drawImage(sheet, af.x, af.y, af.w, af.h,
+                        -ox0, -oy0, ch.size[0], ch.size[1]);
+                    ctx.restore();
+                    return;
+                }
+            }
+        }
         let canvas;
         if (isSolidTint(color)) canvas = await this._solidCanvas(ch, color, eff);
         else if (!isIdent(color)) canvas = await this._pixelTint(ch, color, eff);

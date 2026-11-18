@@ -19,6 +19,8 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const K = parseFloat(opt('k', '5'));
 const FORCE = args.includes('--force');
 const ONLY = opt('only', '');
+const WEBP = args.includes('--webp');
+const EXT = WEBP ? 'webp' : 'png';
 const DIRS = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--k' && args[i - 1] !== '--only');
 if (!DIRS.length) { console.error('informe dirs'); process.exit(1); }
 
@@ -127,7 +129,7 @@ for (const m of movies) {
   }
   let res;
   try {
-    res = await page.evaluate(async ({ K, SHEET }) => {
+    res = await page.evaluate(async ({ K, SHEET, WEBP, EXT }) => {
       const items = window._items;
       window._items = [];
       const M = 2;
@@ -159,9 +161,9 @@ for (const m of movies) {
       };
       const flush = async () => {
         if (!cv) return;
-        const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+        const blob = await new Promise((r) => WEBP ? cv.toBlob(r, 'image/webp', 0.92) : cv.toBlob(r, 'image/png'));
         const b64 = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(blob); });
-        await window.__bakeSave('atlas-' + sheetIdx + '.png', b64);
+        await window.__bakeSave('atlas-' + sheetIdx + '.' + EXT, b64);
       };
       const pack = async (list, size) => {
         open(size);
@@ -184,7 +186,7 @@ for (const m of movies) {
       if (normal.length) await pack(normal, SHEET);
       if (oversized.length) await pack(oversized, big);
       return { frames, sheets: sheetIdx + 1, sheetSizes: SHEET_OF };
-    }, { K, SHEET });
+    }, { K, SHEET, WEBP, EXT });
   } catch (e) {
     console.log('FAIL', path.relative(ROOT, m), e.message);
     failed++; continue;
@@ -192,10 +194,10 @@ for (const m of movies) {
   for (const [a, c] of aliases || []) if (res.frames[c]) res.frames[a] = res.frames[c];
   // remove sheets orfas de bakes anteriores (sheet size / K diferente
   // gera contagem diferente — sem isso atlas-999.png velho fica lixo)
-  const keep = new Set(Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'));
+  const keep = new Set(Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.' + EXT));
   for (const f of fs.readdirSync(outDir))
-    if (/^atlas-\d+\.png$/.test(f) && !keep.has(f)) fs.rmSync(path.join(outDir, f));
-  fs.writeFileSync(atlasJson, JSON.stringify({ v: 1, k: K, sheets: Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.png'), sheetSizes: res.sheetSizes, frames: res.frames }));
+    if (/^atlas-\d+\.(png|webp)$/.test(f) && !keep.has(f)) fs.rmSync(path.join(outDir, f));
+  fs.writeFileSync(atlasJson, JSON.stringify({ v: 1, k: K, sheets: Array.from({ length: res.sheets }, (_, i) => 'atlas-' + i + '.' + EXT), sheetSizes: res.sheetSizes, frames: res.frames }));
   done++; totalChars += items.length;
   if (done % 25 === 0) console.log(`${done}/${movies.length} movies, ${totalChars} chars, ${((Date.now() - t0) / 60000).toFixed(1)}min`);
 }
