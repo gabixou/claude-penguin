@@ -116,6 +116,19 @@ In short: instead of resurrecting Flash, this project **rebuilds the game native
 
 Requires **Node.js 22+** (the server uses the built-in `node:sqlite` module).
 
+> ⚠️ **Game assets are not in this repository.** The visual assets under `client/public/assets/**/chars/` (~5 GB of baked character atlases) are generated artifacts and are git-ignored to keep the repo clonable. To get a working game you need the original **wand archive** (`C:\Users\<you>\wand` or equivalent path with the extracted SWFs) and then run the asset pipeline:
+>
+> ```bash
+> # 1. Convert SWF timelines -> timelines.json + packed chars (per asset pack)
+> node tools/misc/swf2movie.mjs <wand-swf> client/public/assets/<pack>
+> # 2. Bake the character atlases used by the vector renderer
+> node tools/atlas/bake-char-atlas.mjs [--webp] [--sheet 1024] <asset dirs...>
+> # 3. (penguin/clothing) bake the composed-frame atlases — the fast path
+> node tools/atlas/bake-composed.mjs --only penguin --sheet 1024
+> ```
+>
+> Without these steps the client builds and the server runs, but rooms/penguins render without art. The deploy pipeline on the production machine already has the assets.
+
 ```bash
 # 1. Server (WebSocket on port 8080)
 cd server
