@@ -461,7 +461,7 @@ class IglooEditor {
         // (713,241), furniture_catalog_btn (84) em (713,311) e
         // igloo_upgrade_btn (86) em (713,382) — matrix dos filhos.
         const ctrls = [
-            ['67', 713, 177, () => this._openMusic()],          // music_btn "Play Music"
+            ['67', 713, 177, () => this._openMusic().catch((e) => console.warn('[igloo] music window', e))],          // music_btn "Play Music"
             ['64', 713, 241, () => this._toggleSelector()],   // furniture_list_btn "View Items"
             // (guardado p/ hover-safe do selector — ver _selectorHover)
             // furniture_catalog_btn (84) = FurnDec2008.swf (loja de
@@ -687,55 +687,71 @@ class IglooEditor {
         return hit === true;
     }
 
-    // music_btn -> INTERFACE.showWindow("igloo_music"): o SWF original
-    // lista as faixas do igloo; a lista vinha do webservice (indisponivel)
-    // — usamos o music.json local (programIds reais dos assets).
-    _openMusic() {
-        this._musicWin?.remove();
-        const cur = this.mgr.layout?.music ?? 0;
-        const el = document.createElement('div');
-        el.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:340px;max-height:380px;z-index:75;background:linear-gradient(180deg,#1c5fa8,#0a3d6e);border:3px solid #bfe6ff;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);color:#fff;font:12px Verdana,sans-serif;display:flex;flex-direction:column;overflow:hidden';
-        el.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;background:linear-gradient(180deg,#2e7fd4,#12509e);border-bottom:2px solid #bfe6ff">
-            <b>Igloo Music</b>
-            <button data-a="x" style="width:20px;height:20px;border-radius:50%;border:2px solid #fff;background:#c33;color:#fff;cursor:pointer">✕</button>
-          </div>
-          <div data-r="list" style="flex:1;overflow-y:auto;padding:6px"></div>`;
-        const list = el.querySelector('[data-r=list]');
-        const pick = (id) => {
-            const l = this.mgr.layout || {};
-            this.scene.network?.sendIglooSave({
-                iglooType: l.iglooType ?? 1, location: l.location ?? 1,
-                floor: l.floor ?? 0, music: id,
-                items: this.placement.map((p) => ({
-                    itemId: p.itemId, x: p.x, y: p.y,
-                    rotation: p.rotation || 0, frame: p.frame || 0,
-                })),
+    // music_btn -> INTERFACE.showWindow("igloo_music"): renderiza o
+    // igloo_music.swf original do wand (pack igloo-music) — janela
+    // "Music List" com as faixas reais; botoes select(N)/close() do AS2.
+    async _openMusic() {
+        this._closeMusic();
+        const gen = (this._musicGen = (this._musicGen || 0) + 1);
+        const movie = await MovieRoom.load('/assets/movies/igloo-music').catch(() => null);
+        if (!movie || gen !== this._musicGen || !this.isOpen) return;
+        await movie.ensureFonts();
+        movie.prefetchSvgs?.(30);
+        movie.prefetchFrames?.([0], 12, true, SS_FIXED, false);
+        // frame unico 760x480 — coords do stage == coords do mundo
+        const ss = SS_FIXED;
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(WORLD_W * ss); cv.height = Math.round(WORLD_H * ss);
+        await movie.renderFrame(0, cv, ss);
+        const key = 'igloo_music_win';
+        if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+        this.scene.textures.addCanvas(key, cv);
+        const img = this.scene.add.image(0, 0, key)
+            .setOrigin(0, 0).setScale(1 / ss).setDepth(70);
+        // painel bloqueia cliques no cenario ao redor da janela
+        // (bbox medido do render: x 188-571, y 78-378)
+        const blocker = this.scene.add.zone(379.5, 228, 392, 308)
+            .setDepth(69).setInteractive();
+        // botoes do SWF: select(N) = SHELL.setIglooMusicById(N) + close;
+        // close() = fecha a janela. Zonas invisiveis nos bounds reais.
+        const zones = [];
+        for (const e of movie.collectInteractive().entries) {
+            const rel = e.acts?.release || '';
+            const sel = /select\((\d+)\)/.exec(rel);
+            const isClose = /close\(\)/.test(rel);
+            if ((!sel && !isClose) || !e.bounds) continue;
+            const [x0, y0, x1, y1] = e.bounds;
+            const z = this.scene.add.zone((x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0)
+                .setDepth(72).setInteractive({ useHandCursor: true });
+            z.on('pointerdown', () => {
+                if (isClose) { this._closeMusic(); return; }
+                this._pickMusic(Number(sel[1]));
             });
-            if (id > 0) musicPlayer.playProgram(id); else musicPlayer.stop();
-            this._musicWin?.remove(); this._musicWin = null;
-        };
-        const row = (id, label) => {
-            const r = document.createElement('div');
-            r.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px;border-bottom:1px solid #2a5a8a';
-            r.innerHTML = `<span style="flex:1">${label}</span>`;
-            const b = document.createElement('button');
-            b.textContent = id === cur ? 'PLAYING' : 'PLAY';
-            b.disabled = id === cur;
-            b.style.cssText = 'padding:2px 10px;border-radius:4px;border:1px solid #bfe6ff;background:#12509e;color:#fff;cursor:pointer;font:bold 10px Verdana';
-            b.onclick = () => pick(id);
-            const prev = document.createElement('button');
-            prev.textContent = '▶';
-            prev.style.cssText = 'padding:2px 8px;border-radius:4px;border:1px solid #bfe6ff;background:#1e7a2e;color:#fff;cursor:pointer';
-            prev.onclick = () => { if (id > 0) musicPlayer.playProgram(id); };
-            r.append(prev, b);
-            list.appendChild(r);
-        };
-        row(0, 'No Music');
-        for (const id of Object.keys(MUSIC).slice(0, 60)) row(Number(id), `Track ${id}`);
-        el.querySelector('[data-a=x]').onclick = () => { el.remove(); this._musicWin = null; };
-        document.body.appendChild(el);
-        this._musicWin = el;
+            zones.push(z);
+        }
+        this._musicWin = { img, blocker, zones };
+    }
+
+    _pickMusic(id) {
+        const l = this.mgr.layout || {};
+        this.scene.network?.sendIglooSave({
+            iglooType: l.iglooType ?? 1, location: l.location ?? 1,
+            floor: l.floor ?? 0, music: id,
+            items: this.placement.map((p) => ({
+                itemId: p.itemId, x: p.x, y: p.y,
+                rotation: p.rotation || 0, frame: p.frame || 0,
+            })),
+        });
+        musicPlayer.playProgram(id); // id 0 = "No Music" -> stop
+        this._closeMusic();
+    }
+
+    _closeMusic() {
+        this._musicGen = (this._musicGen || 0) + 1;
+        for (const z of this._musicWin?.zones || []) z.destroy();
+        this._musicWin?.blocker?.destroy();
+        this._musicWin?.img?.destroy();
+        this._musicWin = null;
     }
 
     _toggleSelector(force) {
@@ -951,7 +967,7 @@ class IglooEditor {
             this._drag = null;
         }
         this._trashIcon?.destroy(); this._trashIcon = null;
-        this._musicWin?.remove(); this._musicWin = null;
+        this._closeMusic();
         if (this._keyHandler) {
             this.scene.input.keyboard?.off('keydown', this._keyHandler);
             this._keyHandler = null;
