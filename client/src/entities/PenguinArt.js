@@ -207,8 +207,9 @@ export class PenguinLibrary {
         const key = eff + ':' + subs.join(',');
         const rec = atlas.frames[key];
         if (!rec || !rec.b) return false;
-        // decode lazy: espera so as sheets deste frame (1-3 draws)
+        // decode lazy: espera so as sheets deste frame (1-4 draws)
         const need = new Set([rec.b.s]);
+        if (rec.s) need.add(rec.s.s);
         if (rec.m && opts.tint != null) need.add(rec.m.s);
         if (rec.r && opts.ring) need.add(rec.r.s);
         await Promise.all([...need].map((s) => atlas._sheetReady?.[s]?.()));
@@ -225,9 +226,11 @@ export class PenguinLibrary {
             ctx.drawImage(img, slot.x, slot.y, slot.w, slot.h,
                 slot.ox, slot.oy, slot.wu, slot.hu);
         };
-        put(rec.b);
-        if (rec.m && opts.tint != null) put(rec.m, opts.tint);
+        // ordem original do SWF: sombra(abaixo) < ring < body < sprites acima
+        if (rec.s) put(rec.s);
         if (rec.r && opts.ring) put(rec.r);
+        if (rec.m && opts.tint != null) put(rec.m, opts.tint);
+        put(rec.b);
         return true;
     }
 
