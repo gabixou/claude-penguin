@@ -1,8 +1,0 @@
-Compare these two Club Penguin room screenshots: first image is OUR clone, second is the ORIGINAL gopenguin.lol reference.
-
-Focus ONLY on z-order/overlap bugs: elements that appear duplicated, overlapping incorrectly, or where animated elements cover static elements that should be in front (or vice versa). Examples of the bug we just fixed: light rays overlapping a static ray, animated campfire covering a static fire.
-
-Report:
-1. Any remaining duplication/overlap/z-order issues, with location description.
-2. Whether the room composition otherwise looks correct.
-Be concise. If no z-order issues remain, say so clearly.

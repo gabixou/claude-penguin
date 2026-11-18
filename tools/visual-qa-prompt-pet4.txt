@@ -1,1 +1,0 @@
-This is GoPenguin (a Club Penguin recreation). Describe any puffle/pet visible: its size relative to penguins, position, colors, and whether it looks like an authentic Club Penguin puffle sprite. If multiple penguins have pets, describe each.

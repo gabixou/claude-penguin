@@ -1,1 +1,0 @@
-Screenshot do player card do Club Penguin (clone). Liste TODOS os botoes/controles visiveis no card, descrevendo cada um (icone/texto/posicao). Existe algum botao com um ponto de interrogacao "?" ? Se sim, onde ele esta?

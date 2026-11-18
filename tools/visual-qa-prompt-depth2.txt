@@ -1,1 +1,0 @@
-These 4 images are consecutive frames (~0.7s apart) of a Club Penguin scene: a penguin (left) with a small black puffle beside it playing a "play/hop" animation. In EACH image answer: does any part of the puffle visually overlap/touch the penguin's body? If yes, is the puffle drawn ON TOP of the penguin or BEHIND it? Format: img1: overlap? top/bottom; img2: ... etc.

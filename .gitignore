@@ -35,3 +35,26 @@ tools/deploy/
 # Atlases de characters gerados por tools/atlas/bake-char-atlas.mjs
 # (binarios grandes; regenerar via bake — fontes sao os SWFs do wand)
 client/public/assets/**/chars/
+
+# Faxina tools/: probes one-off, dumps de analise e dirs de trabalho
+# ficam so no disco local. Os keepers de misc/ seguem rastreados
+# (gitignore nao afeta arquivo ja versionado).
+tools/_*
+tools/capture/
+tools/cp-swf/
+tools/legacy-analysis/
+tools/qa/
+tools/swfs/
+tools/misc/
+tools/.qa-prompt.txt
+tools/visual-qa-prompt-*.txt
+tools/qa-prompt-*.txt
+tools/*.mp3
+tools/icons.png
+tools/gh-api-probe.sh
+tools/igloo-test.cjs
+tools/*.txt
+tools/*.json
+!/tools/package.json
+!/tools/package-lock.json
+tools/*.bat

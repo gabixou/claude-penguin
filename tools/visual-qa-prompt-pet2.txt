@@ -1,8 +1,0 @@
-This is a Club Penguin recreation screenshot. Focus ONLY on the small creature near the penguin (around x=360,y=320 world -> visible near center-left of screen).
-
-Questions:
-1. Is there a small round fuzzy blue creature (puffle) visible standing/walking near the penguin? Describe what you see.
-2. Does it look like a proper Club Penguin puffle sprite or is it broken/blank/misshapen?
-3. Anything else visually broken?
-
-Be concise.

@@ -1,3 +1,0 @@
-Image 1 = our HTML5 Club Penguin clone, inside the player's igloo. Image 2 = gopenguin.lol igloo (composition reference only — note our igloo sits on a painted snowy "Default Location" background, which is correct per original Club Penguin).
-
-Compare ONLY concrete visual divergences: igloo interior art (dome walls, door, window, floor), penguin rendering, puffle presence/size/position, HUD, debug/marker shapes, letterboxing, layering order (location bg < igloo < actors < HUD). List each divergence with severity. Ignore missing igloo-editor buttons (lock/tape) — out of scope. End with verdict ACCEPTABLE or NEEDS-FIX.

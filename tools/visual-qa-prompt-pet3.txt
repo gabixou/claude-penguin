@@ -1,1 +1,0 @@
-Compare this Club Penguin clone screenshot with the real Club Penguin / GoPenguin. A blue puffle should be walking beside the penguin. Describe: (1) is the puffle clearly visible and does it look like a proper Club Penguin puffle sprite (round body, eyes, beak) or a blurry/pixelated smear? (2) where is it relative to the penguin? (3) any rendering artifacts?
