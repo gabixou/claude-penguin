@@ -333,7 +333,13 @@ export class Clip {
         const ch = this.characters[sid];
         if (!ch) return null;
         if (ch.kind === 'button' && ch.records) {
-            const rec = ch.records.up ?? ch.records.hittest ?? [];
+            // botões-hotspot do AS2 (ex.: trigger secreto do furn2008)
+            // tem records.up vazio e so hittest — sem o fallback o bounds
+            // sai null e o controle nunca e coletado
+            const rec = ch.records.up?.length ? ch.records.up
+                : ch.records.hittest?.length ? ch.records.hittest
+                : ch.records.over?.length ? ch.records.over
+                : ch.records.down ?? [];
             return this._boundsOf(rec, world, path);
         }
         let local = null;

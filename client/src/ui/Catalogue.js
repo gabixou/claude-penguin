@@ -186,6 +186,13 @@ export class CatalogueOverlay {
         if (this.key === 'clothing' && page === 3) s += `|c${this.colour}s${this.symbol}`;
         if (this.key === 'sport' && page === 7)
             s += `|p${this.sportPink ? 1 : 0}:${[...this.sportSecrets].sort().join(',')}`;
+        // furn2008: paginas 4 e 7 tem o sprite 'secret' (item escondido
+        // revelado pelo gatilho invisivel) — o frame dele muda os pixels
+        // da pagina e precisa entrar na assinatura do cache, senao o
+        // snapshot antigo (secreto oculto) fica alternando com o render
+        // ao vivo = janela "piscando"
+        if (this.key === 'furn2008' && (page === 4 || page === 7))
+            s += `|sec${this.movie.currentFrame('secret')}`;
         return s;
     }
 
@@ -468,9 +475,18 @@ export class CatalogueOverlay {
                     const m = movie.data.sprites?.[u.id];
                     if (!m && !u.main) continue;
                     const cur = movie.currentFrame(f);
-                    const g = l === 'nextFrame' ? cur + 1
+                    let g = l === 'nextFrame' ? cur + 1
                         : l === 'prevFrame' ? cur - 1
                         : c ? Number(c) : d;
+                    // nextFrame/prevFrame no Flash dao a volta nos limites
+                    // do clip — e o que faz o gatilho do segredo alternar
+                    // (secret.nextFrame() em clip de 2 frames = toggle)
+                    if ((l === 'nextFrame' || l === 'prevFrame') && typeof g === 'number') {
+                        const total = u.main
+                            ? (movie._mainTl?.frames?.length || 1)
+                            : (movie.data.sprites?.[u.id]?.frames?.length || 1);
+                        if (g > total) g = 1; else if (g < 1) g = total;
+                    }
                     if (g !== undefined) movie.goto(f, g);
                 }
                 if (show) this._show();
@@ -484,7 +500,9 @@ export class CatalogueOverlay {
         let s = e;
         for (const i of String(t).split('.').filter(Boolean)) {
             if (i === '_parent') s = s.replace(/(?:\.[^.#]+|#\d+)$/, '');
-            else if (i !== 'this') s += '.' + i;
+            // basePath '' + 'secret' nao pode virar '.secret' — o path
+            // com ponto extra quebra currentFrame/_playheads (lookup exato)
+            else if (i !== 'this') s += (s ? '.' : '') + i;
         }
         return s;
     }

@@ -837,7 +837,29 @@ export class MovieRoom {
         const a = tl.actions?.[frame] ?? tl.actions?.[String(frame)];
         if (!a) return [];
         if (Array.isArray(a)) return a;
-        return a.commands ?? [];
+        if (a.commands) return a.commands;
+        // timelines extraidas guardam o AS2 cru em `source` (furn2008,
+        // igloo-as2...) — sem parse o stop() do frame nunca roda e clips
+        // de 2 frames ciclam (janela de item secreto "piscando").
+        // Conservador: so parseia se a source inteira for transport calls
+        // literais; scripts complexos (if/function/_parent/SHELL) ficam []
+        if (typeof a.source === 'string') {
+            if (!a._cmds) a._cmds = this._parseSourceActions(a.source);
+            return a._cmds;
+        }
+        return [];
+    }
+
+    _parseSourceActions(src) {
+        const cmds = [];
+        const re = /\b(stop|play|nextFrame|prevFrame|gotoAndStop|gotoAndPlay)\s*\(\s*(?:"([^"]*)"|(\d+))?\s*\)/g;
+        let m;
+        while ((m = re.exec(src)))
+            cmds.push([m[1], m[2] ?? (m[3] !== undefined ? Number(m[3]) : null)]);
+        // rejeita se sobrar qualquer coisa alem de pontuacao — ex.:
+        // 'if(x){gotoAndStop(2)}else{stop()}' ou 'this.gotoAndStop(SHELL...)'
+        if (/[^\s;]/.test(src.replace(re, ''))) return [];
+        return cmds;
     }
 
     _labelFrame(tl, label) {
