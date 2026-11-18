@@ -20,7 +20,13 @@ client/dist-cat/
 server/data/
 server/data/backups/
 /client/public/tmp
-/tools
+
+# tools/ e versionado (bake scripts, probes, analise) — clones precisam
+# dele p/ regenerar os assets a partir do wand. So ignora o que e
+# regeneravel/local:
+tools/node_modules/
+tools/shots/
+tools/.visual-qa/
 
 # Atlases de characters gerados por tools/atlas/bake-char-atlas.mjs
 # (binarios grandes; regenerar via bake — fontes sao os SWFs do wand)

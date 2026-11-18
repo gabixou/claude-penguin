@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:/Users/GABS/AppData/Local/ms-playwright/chromium-1208/chrome-win64/chrome.exe';
+const TOK_B = 'd06bd531bfed4adbb8f62e6420bcdaa04c6b4b8ebfd35072b96a4a6add312e56';
+const GETSC = '(() => { const g = window.__game; return g.scene.keys.RoomScene || g.scene.getScene(\'RoomScene\'); })()';
+const b = await chromium.launch({ executablePath: EXE, headless: true });
+const P = await b.newPage();
+await P.goto('http://localhost:3000/?token=' + TOK_B + '&room=igloo', { waitUntil: 'domcontentloaded', timeout: 60000 });
+await P.waitForFunction(() => window.__game, null, { timeout: 30000 });
+await P.waitForFunction('(() => { const s = ' + GETSC + '; return s && s._playerReady && s._movieReady; })()', null, { timeout: 90000 });
+await P.waitForTimeout(3000);
+await P.screenshot({ path: 'tools/shots/igloo-floor3.png' });
+await b.close();
+process.exit(0);

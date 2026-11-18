@@ -1,0 +1,21 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:\\Users\\GABS\\AppData\\Local\\ms-playwright\\chromium-1208\\chrome-win64\\chrome.exe';
+const browser = await chromium.launch({ executablePath: EXE, headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1039, height: 551 } });
+await page.goto('http://localhost:3000/?room=igloo', { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(15000);
+await page.evaluate(`(async () => {
+    const { MovieRoom } = await import('/src/movie/movie.js');
+    const movie = await MovieRoom.load('/assets/movies/igloo-music');
+    await movie.ensureFonts();
+    movie.prefetchSvgs?.(30);
+    const cv = document.createElement('canvas');
+    cv.width = 760*2; cv.height = 480*2;
+    cv.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99999;background:#223';
+    document.body.appendChild(cv);
+    await movie.renderFrame(0, cv, 2);
+    window.__musicMovie = movie;
+})()`);
+await page.waitForTimeout(2500);
+await page.screenshot({ path: 'tools/shots/igloo-music-render.png' });
+await browser.close();
