@@ -116,7 +116,7 @@ In short: instead of resurrecting Flash, this project **rebuilds the game native
 
 Requires **Node.js 22+** (the server uses the built-in `node:sqlite` module).
 
-> ⚠️ **Game assets are not in this repository.** The visual assets under `client/public/assets/**/chars/` (~5 GB of baked character atlases) are generated artifacts and are git-ignored to keep the repo clonable. To get a working game you need the original **wand archive** (`C:\Users\<you>\wand` or equivalent path with the extracted SWFs) and then run the asset pipeline:
+> ⚠️ **Game assets are not in this repository.** The visual assets under `client/public/assets/**/chars/` (~5 GB of baked character atlases) are generated artifacts and are git-ignored to keep the repo clonable. To get a working game you need the original assets extracted from the **[wand](https://github.com/solero/wand)** archive (SWFs + media files) and then run the asset pipeline:
 >
 > ```bash
 > # 1. Convert SWF timelines -> timelines.json + packed chars (per asset pack)
