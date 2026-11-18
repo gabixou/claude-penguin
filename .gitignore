@@ -29,6 +29,8 @@ tools/shots/
 tools/.visual-qa/
 # deploy: contem IP/paths do VPS — scripts ficam so no disco local
 tools/deploy/
+# SWFs originais do wand — assets de terceiros, ficam so no disco local
+*.swf
 
 # Atlases de characters gerados por tools/atlas/bake-char-atlas.mjs
 # (binarios grandes; regenerar via bake — fontes sao os SWFs do wand)
