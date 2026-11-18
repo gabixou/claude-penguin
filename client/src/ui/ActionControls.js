@@ -14,6 +14,11 @@ export default class ActionControls {
 
         this._keyHandler = (event) => {
             if (event.repeat) return;
+            // com foco num campo de texto (chat, rename, modais) os atalhos
+            // de acao nao disparam — digitar "dance" nao pode sentar/dancar
+            // (issue #56)
+            const ae = document.activeElement;
+            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
             switch ((event.key || '').toUpperCase()) {
                 case 'D': this.emit('dance'); break;
                 case 'W': this.emit('wave'); break;
