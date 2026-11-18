@@ -58,3 +58,6 @@ tools/*.json
 !/tools/package.json
 !/tools/package-lock.json
 tools/*.bat
+
+# Screenshots de QA na raiz (debug local)
+/*.png
