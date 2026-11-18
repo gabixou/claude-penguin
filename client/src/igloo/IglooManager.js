@@ -554,7 +554,10 @@ class IglooEditor {
         for (const [id, e] of Object.entries(furn)) {
             const sid = Number(id);
             if (sort && Number(e.sort) !== sort) continue;
-            const owned = invQty[sid] || 0;
+            // mostra so o que o player POSSUI; count 0 so quando todas as
+            // unidades ja estao colocadas no igloo (placed conta como posse)
+            const owned = Math.max(invQty[sid] || 0, placed[sid] || 0);
+            if (owned <= 0) continue;
             const avail = Math.max(0, owned - (placed[sid] || 0));
             items.push({ id: sid, name: e.name, count: avail, disabled: avail <= 0 });
         }
