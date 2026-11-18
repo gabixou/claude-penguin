@@ -60,6 +60,7 @@ export class IglooManager {
         this.isOwner = false;
         this._furnSprites = new Map(); // itemId -> Phaser.Image
         this._furnTex = new Map();     // itemId -> Promise<texKey|null>
+        this._animItems = [];          // mobília animada: {clip,paint,tex,timer,busy}
         this._floorImg = null;
         this._locImg = null;
         this.editor = null;
@@ -345,6 +346,57 @@ export class IglooManager {
         return this._furnTex.get(ck);
     }
 
+    // mobília ANIMADA (catalog.fps > 0 — fireplace, aquario, lava lamp...):
+    // no AS2 o clip `item` para em frame_1 (rotacao) e `art` em frame_2
+    // (estado), mas os sub-clips internos CONTINUAM tocando a timeline
+    // (stop() so congela o proprio playhead — chama-se gotoAndStop).
+    // Aqui replicamos: Clip com playheads vivos + canvas/texture
+    // redesenhada a cada 1000/fps ms — mesmo resultado do SWF.
+    async _furnitureAnimated(itemId, f1 = 1, f2 = 1, fps = 12) {
+        const movie = await MovieRoom.load(`/assets/movies/furniture/${itemId}`).catch(() => null);
+        if (!movie) return null;
+        const clip = new Clip(movie);
+        clip.goto('item', Math.max(1, f1 | 0), false);
+        clip.goto('item.art', Math.max(1, f2 | 0), false);
+        const frame = movie._mainTl?.frames?.[0] || movie.main?.frames?.[0] || [];
+        // mesmo setup de canvas do renderEntries (bounds + pad 6 + SS_FIXED)
+        const ID = { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 };
+        const COL = { mult: [1, 1, 1, 1], add: [0, 0, 0, 0] };
+        const b = clip._boundsOf(frame, ID, '') || [0, 0, 100, 100];
+        const pad = 6;
+        const x0 = Math.floor(b[0] - pad), y0 = Math.floor(b[1] - pad);
+        const w = Math.max(1, Math.ceil(b[2] - b[0] + pad * 2));
+        const h = Math.max(1, Math.ceil(b[3] - b[1] + pad * 2));
+        const cv = document.createElement('canvas');
+        cv.width = Math.ceil(w * SS_FIXED); cv.height = Math.ceil(h * SS_FIXED);
+        const ctx = cv.getContext('2d');
+        const paint = async () => {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            ctx.setTransform(SS_FIXED, 0, 0, SS_FIXED, -x0 * SS_FIXED, -y0 * SS_FIXED);
+            await clip._drawListFrame(ctx, frame, ID, '', COL, SS_FIXED * 2);
+        };
+        await paint(); // 1o frame: cria os playheads dos sub-clips
+        const texKey = `furn_anim_${itemId}_${f1}_${f2}_${this._animItems.length}_${Math.random().toString(36).slice(2, 7)}`;
+        this.scene.textures.addCanvas(texKey, cv);
+        const anim = { clip, paint, texKey, canvas: cv, busy: false };
+        anim.timer = this.scene.time.addEvent({
+            delay: Math.max(30, Math.round(1000 / fps)),
+            loop: true,
+            callback: async () => {
+                if (anim.busy || this.scene.currentRoom !== 'igloo') return;
+                anim.busy = true;
+                try {
+                    clip.advance(1);
+                    await paint();
+                    this.scene.textures.get(texKey)?.refresh();
+                } finally { anim.busy = false; }
+            },
+        });
+        this._animItems.push(anim);
+        return { key: texKey, w, h, x0, y0 };
+    }
+
     // total de frames de rotacao (item) e de estado (art do frame atual)
     async _furnFrameInfo(itemId, f1 = 1) {
         const movie = await MovieRoom.load(`/assets/movies/furniture/${itemId}`).catch(() => null);
@@ -363,6 +415,12 @@ export class IglooManager {
     _clearFurniture() {
         for (const img of this._furnSprites.values()) img.destroy();
         this._furnSprites.clear();
+        // mobília animada: para os timers e remove as texturas dinamicas
+        for (const a of this._animItems) {
+            a.timer?.remove();
+            if (a.texKey && this.scene.textures.exists(a.texKey)) this.scene.textures.remove(a.texKey);
+        }
+        this._animItems = [];
     }
 
     // coords legadas em CELDAS (layout antigo 27x11) -> pixels do stage
@@ -394,14 +452,20 @@ export class IglooManager {
         const frac = (x, y) => (Math.floor(x) + 1000 * Math.floor(y))
             / (WORLD_W + 1000 * WORLD_H);
         const depthOf = (x, y, it) => base + tierOf(it) * 4 + frac(x, y);
+        const cat = await iglooCatalog();
         for (const it of sorted) {
             // type vem do catalogo quando o layout nao o traz (server
             // so persiste itemId/x/y/rotation/frame)
             if (it.type === undefined || it.type === null) {
-                const cat = await iglooCatalog();
                 it.type = Number(cat.furniture?.[String(it.itemId)]?.type || 1);
             }
-            const t = await this._furnitureTexture(it.itemId, this._frame1(it), this._frame2(it));
+            const f1 = this._frame1(it), f2 = this._frame2(it);
+            // fps>0 no catalogo = item animado (fireplace, aquario...) —
+            // textura estatica virava um frame congelado do loop
+            const fps = Number(cat.furniture?.[String(it.itemId)]?.fps) || 0;
+            const t = fps > 0
+                ? await this._furnitureAnimated(it.itemId, f1, f2, fps)
+                : await this._furnitureTexture(it.itemId, f1, f2);
             if (!t || this.scene.currentRoom !== 'igloo') continue;
             const { x, y } = this._itemPx(it);
             const img = this.scene.add.image(x + t.x0, y + t.y0, t.key)

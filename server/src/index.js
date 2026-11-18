@@ -78,6 +78,34 @@ function publicPet(row) {
     return { petRowId: row.pet_row_id, species: row.species, name: row.name };
 }
 
+// dados publicos de um jogador p/ o player card — usado p/ buddies
+// offline/remotos (a sala so tem os que estao nela; o card precisa do
+// visual mesmo quando o pinguim nao esta online)
+function publicCardData(playerId) {
+    const p = playerStore.getPlayerById(playerId);
+    if (!p) return null;
+    return {
+        playerId: p.player_id,
+        username: p.username,
+        colorItemId: p.color_item_id || 1,
+        paperdoll: sanitizePaperdoll(playerStore.getEquipped(playerId)),
+        pet: publicPet(social.getEquippedPet(playerId)),
+    };
+}
+
+// snapshot social completo: buddies+requests (com card p/ player card),
+// ignores, pets — fonte unica p/ SOCIAL_UPDATE em todo o servidor
+function socialPayload(playerId) {
+    const { buddies, requests } = social.getBuddyData(playerId, onlinePlayerIds());
+    return {
+        buddies: buddies.map((b) => ({ ...b, card: publicCardData(b.playerId) })),
+        requests: requests.map((r) => ({ ...r, card: publicCardData(r.playerId) })),
+        ignores: social.getIgnores(playerId),
+        pets: social.getPets(playerId),
+        petSpecies: social.listPetSpecies()
+    };
+}
+
 function publicPlayer(player) {
     return {
         playerId: player.playerId,
@@ -164,17 +192,9 @@ function invalidateIgnore(playerId) { ignoreCache.delete(playerId); }
 function sendSocial(ws) {
     const session = clientPlayerData.get(ws);
     if (!session || !session.playerId) return;
-    const online = onlinePlayerIds();
-    const { buddies, requests } = social.getBuddyData(session.playerId, online);
     ws.send(JSON.stringify({
         op: 'SOCIAL_UPDATE',
-        data: {
-            buddies,
-            requests,
-            ignores: social.getIgnores(session.playerId),
-            pets: social.getPets(session.playerId),
-            petSpecies: social.listPetSpecies()
-        }
+        data: socialPayload(session.playerId)
     }));
 }
 
@@ -977,18 +997,7 @@ function handlePacket(ws, req, packet) {
             }));
             // atualiza a lista do requester tambem
             const reqWs = findSessionSocket(requesterId);
-            if (reqWs) {
-                const rs = clientPlayerData.get(reqWs);
-                if (rs) {
-                    const online = onlinePlayerIds();
-                    const bd = social.getBuddyData(rs.playerId, online);
-                    reqWs.send(JSON.stringify({ op: 'SOCIAL_UPDATE', data: {
-                        buddies: bd.buddies, requests: bd.requests,
-                        ignores: social.getIgnores(rs.playerId), pets: social.getPets(rs.playerId),
-                        petSpecies: social.listPetSpecies()
-                    }}));
-                }
-            }
+            if (reqWs) reqWs.send(JSON.stringify({ op: 'SOCIAL_UPDATE', data: socialPayload(requesterId) }));
             console.log(`[BUDDY] ${session.username} aceitou pedido de '${reqName}'`);
             break;
         }

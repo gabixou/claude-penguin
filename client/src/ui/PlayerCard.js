@@ -227,6 +227,12 @@ export default class PlayerCard {
         // esconde o "Your Coins: 000000" estatico — o valor real e desenhado
         // como texto Phaser na posicao nativa do coins_txt (ver abaixo)
         clip.set('coins_txt', { visible: false });
+        // o botao "?" de rename (moderatorButtonEditPlayer) faz parte da
+        // arte do frame — pular a zone interativa nao basta: sem esconder
+        // o sprite ele aparecia no card de QUALQUER pinguim
+        if (!isSelf || !scene.network?.canRename) {
+            clip.set('moderatorButtonEditPlayer', { visible: false });
+        }
 
         // estados dos botoes sociais (so no card de outro pinguim) —
         // port do renderCard do gopenguin: buddy_mc frame 3=ja buddy

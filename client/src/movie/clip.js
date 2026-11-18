@@ -140,18 +140,36 @@ export class Clip {
             // dava wrap 145->1 — a animacao reiniciava no meio do ciclo e
             // parecia "interrompida" quando o cuidado acabava. Walk/stand
             // nao tem actions (loop natural) — nao sao afetados.
-            // SO stop/play: gotoAnd*/nextFrame em `source` de clothing etc.
-            // nunca foram honrados — nao mudar esse comportamento aqui.
+            // Alem de stop/play, parseia gotoAnd*/nextFrame/prevFrame com
+            // argumento — mobília animada do iglu usa ex.:
+            //   "gotoAndPlay(random(30) + 1)" (twinkle do pinheiro de natal:
+            //   cada lampada comeca num frame aleatorio) e
+            //   "gotoAndPlay(2)" no ultimo frame (loop sem passar pelo 1).
+            // Argumentos variaveis (frameStart) caem no resolve -> label/1.
             if (!cmds.length && typeof a?.source === 'string' && a.source.trim()) {
-                cmds = [...a.source.matchAll(/\b(stop|play)\s*\(\s*\)/g)]
-                    .map((m) => [m[1], null]);
+                cmds = [...a.source.matchAll(
+                    /\b(stop|play|gotoAndStop|gotoAndPlay|nextFrame|prevFrame)\s*\(((?:[^()]|\([^()]*\))*)\)/g
+                )].map((m) => [m[1], m[2]?.trim() || null]);
             }
             for (const c of cmds) {
-                const op = c[0], arg = c[1];
+                const op = c[0];
+                let arg = c[1];
+                // arg vem como string do source AS2 (ou numero dos
+                // commands estruturados): avalia literais e random(K)+C
+                if (typeof arg === 'string' && arg !== '') {
+                    const rm = /^random\(\s*(\d+)\s*\)\s*([+-]\s*\d+)?$/.exec(arg);
+                    if (rm) {
+                        const k = parseInt(rm[1], 10);
+                        const off = rm[2] ? parseInt(rm[2].replace(/\s+/g, ''), 10) : 0;
+                        arg = Math.floor(Math.random() * k) + off;
+                    } else if (/^-?\d+(\.\d+)?$/.test(arg)) {
+                        arg = Number(arg);
+                    }
+                } else if (arg === '') arg = null;
                 if (op === 'stop') ph.playing = false;
                 else if (op === 'play') ph.playing = true;
                 else if (op === 'gotoAndStop' || op === 'gotoAndPlay') {
-                    if (arg !== null) {
+                    if (arg !== null && arg !== undefined && arg !== '') {
                         const nf = this.resolve(tl, arg);
                         const pf = ph.frame;
                         ph.frame = nf;

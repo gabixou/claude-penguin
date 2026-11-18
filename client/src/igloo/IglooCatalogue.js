@@ -43,9 +43,18 @@ export class IglooCatalogue {
         for (const i of inv || []) {
             const k = i.kind || 'furniture';
             if (!this._invByKind.has(k)) this._invByKind.set(k, new Set());
-            this._invByKind.get(k).add(i.itemId);
+            // server manda item_id (snake); itemId e o alias do manager
+            this._invByKind.get(k).add(i.itemId ?? i.item_id);
         }
         this._inv = this._invByKind.get('furniture') || new Set();
+        // compra de piso/local: no CP original equipar e automatico —
+        // quando o inventario confirma a posse, aplica na hora
+        const pe = this._pendingEquip;
+        if (pe && this._invByKind.get(pe.kind)?.has(pe.id)) {
+            this._pendingEquip = null;
+            if (pe.kind === 'flooring') this._equipFloor(pe.id);
+            else if (pe.kind === 'location') this._equipLocation(pe.id);
+        }
         if (this.isOpen) this._render();
     }
 
@@ -137,16 +146,23 @@ export class IglooCatalogue {
     _renderFlooring(list, cat) {
         const fl = cat.floorings || {};
         const cur = this.scene.igloo?.layout?.floor || 0;
+        const owned = this._invByKind?.get('flooring') || new Set();
         list.innerHTML = '';
         for (const [id, f] of Object.entries(fl)) {
+            const iid = Number(id);
+            // piso 0 = remocao/default: sempre equipavel de graca (o server
+            // tambem libera floor<=0). Demais: so equipa se comprado —
+            // antes mostrava EQUIP p/ tudo e o save era rejeitado.
+            const free = iid <= 0 || !f.cost;
+            const has = free || owned.has(iid);
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #2a5a8a;cursor:pointer';
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #2a5a8a';
             row.innerHTML = `<span style="flex:1">${f.name} — ${f.cost ?? 0}c</span>`;
             const b = document.createElement('button');
-            b.textContent = Number(id) === cur ? 'EQUIPPED' : 'EQUIP';
-            b.disabled = Number(id) === cur;
-            b.style.cssText = 'padding:3px 10px;border-radius:4px;border:1px solid #bfe6ff;background:#12509e;color:#fff;cursor:pointer;font:bold 10px Verdana';
-            b.onclick = () => this._equipFloor(Number(id));
+            if (iid === cur) { b.textContent = 'EQUIPPED'; b.disabled = true; }
+            else if (has) { b.textContent = 'EQUIP'; b.onclick = () => this._equipFloor(iid); }
+            else { b.textContent = `${f.cost ?? 0}c`; b.onclick = () => this._buy('flooring', iid, f.name, f.cost ?? 0); }
+            b.style.cssText = `padding:3px 10px;border-radius:4px;border:1px solid #bfe6ff;background:${b.disabled ? '#3a5a7a' : has ? '#12509e' : '#1e7a2e'};color:#fff;cursor:${b.disabled ? 'default' : 'pointer'};font:bold 10px Verdana`;
             row.appendChild(b);
             list.appendChild(row);
         }
@@ -155,16 +171,20 @@ export class IglooCatalogue {
     _renderLocations(list, cat) {
         const locs = cat.locations || [];
         const cur = this.scene.igloo?.layout?.location || 1;
+        const owned = this._invByKind?.get('location') || new Set();
         list.innerHTML = '';
         for (const l of locs) {
+            const iid = Number(l.igloo_location_id);
+            const free = !l.cost; // Default (cost 0) sempre equipavel
+            const has = free || owned.has(iid);
             const row = document.createElement('div');
             row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #2a5a8a';
             row.innerHTML = `<span style="flex:1">${l.name} — ${l.cost ?? 0}c</span>`;
             const b = document.createElement('button');
-            b.textContent = Number(l.igloo_location_id) === cur ? 'EQUIPPED' : 'EQUIP';
-            b.disabled = Number(l.igloo_location_id) === cur;
-            b.style.cssText = 'padding:3px 10px;border-radius:4px;border:1px solid #bfe6ff;background:#12509e;color:#fff;cursor:pointer;font:bold 10px Verdana';
-            b.onclick = () => this._equipLocation(Number(l.igloo_location_id));
+            if (iid === cur) { b.textContent = 'EQUIPPED'; b.disabled = true; }
+            else if (has) { b.textContent = 'EQUIP'; b.onclick = () => this._equipLocation(iid); }
+            else { b.textContent = `${l.cost ?? 0}c`; b.onclick = () => this._buy('location', iid, l.name, l.cost ?? 0); }
+            b.style.cssText = `padding:3px 10px;border-radius:4px;border:1px solid #bfe6ff;background:${b.disabled ? '#3a5a7a' : has ? '#12509e' : '#1e7a2e'};color:#fff;cursor:${b.disabled ? 'default' : 'pointer'};font:bold 10px Verdana`;
             row.appendChild(b);
             list.appendChild(row);
         }
@@ -225,6 +245,8 @@ export class IglooCatalogue {
     }
 
     _buy(kind, id, name, cost) {
+        // piso/local: marca p/ auto-equip quando o inventario confirmar
+        if (kind === 'flooring' || kind === 'location') this._pendingEquip = { kind, id };
         this.scene.network?.sendIglooBuy(kind, id);
         // inventario chega via igloo-inventory -> setInventory
     }

@@ -11,6 +11,7 @@ import Phaser from 'phaser';
 import { MovieRoom } from '../movie/movie.js';
 import { Clip } from '../movie/clip.js';
 import { WORLD_W, WORLD_H } from '../display.js';
+import { colorItemToRgb, DEFAULT_COLOR_ITEM_ID } from '../items/colors.js';
 
 const SCALE = 2;
 const ROOT = [1, 0, 0, 1, 460, 80];           // matrix do buddy_mc no stage
@@ -196,11 +197,11 @@ export default class BuddyWindow {
         // buddies: pedidos recebidos/enviados + amigos
         const out = [];
         for (const r of s.requests || []) {
-            if (r.direction === 'received') out.push({ name: `${r.username} (request)`, kind: 'request', playerId: r.playerId });
-            else out.push({ name: `${r.username} (pending)`, kind: 'pending', playerId: r.playerId });
+            if (r.direction === 'received') out.push({ name: `${r.username} (request)`, kind: 'request', playerId: r.playerId, card: r.card });
+            else out.push({ name: `${r.username} (pending)`, kind: 'pending', playerId: r.playerId, card: r.card });
         }
         for (const b of s.buddies || []) {
-            out.push({ name: b.username, kind: b.online ? 'online' : 'offline', playerId: b.playerId });
+            out.push({ name: b.username, kind: b.online ? 'online' : 'offline', playerId: b.playerId, card: b.card });
         }
         return out;
     }
@@ -280,8 +281,23 @@ export default class BuddyWindow {
             return null;
         };
         const p = findPenguin();
-        if (p && scene.playerCard) scene.playerCard.open(p);
-        else scene.localPlayer?.showChat?.(`(${row.name} is not in this room)`);
+        if (p && scene.playerCard) { scene.playerCard.open(p); return; }
+        // buddy offline/fora da sala: abre o card com os dados publicos
+        // que o servidor manda no SOCIAL_UPDATE (card) — mesmo visual do
+        // card de quem esta na sala, e o botao home visita o iglu dele
+        if (row.card && scene.playerCard) {
+            const c = row.card;
+            scene.playerCard.open({
+                playerId: c.playerId,
+                username: c.username,
+                colorItemId: c.colorItemId || DEFAULT_COLOR_ITEM_ID,
+                penguinColor: colorItemToRgb(c.colorItemId || DEFAULT_COLOR_ITEM_ID),
+                gpaOutfit: c.paperdoll || {},
+                pet: c.pet || null,
+            });
+            return;
+        }
+        scene.localPlayer?.showChat?.(`(${row.name} is not in this room)`);
     }
 
     toggle() {
