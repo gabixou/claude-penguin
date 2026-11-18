@@ -700,8 +700,18 @@ export default class PlayerCard {
                 break;
             }
             case 'home':
-                // "home" do card = visitar o iglu do jogador (proprio ou buddy)
-                if (this.penguin?.playerId) scene.visitIgloo?.(this.penguin.playerId);
+                // "home" do card = visitar o iglu do jogador — so para
+                // buddy (home_mc frame 1 = cinza p/ nao-buddy; antes o
+                // botao cinza ainda respondia ao clique, issue #29)
+                {
+                    const t = this.penguin;
+                    const net = scene.network;
+                    if (t?.playerId && net?.isBuddy?.(t.playerId)) {
+                        scene.visitIgloo?.(t.playerId);
+                    } else if (t) {
+                        scene.localPlayer?.showChat?.(`(must be buddies to visit ${t.username}'s igloo)`);
+                    }
+                }
                 break;
             case 'report':
             case 'mail':
