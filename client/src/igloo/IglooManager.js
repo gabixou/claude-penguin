@@ -460,6 +460,7 @@ class IglooEditor {
         const ctrls = [
             ['67', 713, 177, () => this._openMusic()],          // music_btn "Play Music"
             ['64', 713, 241, () => this._toggleSelector()],   // furniture_list_btn "View Items"
+            // (guardado p/ hover-safe do selector — ver _selectorHover)
             // furniture_catalog_btn (84) = FurnDec2008.swf (loja de
             // mobílias); igloo_upgrade_btn (86) = IglooCatalogDec2008
             // (loja de pisos + tipos de iglu) — catalogs reais do CP.
@@ -468,7 +469,10 @@ class IglooEditor {
         ];
         for (const [id, x, y, fn] of ctrls) {
             const b = await as2Button(this.scene, id, x, y, { onClick: fn, key: 'ig2_ctrl_' + id });
-            if (b) this._ctrls.push(b);
+            if (b) {
+                this._ctrls.push(b);
+                if (id === '64') this._furnBoxBtn = b; // p/ hover-safe do selector
+            }
         }
         // box_icon (sprite 64): icone da lixeira que persegue a mobília
         // enquanto ela esta sobre a trash_area (checkTrash do AS)
@@ -513,9 +517,13 @@ class IglooEditor {
         // buttons_mc (113) dentro em ~(7.45,0.45); abas a cada ~50px
         // comecando em y~0 — centros calculados dos matrices dos filhos.
         const SORT = [null, 3, 1, 2, 4, 'igloo']; // all,floor,room,wall,puffle,igloo
-        const ys = [133, 202, 252, 302, 352, 402];
+        // centros/rects medidos dos sprites reais (all_mc 111-173,
+        // floor 180-224, room 230-274, wall 280-324, puffle 330-374,
+        // igloo 380-424; x 587-674 com icones) — stage coords do
+        // sprite 114@(580,111) -> buttons_mc@(7.45,0.45).
+        const ys = [142, 202, 252, 302, 352, 402];
         SORT.forEach((sort, i) => {
-            const z = this.scene.add.zone(622, ys[i], 120, 46)
+            const z = this.scene.add.zone(630, ys[i], 106, 58)
                 .setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(59).setVisible(false);
             z.on('pointerup', () => { this._toggleSelector(false); this._openGridview(sort); });
             this._selectorZones.push(z);
@@ -746,14 +754,23 @@ class IglooEditor {
             return;
         }
         const x = p.worldX, y = p.worldY;
-        // dentro do painel (textura do selector) ou de um botao = fica
+        // Filhos que bloqueiam o hit_area_mc no AS2: painel (sprite 92),
+        // buttons_mc (sprite 113) e o proprio furniture_list_btn — o
+        // mouse viaja do box ate os filtros cruzando uma faixa de ~25px
+        // fora do painel; sem cobrir esse corredor o selector fechava
+        // antes do clique chegar no botao.
         const img = this._selector;
         if (x >= img.x && x <= img.x + img.displayWidth &&
             y >= img.y && y <= img.y + img.displayHeight) return;
+        const box = this._furnBoxBtn;
+        if (box && x >= box.x && x <= box.x + box.displayWidth &&
+            y >= box.y && y <= box.y + box.displayHeight) return;
         for (const z of this._selectorZones) {
             if (!z.visible) continue;
-            if (Math.abs(x - z.x) <= z.displayWidth / 2 &&
-                Math.abs(y - z.y) <= z.displayHeight / 2) return;
+            // zona expandida p/ a direita: cobre icones dos botoes e o
+            // corredor box->painel sem abrir areas fora da coluna
+            if (x >= z.x - z.displayWidth / 2 && x <= z.x + z.displayWidth / 2 + 55 &&
+                Math.abs(y - z.y) <= z.displayHeight / 2 + 6) return;
         }
         this._toggleSelector(false);
     }
